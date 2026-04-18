@@ -209,6 +209,11 @@ const MSPCodes = {
     // that use case at 8 kHz, which is strictly better than polling.
     MSP2_WING_TUNING: 0x3012,
     MSP2_SET_WING_TUNING: 0x3013,
+    // Wing auto-launch config (10 params, 15 bytes per wingLaunchSchema.js).
+    // Firmware gates on USE_WING_LAUNCH (firmware target define, not a
+    // buildOption). Tab falls back to a placeholder stub on older firmware.
+    MSP2_WING_LAUNCH: 0x3014,
+    MSP2_SET_WING_LAUNCH: 0x3015,
     // MSP2_GET_TEXT and MSP2_SET_TEXT variable types
     PILOT_NAME: 1,
     CRAFT_NAME: 2,

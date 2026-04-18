@@ -466,7 +466,73 @@
         "message": "Wing Auto-launch"
     },
     "wingSubTabLaunchPlaceholder": {
-        "message": "Wing auto-launch configuration UI is coming in a future release. For now, configure via CLI: wing_launch_accel_thresh, wing_launch_throttle, wing_launch_climb_time, etc. See WING_CLI_REFERENCE.md in the firmware repo for the full parameter list."
+        "message": "Wing auto-launch configuration requires firmware with USE_WING_LAUNCH enabled and MSP2_WING_LAUNCH support (this fork's wing-main, or newer). Upgrade the firmware and reconnect."
+    },
+    "wingLaunchDesc": {
+        "message": "Configuration for hand-launched fixed-wing aircraft. Arm with the AUTO LAUNCH mode assigned to a switch, then throw the plane — firmware detects the throw, delays, ramps the motor, and holds a pitch angle for the configured climb time before handing control back to the pilot."
+    },
+    "wingLaunchHint": {
+        "message": "Fields save to the current PID profile and take effect on the next arm. In-flight edits aren't supported — the state machine only reads config at arm / profile-change."
+    },
+    "wingLaunchLabel_wing_launch_accel_thresh": {
+        "message": "Throw detection threshold"
+    },
+    "wingLaunchHelp_wing_launch_accel_thresh": {
+        "message": "Acceleration needed to detect a throw. In 0.1G units — 25 means 2.5G. Higher values require a more aggressive throw; too low may false-trigger on vibration."
+    },
+    "wingLaunchLabel_wing_launch_motor_delay": {
+        "message": "Motor start delay"
+    },
+    "wingLaunchHelp_wing_launch_motor_delay": {
+        "message": "Milliseconds between throw detection and motor start. Lets the plane leave your hand before thrust kicks in."
+    },
+    "wingLaunchLabel_wing_launch_motor_ramp": {
+        "message": "Motor ramp-up time"
+    },
+    "wingLaunchHelp_wing_launch_motor_ramp": {
+        "message": "Milliseconds to ramp motor from 0 to target throttle. Too fast is jarring; too slow and the plane stalls."
+    },
+    "wingLaunchLabel_wing_launch_throttle": {
+        "message": "Climb throttle"
+    },
+    "wingLaunchHelp_wing_launch_throttle": {
+        "message": "Target throttle percentage during the climb phase. 75 is a safe starting point for most airframes."
+    },
+    "wingLaunchLabel_wing_launch_climb_time": {
+        "message": "Climb duration"
+    },
+    "wingLaunchHelp_wing_launch_climb_time": {
+        "message": "Milliseconds to hold the climb pitch angle before transitioning to pilot control. 3000 ms gets most planes to safe altitude."
+    },
+    "wingLaunchLabel_wing_launch_climb_angle": {
+        "message": "Climb pitch angle"
+    },
+    "wingLaunchHelp_wing_launch_climb_angle": {
+        "message": "Target pitch angle (degrees) during climb. Positive pitches the nose up. Negative is allowed on-wire for experimental inverted-launch configs."
+    },
+    "wingLaunchLabel_wing_launch_transition": {
+        "message": "Transition time"
+    },
+    "wingLaunchHelp_wing_launch_transition": {
+        "message": "Milliseconds to blend from auto-launch control to pilot control after the climb phase. Smooth handoff prevents pitch jerk."
+    },
+    "wingLaunchLabel_wing_launch_max_tilt": {
+        "message": "Abort roll angle"
+    },
+    "wingLaunchHelp_wing_launch_max_tilt": {
+        "message": "If roll exceeds this (degrees) during launch, firmware aborts and hands control back to the pilot. Safety net for a botched throw."
+    },
+    "wingLaunchLabel_wing_launch_idle_thr": {
+        "message": "Idle throttle"
+    },
+    "wingLaunchHelp_wing_launch_idle_thr": {
+        "message": "Throttle percentage while armed and waiting for throw detection. Useful for planes that need prop spin-up to fly. 0 = motor fully off."
+    },
+    "wingLaunchLabel_wing_launch_stick_override": {
+        "message": "Stick override threshold"
+    },
+    "wingLaunchHelp_wing_launch_stick_override": {
+        "message": "Stick deflection percentage that aborts the launch sequence. 0 disables stick override. Useful as a manual kill switch during testing."
     },
     "wingSubTabGpsRescueTitle": {
         "message": "GPS Rescue (Wing)"

@@ -10,6 +10,7 @@ import MSP from "../msp";
 import MSPCodes from "./MSPCodes";
 import { API_VERSION_1_45, API_VERSION_1_46, API_VERSION_1_47, API_VERSION_1_48 } from "../data_storage";
 import { decodeWingTuning, crunchWingTuning } from "./wingTuningSchema.js";
+import { decodeWingLaunch, crunchWingLaunch } from "./wingLaunchSchema.js";
 import EscProtocols from "../utils/EscProtocols";
 import huffmanDecodeBuf from "../huffman";
 import { defaultHuffmanTree, defaultHuffmanLenIndex } from "../default_huffman_tree";
@@ -1218,6 +1219,22 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     }
                     break;
                 }
+                case MSPCodes.MSP2_SET_WING_LAUNCH:
+                    console.log("Wing launch saved");
+                    FC.WING_LAUNCH_ACTIVE = { ...FC.WING_LAUNCH };
+                    break;
+                case MSPCodes.MSP2_WING_LAUNCH: {
+                    // Same atomic-decode pattern as MSP2_WING_TUNING.
+                    // 15-byte payload, schema in wingLaunchSchema.js.
+                    try {
+                        const snap = decodeWingLaunch(data);
+                        FC.WING_LAUNCH = snap;
+                        FC.WING_LAUNCH_ACTIVE = { ...snap };
+                    } catch (error) {
+                        console.warn("Failed to decode wing launch payload:", error);
+                    }
+                    break;
+                }
                 case MSPCodes.MSP_PID_ADVANCED:
                     FC.ADVANCED_TUNING.rollPitchItermIgnoreRate = data.readU16();
                     FC.ADVANCED_TUNING.yawItermIgnoreRate = data.readU16();
@@ -2324,6 +2341,11 @@ MspHelper.prototype.crunch = function (code, modifierCode = undefined) {
             // change or removal requires MSP2_SET_WING_TUNING_V2 at a
             // new code slot.
             crunchWingTuning(buffer, FC.WING_TUNING);
+            break;
+        case MSPCodes.MSP2_SET_WING_LAUNCH:
+            // 15-byte payload driven by WING_LAUNCH_SCHEMA. Same
+            // append-only wire-contract discipline as MSP2_SET_WING_TUNING.
+            crunchWingLaunch(buffer, FC.WING_LAUNCH);
             break;
         case MSPCodes.MSP_SET_SENSOR_CONFIG:
             buffer.push8(FC.SENSOR_CONFIG.acc_hardware);

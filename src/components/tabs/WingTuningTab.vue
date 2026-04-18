@@ -1006,7 +1006,7 @@
                 </template>
                 <!-- ═══ /Tuning sub-tab ═══ -->
 
-                <!-- ═══ Launch sub-tab (placeholder until MSP lands) ═══ -->
+                <!-- ═══ Launch sub-tab ═══ -->
                 <template v-if="activeSubTab === 'launch'">
                     <div class="grid-row">
                         <div class="grid-col col12">
@@ -1014,8 +1014,45 @@
                                 <div class="gui_box_titlebar">
                                     <div class="spacer_box_title">{{ $t("wingSubTabLaunchTitle") }}</div>
                                 </div>
-                                <div class="spacer subtab_placeholder">
-                                    <p>{{ $t("wingSubTabLaunchPlaceholder") }}</p>
+                                <div class="spacer">
+                                    <p>{{ $t("wingLaunchDesc") }}</p>
+                                    <table class="fields">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingParameter") }}</th>
+                                                <th>{{ $t("wingValue") }}</th>
+                                                <th>{{ $t("wingSlider") }}</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="def in LAUNCH_FIELD_DEFS" :key="def.name">
+                                                <td :title="$t('wingLaunchHelp_' + def.name)">
+                                                    {{ $t("wingLaunchLabel_" + def.name) }}
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        :min="def.min"
+                                                        :max="def.max"
+                                                        v-model.number="launchFields[def.name]"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        :min="def.min"
+                                                        :max="def.max"
+                                                        v-model.number="launchFields[def.name]"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td class="launch_unit">{{ def.unit }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <p class="launch_hint">{{ $t("wingLaunchHint") }}</p>
                                 </div>
                             </div>
                         </div>
@@ -1124,6 +1161,30 @@ const FIELD_DEFS = [
     { name: "spa_yaw_width", type: "int" },
     { name: "spa_yaw_mode", type: "string" },
 ];
+
+// Wing auto-launch fields — order and types match firmware
+// src/main/msp/msp_wing_launch.c + FC.WING_LAUNCH defaults in fc.js.
+// min/max/default are UI-only bounds; wire is always int (u8/u16/i16).
+const LAUNCH_FIELD_DEFS = [
+    { name: "wing_launch_accel_thresh", min: 10, max: 100, default: 25, unit: "0.1G" },
+    { name: "wing_launch_motor_delay", min: 0, max: 500, default: 100, unit: "ms" },
+    { name: "wing_launch_motor_ramp", min: 100, max: 2000, default: 500, unit: "ms" },
+    { name: "wing_launch_throttle", min: 25, max: 100, default: 75, unit: "%" },
+    { name: "wing_launch_climb_time", min: 1000, max: 20000, default: 3000, unit: "ms" },
+    { name: "wing_launch_climb_angle", min: 10, max: 60, default: 45, unit: "°" },
+    { name: "wing_launch_transition", min: 200, max: 3000, default: 1000, unit: "ms" },
+    { name: "wing_launch_max_tilt", min: 5, max: 90, default: 45, unit: "°" },
+    { name: "wing_launch_idle_thr", min: 0, max: 25, default: 0, unit: "%" },
+    { name: "wing_launch_stick_override", min: 0, max: 100, default: 0, unit: "%" },
+];
+
+function defaultLaunchFields() {
+    const f = {};
+    for (const def of LAUNCH_FIELD_DEFS) {
+        f[def.name] = def.default;
+    }
+    return f;
+}
 
 function defaultFields() {
     const f = {};
@@ -1280,6 +1341,9 @@ export default defineComponent({
         const fields = reactive(defaultFields());
         const initialFields = ref({ ...fields });
 
+        const launchFields = reactive(defaultLaunchFields());
+        const initialLaunchFields = ref({ ...launchFields });
+
         const mixerState = reactive(emptyMixerState());
         const initialMixerState = ref(cloneMixerState(mixerState));
 
@@ -1296,6 +1360,10 @@ export default defineComponent({
         });
 
         const mixerDirty = computed(() => !mixerStatesEqual(mixerState, initialMixerState.value));
+
+        const launchDirty = computed(() =>
+            LAUNCH_FIELD_DEFS.some((def) => launchFields[def.name] !== initialLaunchFields.value[def.name]),
+        );
 
         const applyingPreset = ref(false);
 
@@ -1349,7 +1417,10 @@ export default defineComponent({
         });
 
         const dirty = computed(
-            () => FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]) || mixerDirty.value,
+            () =>
+                FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]) ||
+                mixerDirty.value ||
+                launchDirty.value,
         );
 
         // Capability check — tab requires a USE_WING firmware build.
@@ -1473,6 +1544,22 @@ export default defineComponent({
                     .map((r) => ({ ...r }));
 
                 initialMixerState.value = cloneMixerState(mixerState);
+
+                // Wing auto-launch — gracefully degrade on older firmware
+                // that doesn't know MSP2_WING_LAUNCH yet. FC.WING_LAUNCH
+                // keeps its defaults in that case; Launch sub-tab shows
+                // the canonical defaults as a best-effort starting point.
+                try {
+                    await MSP.promise(MSPCodes.MSP2_WING_LAUNCH);
+                    for (const def of LAUNCH_FIELD_DEFS) {
+                        if (FC.WING_LAUNCH[def.name] !== undefined) {
+                            launchFields[def.name] = FC.WING_LAUNCH[def.name];
+                        }
+                    }
+                    initialLaunchFields.value = { ...launchFields };
+                } catch (launchErr) {
+                    console.warn("[WingTuning] MSP2_WING_LAUNCH unavailable (older firmware?):", launchErr);
+                }
             } catch (e) {
                 console.error("[WingTuning] reload failed:", e);
                 error.value = e.message || String(e);
@@ -1509,9 +1596,27 @@ export default defineComponent({
                     }
                 });
 
+                // Wing auto-launch — only write if the user touched
+                // any launch field, AND swallow unknown-code errors
+                // so older firmware doesn't block other saves.
+                if (launchDirty.value) {
+                    for (const def of LAUNCH_FIELD_DEFS) {
+                        FC.WING_LAUNCH[def.name] = launchFields[def.name];
+                    }
+                    try {
+                        await MSP.promise(
+                            MSPCodes.MSP2_SET_WING_LAUNCH,
+                            mspHelper.crunch(MSPCodes.MSP2_SET_WING_LAUNCH),
+                        );
+                    } catch (launchErr) {
+                        console.warn("[WingTuning] MSP2_SET_WING_LAUNCH failed:", launchErr);
+                    }
+                }
+
                 await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
 
                 initialFields.value = { ...fields };
+                initialLaunchFields.value = { ...launchFields };
                 initialMixerState.value = cloneMixerState(mixerState);
             } catch (e) {
                 console.error("[WingTuning] save failed:", e);
@@ -1650,7 +1755,9 @@ export default defineComponent({
             MAX_SERVO_RULES,
             PLANE_SLOT_OPTIONS,
             CUSTOM_AIRPLANE_MIXER,
+            LAUNCH_FIELD_DEFS,
             fields,
+            launchFields,
             loading,
             saving,
             error,
@@ -1947,6 +2054,18 @@ button {
     margin: 3px 0;
 }
 .autotrim_hint {
+    margin-top: 10px;
+    color: #888;
+    font-size: 0.85em;
+    font-style: italic;
+}
+.launch_unit {
+    color: #888;
+    font-size: 0.85em;
+    white-space: nowrap;
+    padding-left: 4px;
+}
+.launch_hint {
     margin-top: 10px;
     color: #888;
     font-size: 0.85em;

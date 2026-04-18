@@ -149,6 +149,11 @@ const FC = {
     // checking in WingTuningTab.vue.
     WING_TUNING: null,
     WING_TUNING_ACTIVE: null,
+    // Wing auto-launch config (10 fields from pidProfile_t under
+    // USE_WING_LAUNCH). Populated via MSP2_WING_LAUNCH decode;
+    // WING_LAUNCH_ACTIVE is the post-Reload snapshot for dirty-check.
+    WING_LAUNCH: null,
+    WING_LAUNCH_ACTIVE: null,
     ANALOG: { ...INITIAL_ANALOG },
     ARMING_CONFIG: null,
     AUX_CONFIG: null,
@@ -637,6 +642,23 @@ const FC = {
             spa_yaw_mode: "OFF",
         };
         this.WING_TUNING_ACTIVE = { ...this.WING_TUNING };
+
+        // Wing auto-launch — field order matches firmware
+        // msp_wing_launch.c (MSP2_WING_LAUNCH payload, 15 bytes).
+        // Defaults mirror pidProfile_t defaults from firmware.
+        this.WING_LAUNCH = {
+            wing_launch_accel_thresh: 25,
+            wing_launch_motor_delay: 100,
+            wing_launch_motor_ramp: 500,
+            wing_launch_throttle: 75,
+            wing_launch_climb_time: 3000,
+            wing_launch_climb_angle: 45,
+            wing_launch_transition: 1000,
+            wing_launch_max_tilt: 45,
+            wing_launch_idle_thr: 0,
+            wing_launch_stick_override: 0,
+        };
+        this.WING_LAUNCH_ACTIVE = { ...this.WING_LAUNCH };
 
         this.SENSOR_CONFIG = {
             acc_hardware: 0,
