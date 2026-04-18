@@ -474,6 +474,45 @@
     "wingSubTabGpsRescuePlaceholder": {
         "message": "Wing GPS rescue configuration UI is coming in a future release. For now, configure via CLI: gps_rescue_return_alt, gps_rescue_orbit_radius, gps_rescue_cruise_throttle, etc. See WING_CLI_REFERENCE.md in the firmware repo for the full parameter list."
     },
+    "wingAutotrimTitle": {
+        "message": "Servo Autotrim"
+    },
+    "wingAutotrimDesc": {
+        "message": "In-flight mode that samples your servo center positions during level flight and writes the offsets into the servo middle values, removing the need to mechanically trim. Zero CLI parameters — all thresholds are compile-time constants."
+    },
+    "wingAutotrimHowTo": {
+        "message": "How to use:"
+    },
+    "wingAutotrimStep1": {
+        "message": "Modes tab → assign SERVO AUTOTRIM to a switch (momentary switch recommended)."
+    },
+    "wingAutotrimStep2": {
+        "message": "Fly level with neutral stick."
+    },
+    "wingAutotrimStep3": {
+        "message": "Toggle the switch ON and hold for at least 2 seconds while flying steady."
+    },
+    "wingAutotrimStep4": {
+        "message": "Toggle the switch OFF to save. Offsets are written to the servo middle values and persisted on the next EEPROM write."
+    },
+    "wingAutotrimGatesTitle": {
+        "message": "Samples are only collected when:"
+    },
+    "wingAutotrimGateStick": {
+        "message": "Stick is within ±5% of center"
+    },
+    "wingAutotrimGateAttitude": {
+        "message": "Attitude is within ±30°"
+    },
+    "wingAutotrimGateGyro": {
+        "message": "Gyro rate is below 15 deg/s"
+    },
+    "wingAutotrimGateSamples": {
+        "message": "At least 200 samples collected (~2 seconds of clean flight)"
+    },
+    "wingAutotrimHint": {
+        "message": "Max offset per channel is ±100 µs. The SERVO AUTOTRIM OSD element shows the sample count during capture and \"DONE\" for 3 seconds after save."
+    },
     "wingMixerAirframeTitle": {
         "message": "Aircraft Setup"
     },

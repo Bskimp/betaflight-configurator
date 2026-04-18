@@ -975,6 +975,34 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Servo Autotrim (info-only — mode-driven, no CLI params) -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingAutotrimTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingAutotrimDesc") }}</p>
+                                    <p class="autotrim_heading">{{ $t("wingAutotrimHowTo") }}</p>
+                                    <ol class="autotrim_list">
+                                        <li>{{ $t("wingAutotrimStep1") }}</li>
+                                        <li>{{ $t("wingAutotrimStep2") }}</li>
+                                        <li>{{ $t("wingAutotrimStep3") }}</li>
+                                        <li>{{ $t("wingAutotrimStep4") }}</li>
+                                    </ol>
+                                    <p class="autotrim_heading">{{ $t("wingAutotrimGatesTitle") }}</p>
+                                    <ul class="autotrim_list">
+                                        <li>{{ $t("wingAutotrimGateStick") }}</li>
+                                        <li>{{ $t("wingAutotrimGateAttitude") }}</li>
+                                        <li>{{ $t("wingAutotrimGateGyro") }}</li>
+                                        <li>{{ $t("wingAutotrimGateSamples") }}</li>
+                                    </ul>
+                                    <p class="autotrim_hint">{{ $t("wingAutotrimHint") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </template>
                 <!-- ═══ /Tuning sub-tab ═══ -->
 
@@ -1903,5 +1931,25 @@ button {
     color: #888;
     font-style: italic;
     text-align: center;
+}
+.autotrim_heading {
+    margin-top: 10px;
+    margin-bottom: 4px;
+    font-weight: 500;
+    font-size: 0.95em;
+}
+.autotrim_list {
+    margin: 0 0 8px 0;
+    padding-left: 24px;
+    font-size: 0.9em;
+}
+.autotrim_list li {
+    margin: 3px 0;
+}
+.autotrim_hint {
+    margin-top: 10px;
+    color: #888;
+    font-size: 0.85em;
+    font-style: italic;
 }
 </style>
