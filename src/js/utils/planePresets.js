@@ -2,24 +2,30 @@
 //
 // All presets write:
 //   - mixerIndex 24 (MIXER_CUSTOM_AIRPLANE). Stock MIXER_FLYING_WING /
-//     MIXER_AIRPLANE ignore custom smix target channels and write servos
-//     to legacy internal slots (SERVO_FLAPPERON_1=3, SERVO_FLAPPERON_2=4
-//     — see servos.c:376-378). CUSTOM_AIRPLANE honors the custom smix
-//     directly so our target=0..3 map to physical S1..S4.
+//     MIXER_AIRPLANE route servos through legacy slots (servos.c:376-378)
+//     and ignore custom target channels. CUSTOM_AIRPLANE honors custom
+//     smix targets via SERVO_PLANE_INDEX_MIN..MAX = slots 2..7
+//     (servos.c:381-385, servos.h:75-76).
 //   - rules: servoMixer_t entries sent one at a time via
-//     MSP_SET_SERVO_MIX_RULE.
+//     MSP_SET_SERVO_MIX_RULE. Target channel is the INTERNAL SLOT
+//     INDEX (2 = SERVO_FLAPS → physical S1, 3 = SERVO_FLAPPERON_1 →
+//     physical S2, etc — NOT zero-based physical output).
 //   - mmix: motor mix rules. BF has no MSP for mmix today, so these are
 //     applied via a narrow CLI one-shot at preset-apply time (see
-//     wingMixerCli.js). Presets that only need the firmware default
-//     (single motor = full throttle, no axis mix) pass null to skip
-//     the CLI round-trip.
+//     wingMixerCli.js).
 //   - yawType: the Wing Tuning yaw_type enum value this preset assumes.
-//     Clicking the preset also sets the Wing Tuning field so yaw
-//     behavior matches the mmix.
+//
+// Physical servo output ↔ slot mapping (MIXER_CUSTOM_AIRPLANE):
+//   S1 pad ← slot 2 (SERVO_FLAPS)
+//   S2 pad ← slot 3 (SERVO_FLAPPERON_1)
+//   S3 pad ← slot 4 (SERVO_FLAPPERON_2)
+//   S4 pad ← slot 5 (SERVO_RUDDER)
+//   S5 pad ← slot 6 (SERVO_ELEVATOR)
+//   S6 pad ← slot 7 (SERVO_THROTTLE)
 //
 // Rule field meanings (firmware: src/main/flight/servos.h):
-//   target: servo index, 0 = SERVO1
-//   input: INPUT_STABILIZED_* or INPUT_RC_* (see INPUT_SOURCES)
+//   target: internal slot index (2..7 for plane outputs).
+//   input: INPUT_STABILIZED_* or INPUT_RC_* (see INPUT_SOURCES).
 //   rate: signed int8, -125..125. Sign controls surface direction.
 //         Shared-axis servos (elevons, ruddervators) use 50 to avoid
 //         saturation when both axes hit full deflection.
@@ -41,6 +47,21 @@ export const INPUT_SOURCES = {
     RC_AUX3: 10,
     RC_AUX4: 11,
 };
+
+// Plane slot enum (firmware: src/main/flight/servos.h).
+// target channels in preset rules must stay within this range so
+// MIXER_CUSTOM_AIRPLANE routes them to physical servo pads.
+export const PLANE_SLOTS = {
+    S1: 2, // SERVO_FLAPS
+    S2: 3, // SERVO_FLAPPERON_1
+    S3: 4, // SERVO_FLAPPERON_2
+    S4: 5, // SERVO_RUDDER
+    S5: 6, // SERVO_ELEVATOR
+    S6: 7, // SERVO_THROTTLE
+};
+
+export const PLANE_SLOT_MIN = 2;
+export const PLANE_SLOT_MAX = 7;
 
 const CUSTOM_AIRPLANE = 24;
 
@@ -64,32 +85,33 @@ export const PLANE_PRESETS = {
     standard: {
         id: "standard",
         label: "Standard Plane",
-        description: "Throttle on M1, aileron L/R + elevator + rudder on S1-S4. Rudder yaw.",
+        description: "Single motor + aileron L/R + elevator + rudder on S1-S4.",
         mixerIndex: CUSTOM_AIRPLANE,
         yawType: "RUDDER",
         mmix: SINGLE_MOTOR,
         rules: [
-            rule(0, INPUT_SOURCES.STABILIZED_ROLL, +100), // S1 aileron L
-            rule(1, INPUT_SOURCES.STABILIZED_ROLL, -100), // S2 aileron R (reversed)
-            rule(2, INPUT_SOURCES.STABILIZED_PITCH, +100), // S3 elevator
-            rule(3, INPUT_SOURCES.STABILIZED_YAW, +100), // S4 rudder
+            rule(PLANE_SLOTS.S1, INPUT_SOURCES.STABILIZED_ROLL, +100), // aileron L
+            rule(PLANE_SLOTS.S2, INPUT_SOURCES.STABILIZED_ROLL, -100), // aileron R (reversed)
+            rule(PLANE_SLOTS.S3, INPUT_SOURCES.STABILIZED_PITCH, +100), // elevator
+            rule(PLANE_SLOTS.S4, INPUT_SOURCES.STABILIZED_YAW, +100), // rudder
         ],
     },
 
-    flying_wing_rudder: {
-        id: "flying_wing_rudder",
-        label: "Flying Wing (rudder)",
-        description:
-            "Throttle on M1, elevons on S1/S2, rudder on S3. Elevons use 50/50 roll+pitch to prevent saturation.",
+    // Flying wing = elevons only, single motor, no rudder. Most common
+    // delta/wing layout. Yaw control is effectively zero from pilot
+    // inputs — typical for rudderless wings, which turn by rolling.
+    flying_wing: {
+        id: "flying_wing",
+        label: "Flying Wing",
+        description: "Single motor, two elevons on S1/S2 with 50/50 roll+pitch. No rudder.",
         mixerIndex: CUSTOM_AIRPLANE,
         yawType: "RUDDER",
         mmix: SINGLE_MOTOR,
         rules: [
-            rule(0, INPUT_SOURCES.STABILIZED_ROLL, +50), // S1 L elevon — roll
-            rule(0, INPUT_SOURCES.STABILIZED_PITCH, +50), // S1 L elevon — pitch
-            rule(1, INPUT_SOURCES.STABILIZED_ROLL, -50), // S2 R elevon — roll reversed
-            rule(1, INPUT_SOURCES.STABILIZED_PITCH, +50), // S2 R elevon — pitch
-            rule(2, INPUT_SOURCES.STABILIZED_YAW, +100), // S3 rudder
+            rule(PLANE_SLOTS.S1, INPUT_SOURCES.STABILIZED_ROLL, +50), // L elevon — roll
+            rule(PLANE_SLOTS.S1, INPUT_SOURCES.STABILIZED_PITCH, +50), // L elevon — pitch
+            rule(PLANE_SLOTS.S2, INPUT_SOURCES.STABILIZED_ROLL, -50), // R elevon — roll reversed
+            rule(PLANE_SLOTS.S2, INPUT_SOURCES.STABILIZED_PITCH, +50), // R elevon — pitch
         ],
     },
 
@@ -101,27 +123,27 @@ export const PLANE_PRESETS = {
         yawType: "DIFF_THRUST",
         mmix: DIFF_THRUST_MOTORS,
         rules: [
-            rule(0, INPUT_SOURCES.STABILIZED_ROLL, +50),
-            rule(0, INPUT_SOURCES.STABILIZED_PITCH, +50),
-            rule(1, INPUT_SOURCES.STABILIZED_ROLL, -50),
-            rule(1, INPUT_SOURCES.STABILIZED_PITCH, +50),
+            rule(PLANE_SLOTS.S1, INPUT_SOURCES.STABILIZED_ROLL, +50),
+            rule(PLANE_SLOTS.S1, INPUT_SOURCES.STABILIZED_PITCH, +50),
+            rule(PLANE_SLOTS.S2, INPUT_SOURCES.STABILIZED_ROLL, -50),
+            rule(PLANE_SLOTS.S2, INPUT_SOURCES.STABILIZED_PITCH, +50),
         ],
     },
 
     v_tail: {
         id: "v_tail",
         label: "V-Tail",
-        description: "Throttle + ailerons on S1/S2 at full throw. V-tail ruddervators on S3/S4 with 50/50 pitch+yaw.",
+        description: "Single motor, aileron L/R on S1/S2, V-tail ruddervators on S3/S4 with 50/50 pitch+yaw.",
         mixerIndex: CUSTOM_AIRPLANE,
         yawType: "RUDDER",
         mmix: SINGLE_MOTOR,
         rules: [
-            rule(0, INPUT_SOURCES.STABILIZED_ROLL, +100), // S1 aileron L
-            rule(1, INPUT_SOURCES.STABILIZED_ROLL, -100), // S2 aileron R
-            rule(2, INPUT_SOURCES.STABILIZED_PITCH, +50), // S3 ruddervator L — pitch
-            rule(2, INPUT_SOURCES.STABILIZED_YAW, +50), // S3 ruddervator L — yaw
-            rule(3, INPUT_SOURCES.STABILIZED_PITCH, +50), // S4 ruddervator R — pitch
-            rule(3, INPUT_SOURCES.STABILIZED_YAW, -50), // S4 ruddervator R — yaw reversed
+            rule(PLANE_SLOTS.S1, INPUT_SOURCES.STABILIZED_ROLL, +100), // aileron L
+            rule(PLANE_SLOTS.S2, INPUT_SOURCES.STABILIZED_ROLL, -100), // aileron R
+            rule(PLANE_SLOTS.S3, INPUT_SOURCES.STABILIZED_PITCH, +50), // ruddervator L — pitch
+            rule(PLANE_SLOTS.S3, INPUT_SOURCES.STABILIZED_YAW, +50), // ruddervator L — yaw
+            rule(PLANE_SLOTS.S4, INPUT_SOURCES.STABILIZED_PITCH, +50), // ruddervator R — pitch
+            rule(PLANE_SLOTS.S4, INPUT_SOURCES.STABILIZED_YAW, -50), // ruddervator R — yaw reversed
         ],
     },
 };

@@ -110,8 +110,12 @@
                                             <td>{{ idx + 1 }}</td>
                                             <td>
                                                 <select v-model.number="rule.target" :disabled="loading">
-                                                    <option v-for="s in MAX_SERVOS" :key="s - 1" :value="s - 1">
-                                                        S{{ s }}
+                                                    <option
+                                                        v-for="opt in PLANE_SLOT_OPTIONS"
+                                                        :key="opt.value"
+                                                        :value="opt.value"
+                                                    >
+                                                        {{ opt.label }}
                                                     </option>
                                                 </select>
                                             </td>
@@ -926,8 +930,9 @@ import MSP from "../../js/msp";
 import MSPCodes from "../../js/msp/MSPCodes";
 import { mspHelper } from "../../js/msp/MSPHelper";
 import { computeTpaCurve, computeSpaCurve, SPA_SETPOINT_MAX } from "../../js/utils/wing_math.js";
-import { PLANE_PRESETS, INPUT_SOURCES } from "../../js/utils/planePresets.js";
+import { PLANE_PRESETS, INPUT_SOURCES, PLANE_SLOT_MIN, PLANE_SLOT_MAX } from "../../js/utils/planePresets.js";
 import { applyMotorMix } from "../../js/utils/wingMixerCli.js";
+import { useConnectionStore } from "../../stores/connection";
 
 const PID_GAIN_MAX = 200;
 
@@ -997,8 +1002,15 @@ const INPUT_LABELS = [
 const BOX_LABELS = ["Always", "BOXSERVO1", "BOXSERVO2", "BOXSERVO3"];
 
 const MAX_SERVO_RULES = 16; // firmware: 2 * MAX_SUPPORTED_SERVOS
-const MAX_SERVOS = 8;
 const CUSTOM_AIRPLANE_MIXER = 24; // MIXER_CUSTOM_AIRPLANE, see flight/mixer.h
+
+// Plane servo slot dropdown. Target channels for MIXER_CUSTOM_AIRPLANE
+// must be in the plane slot range (servos.c:383-385). Shown as S1..S6
+// but stored as the underlying slot index 2..7.
+const PLANE_SLOT_OPTIONS = [];
+for (let slot = PLANE_SLOT_MIN; slot <= PLANE_SLOT_MAX; slot++) {
+    PLANE_SLOT_OPTIONS.push({ value: slot, label: `S${slot - PLANE_SLOT_MIN + 1}` });
+}
 
 function emptyMixerState() {
     return { airframe: 0, reverseMotorDir: 0, rules: [] };
@@ -1042,6 +1054,8 @@ export default defineComponent({
     components: { BaseTab },
 
     setup() {
+        const connectionStore = useConnectionStore();
+
         const fields = reactive(defaultFields());
         const initialFields = ref({ ...fields });
 
@@ -1266,6 +1280,11 @@ export default defineComponent({
             }
             applyingPreset.value = true;
             error.value = null;
+            // Halt update_live_status polling for the full MSP+CLI+reboot
+            // window. Otherwise the 250 ms MSP_STATUS cadence queues up
+            // dozens of calls that all time out during the disconnect,
+            // spamming the console and slowing the reconnect.
+            connectionStore.pauseLiveData();
             try {
                 // Stage reactive state. The existing diffThrustMode watcher
                 // zeroes s_yaw when yaw_type flips to DIFF_THRUST.
@@ -1293,6 +1312,11 @@ export default defineComponent({
                     }
                 });
 
+                // Drop any queued MSP calls before we trigger the reboot
+                // so pending MSP_STATUS / etc don't pile up waiting for a
+                // response that'll never come until the FC is back.
+                connectionStore.clearMspQueue();
+
                 // Motor mix + save + reboot via CLI one-shot. BF has no MSP
                 // for mmix today. `save` in CLI persists AND reboots, so no
                 // explicit EEPROM_WRITE or MSP_REBOOT needed.
@@ -1306,7 +1330,13 @@ export default defineComponent({
                 console.error("[WingTuning] preset apply failed:", e);
                 error.value = e.message || String(e);
             } finally {
-                applyingPreset.value = false;
+                // Keep the modal up long enough for the FC reboot +
+                // reconnect cycle to settle. Typical USB reconnect
+                // window is 2-4 s; 5 s is a safe cap.
+                setTimeout(() => {
+                    connectionStore.resumeLiveData();
+                    applyingPreset.value = false;
+                }, 5000);
             }
         }
 
@@ -1314,7 +1344,17 @@ export default defineComponent({
             if (mixerState.rules.length >= MAX_SERVO_RULES) {
                 return;
             }
-            mixerState.rules.push({ target: 0, input: 0, rate: 100, speed: 0, min: -100, max: 100, box: 0 });
+            // Default target to plane slot S1 (= internal slot 2) so new
+            // rules land on a real physical output.
+            mixerState.rules.push({
+                target: PLANE_SLOT_MIN,
+                input: 0,
+                rate: 100,
+                speed: 0,
+                min: -100,
+                max: 100,
+                box: 0,
+            });
         }
 
         function removeRule(index) {
@@ -1335,7 +1375,7 @@ export default defineComponent({
             INPUT_LABELS,
             BOX_LABELS,
             MAX_SERVO_RULES,
-            MAX_SERVOS,
+            PLANE_SLOT_OPTIONS,
             CUSTOM_AIRPLANE_MIXER,
             fields,
             loading,

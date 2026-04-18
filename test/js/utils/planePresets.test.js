@@ -1,23 +1,40 @@
 import { describe, it, expect } from "vitest";
-import { PLANE_PRESETS, PRESET_IDS, INPUT_SOURCES } from "../../../src/js/utils/planePresets.js";
+import {
+    PLANE_PRESETS,
+    PRESET_IDS,
+    INPUT_SOURCES,
+    PLANE_SLOTS,
+    PLANE_SLOT_MIN,
+    PLANE_SLOT_MAX,
+} from "../../../src/js/utils/planePresets.js";
 
 const CUSTOM_AIRPLANE = 24;
 
 describe("PLANE_PRESETS", () => {
     it("exports the expected preset set", () => {
-        // Delta was dropped (same as flying_wing). Flying wing now splits
-        // into rudder + diff-thrust variants so the motor mix template
-        // can be preset-driven.
-        expect(PRESET_IDS).toEqual(["standard", "flying_wing_rudder", "flying_wing_diff_thrust", "v_tail"]);
+        // delta dropped (duplicate of flying_wing). flying_wing_rudder
+        // dropped — wings almost never have rudders, single-motor elevon
+        // setup is the default. flying_wing_diff_thrust kept for twin.
+        expect(PRESET_IDS).toEqual(["standard", "flying_wing", "flying_wing_diff_thrust", "v_tail"]);
         expect(PLANE_PRESETS.delta).toBeUndefined();
+        expect(PLANE_PRESETS.flying_wing_rudder).toBeUndefined();
     });
 
     it("every preset targets MIXER_CUSTOM_AIRPLANE", () => {
-        // Stock MIXER_FLYING_WING / MIXER_AIRPLANE route servos through
-        // hardcoded legacy slots and ignore our custom target channels.
-        // CUSTOM_AIRPLANE is the only safe choice for preset-driven smix.
         for (const id of PRESET_IDS) {
             expect(PLANE_PRESETS[id].mixerIndex).toBe(CUSTOM_AIRPLANE);
+        }
+    });
+
+    it("every rule target is in the plane slot range (2..7)", () => {
+        // servos.c:383-385: MIXER_CUSTOM_AIRPLANE writes slots
+        // SERVO_PLANE_INDEX_MIN..MAX = 2..7. Targets outside this
+        // range never reach a physical output.
+        for (const id of PRESET_IDS) {
+            for (const rule of PLANE_PRESETS[id].rules) {
+                expect(rule.target).toBeGreaterThanOrEqual(PLANE_SLOT_MIN);
+                expect(rule.target).toBeLessThanOrEqual(PLANE_SLOT_MAX);
+            }
         }
     });
 
@@ -38,8 +55,6 @@ describe("PLANE_PRESETS", () => {
     it("every rule field is in firmware servoMixer_t range", () => {
         for (const id of PRESET_IDS) {
             for (const rule of PLANE_PRESETS[id].rules) {
-                expect(rule.target).toBeGreaterThanOrEqual(0);
-                expect(rule.target).toBeLessThanOrEqual(7);
                 expect(rule.input).toBeGreaterThanOrEqual(0);
                 expect(rule.input).toBeLessThanOrEqual(11);
                 expect(rule.rate).toBeGreaterThanOrEqual(-125);
@@ -60,51 +75,71 @@ describe("PLANE_PRESETS", () => {
         }
     });
 
-    it("standard plane keeps single-axis servos at 100", () => {
+    it("standard plane uses S1/S2 ailerons, S3 elevator, S4 rudder", () => {
         const std = PLANE_PRESETS.standard;
         expect(std.rules.length).toBe(4);
-        // Every rule in standard touches exactly one axis, so 100 is safe.
+        expect(std.rules[0].target).toBe(PLANE_SLOTS.S1);
+        expect(std.rules[0].input).toBe(INPUT_SOURCES.STABILIZED_ROLL);
+        expect(std.rules[1].target).toBe(PLANE_SLOTS.S2);
+        expect(std.rules[1].input).toBe(INPUT_SOURCES.STABILIZED_ROLL);
+        expect(std.rules[2].target).toBe(PLANE_SLOTS.S3);
+        expect(std.rules[2].input).toBe(INPUT_SOURCES.STABILIZED_PITCH);
+        expect(std.rules[3].target).toBe(PLANE_SLOTS.S4);
+        expect(std.rules[3].input).toBe(INPUT_SOURCES.STABILIZED_YAW);
+        // All single-axis → 100% rate is fine.
         for (const r of std.rules) {
             expect(Math.abs(r.rate)).toBe(100);
         }
-        expect(std.rules[0].input).toBe(INPUT_SOURCES.STABILIZED_ROLL);
-        expect(std.rules[1].input).toBe(INPUT_SOURCES.STABILIZED_ROLL);
-        expect(std.rules[2].input).toBe(INPUT_SOURCES.STABILIZED_PITCH);
-        expect(std.rules[3].input).toBe(INPUT_SOURCES.STABILIZED_YAW);
         // Aileron differential: L and R must have opposite signs.
         expect(Math.sign(std.rules[0].rate)).not.toBe(Math.sign(std.rules[1].rate));
     });
 
-    it("flying wing rules use 50 to prevent saturation on elevons", () => {
-        for (const id of ["flying_wing_rudder", "flying_wing_diff_thrust"]) {
-            const preset = PLANE_PRESETS[id];
-            const elevonRules = preset.rules.filter((r) => r.target === 0 || r.target === 1);
-            for (const r of elevonRules) {
-                expect(Math.abs(r.rate)).toBe(50);
-            }
+    it("flying_wing is elevons only on S1/S2 at 50% — no rudder", () => {
+        const wing = PLANE_PRESETS.flying_wing;
+        // Four rules: S1 roll+pitch, S2 roll+pitch. No S3 rudder.
+        expect(wing.rules.length).toBe(4);
+        for (const r of wing.rules) {
+            expect([PLANE_SLOTS.S1, PLANE_SLOTS.S2]).toContain(r.target);
+            expect(Math.abs(r.rate)).toBe(50);
         }
+        const yawRule = wing.rules.find((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
+        expect(yawRule).toBeUndefined();
     });
 
     it("flying wing elevons: roll opposite-sign, pitch same-sign", () => {
-        const wing = PLANE_PRESETS.flying_wing_rudder;
-        const leftRoll = wing.rules.find((r) => r.target === 0 && r.input === INPUT_SOURCES.STABILIZED_ROLL);
-        const leftPitch = wing.rules.find((r) => r.target === 0 && r.input === INPUT_SOURCES.STABILIZED_PITCH);
-        const rightRoll = wing.rules.find((r) => r.target === 1 && r.input === INPUT_SOURCES.STABILIZED_ROLL);
-        const rightPitch = wing.rules.find((r) => r.target === 1 && r.input === INPUT_SOURCES.STABILIZED_PITCH);
-        expect(leftRoll).toBeDefined();
-        expect(leftPitch).toBeDefined();
-        expect(rightRoll).toBeDefined();
-        expect(rightPitch).toBeDefined();
-        expect(Math.sign(leftRoll.rate)).not.toBe(Math.sign(rightRoll.rate));
-        expect(Math.sign(leftPitch.rate)).toBe(Math.sign(rightPitch.rate));
+        for (const id of ["flying_wing", "flying_wing_diff_thrust"]) {
+            const wing = PLANE_PRESETS[id];
+            const leftRoll = wing.rules.find(
+                (r) => r.target === PLANE_SLOTS.S1 && r.input === INPUT_SOURCES.STABILIZED_ROLL,
+            );
+            const leftPitch = wing.rules.find(
+                (r) => r.target === PLANE_SLOTS.S1 && r.input === INPUT_SOURCES.STABILIZED_PITCH,
+            );
+            const rightRoll = wing.rules.find(
+                (r) => r.target === PLANE_SLOTS.S2 && r.input === INPUT_SOURCES.STABILIZED_ROLL,
+            );
+            const rightPitch = wing.rules.find(
+                (r) => r.target === PLANE_SLOTS.S2 && r.input === INPUT_SOURCES.STABILIZED_PITCH,
+            );
+            expect(leftRoll).toBeDefined();
+            expect(leftPitch).toBeDefined();
+            expect(rightRoll).toBeDefined();
+            expect(rightPitch).toBeDefined();
+            expect(Math.sign(leftRoll.rate)).not.toBe(Math.sign(rightRoll.rate));
+            expect(Math.sign(leftPitch.rate)).toBe(Math.sign(rightPitch.rate));
+        }
     });
 
     it("v-tail ruddervators: pitch same-sign, yaw opposite-sign, both at 50", () => {
         const vt = PLANE_PRESETS.v_tail;
-        const leftPitch = vt.rules.find((r) => r.target === 2 && r.input === INPUT_SOURCES.STABILIZED_PITCH);
-        const leftYaw = vt.rules.find((r) => r.target === 2 && r.input === INPUT_SOURCES.STABILIZED_YAW);
-        const rightPitch = vt.rules.find((r) => r.target === 3 && r.input === INPUT_SOURCES.STABILIZED_PITCH);
-        const rightYaw = vt.rules.find((r) => r.target === 3 && r.input === INPUT_SOURCES.STABILIZED_YAW);
+        const leftPitch = vt.rules.find(
+            (r) => r.target === PLANE_SLOTS.S3 && r.input === INPUT_SOURCES.STABILIZED_PITCH,
+        );
+        const leftYaw = vt.rules.find((r) => r.target === PLANE_SLOTS.S3 && r.input === INPUT_SOURCES.STABILIZED_YAW);
+        const rightPitch = vt.rules.find(
+            (r) => r.target === PLANE_SLOTS.S4 && r.input === INPUT_SOURCES.STABILIZED_PITCH,
+        );
+        const rightYaw = vt.rules.find((r) => r.target === PLANE_SLOTS.S4 && r.input === INPUT_SOURCES.STABILIZED_YAW);
         expect(leftPitch).toBeDefined();
         expect(leftYaw).toBeDefined();
         expect(rightPitch).toBeDefined();
@@ -125,18 +160,20 @@ describe("PLANE_PRESETS", () => {
         expect(mmix[1].throttle).toBe(1.0);
     });
 
-    it("rudder-yaw presets are single-motor and include a STABILIZED_YAW servo rule", () => {
-        // Non-diff-thrust presets: single motor + yaw driven by a servo.
-        for (const id of ["standard", "flying_wing_rudder", "v_tail"]) {
+    it("rudder-yaw presets are single-motor", () => {
+        for (const id of ["standard", "flying_wing", "v_tail"]) {
             const preset = PLANE_PRESETS[id];
             expect(preset.yawType).toBe("RUDDER");
             expect(preset.mmix.length).toBe(1);
-            const yawRule = preset.rules.find((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
-            expect(yawRule).toBeDefined();
         }
+        // Only the Standard Plane preset has an actual rudder servo rule.
+        // flying_wing and v_tail use yawType=RUDDER without a dedicated
+        // rudder surface — wings don't have them, and v-tail routes yaw
+        // through the V-tail ruddervator blend.
+        expect(PLANE_PRESETS.standard.rules.find((r) => r.input === INPUT_SOURCES.STABILIZED_YAW)).toBeDefined();
     });
 
-    it("diff-thrust preset has NO STABILIZED_YAW servo rule (would conflict with motor yaw)", () => {
+    it("diff-thrust preset has NO STABILIZED_YAW servo rule", () => {
         const diff = PLANE_PRESETS.flying_wing_diff_thrust;
         expect(diff.yawType).toBe("DIFF_THRUST");
         const yawRule = diff.rules.find((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
