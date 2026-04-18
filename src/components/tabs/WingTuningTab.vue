@@ -122,6 +122,24 @@
                         </div>
                     </div>
 
+                    <!-- Yaw Type (moved from Tuning — shapes motor count + rudder expectation) -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingYawTypeTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingYawTypeDesc") }}</p>
+                                    <select v-model="fields.yaw_type" :disabled="loading">
+                                        <option value="RUDDER">RUDDER</option>
+                                        <option value="DIFF_THRUST">DIFF_THRUST</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Function → Output mapping editor -->
                     <div class="grid-row">
                         <div class="grid-col col12">
@@ -266,23 +284,9 @@
 
                 <!-- ═══ Tuning sub-tab ═══ -->
                 <template v-if="activeSubTab === 'tuning'">
-                    <!-- Yaw Type + Angle Mode -->
+                    <!-- Angle Mode (Yaw Type moved to Mixer sub-tab) -->
                     <div class="grid-row">
-                        <div class="grid-col col6">
-                            <div class="gui_box">
-                                <div class="gui_box_titlebar">
-                                    <div class="spacer_box_title">{{ $t("wingYawTypeTitle") }}</div>
-                                </div>
-                                <div class="spacer">
-                                    <p>{{ $t("wingYawTypeDesc") }}</p>
-                                    <select v-model="fields.yaw_type" :disabled="loading">
-                                        <option value="RUDDER">RUDDER</option>
-                                        <option value="DIFF_THRUST">DIFF_THRUST</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="grid-col col6">
+                        <div class="grid-col col12">
                             <div class="gui_box">
                                 <div class="gui_box_titlebar">
                                     <div class="spacer_box_title">{{ $t("wingAngleModeTitle") }}</div>
