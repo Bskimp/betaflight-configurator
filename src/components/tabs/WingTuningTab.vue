@@ -38,728 +38,303 @@
                     </div>
                 </div>
 
-                <!-- Aircraft Setup (airframe + presets) -->
-                <div class="grid-row">
-                    <div class="grid-col col12">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingMixerAirframeTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingMixerAirframeDesc") }}</p>
+                <!-- Sub-tab navigation -->
+                <div class="subtab_bar">
+                    <button
+                        v-for="id in SUB_TAB_IDS"
+                        :key="id"
+                        type="button"
+                        class="subtab_button"
+                        :class="{ active: activeSubTab === id }"
+                        @click="activeSubTab = id"
+                    >
+                        {{ $t("wingSubTab_" + id) }}
+                    </button>
+                </div>
 
-                                <p class="mixer_info">
-                                    <strong>{{ $t("wingMixerCurrentMixer") }}:</strong>
-                                    {{
-                                        mixerState.airframe === CUSTOM_AIRPLANE_MIXER
-                                            ? $t("wingMixerCustomAirplane")
-                                            : $t("wingMixerOtherMixer", { n: mixerState.airframe })
-                                    }}
-                                </p>
-
-                                <p style="margin-top: 10px">{{ $t("wingMixerPresets") }}</p>
-                                <div class="preset_buttons">
-                                    <button
-                                        v-for="id in presetIds"
-                                        :key="id"
-                                        type="button"
-                                        class="preset_button"
-                                        :disabled="loading || applyingPreset"
-                                        :title="presets[id].description"
-                                        @click="applyPreset(id)"
-                                    >
-                                        {{ presets[id].label }}
-                                    </button>
+                <!-- ═══ Mixer sub-tab ═══ -->
+                <template v-if="activeSubTab === 'mixer'">
+                    <!-- Aircraft Setup (airframe + presets) -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingMixerAirframeTitle") }}</div>
                                 </div>
-                                <p class="preset_hint">{{ $t("wingMixerPresetHint") }}</p>
+                                <div class="spacer">
+                                    <p>{{ $t("wingMixerAirframeDesc") }}</p>
 
-                                <div class="wiring_panel">
-                                    <div class="wiring_header">
-                                        <strong>{{ $t("wingMixerWiringTitle") }}</strong>
-                                        <label class="wiring_selector_label">
-                                            {{ $t("wingMixerWiringSelectLabel") }}
-                                            <select v-model="wiringPresetId" class="wiring_selector">
-                                                <option v-for="id in presetIds" :key="id" :value="id">
-                                                    {{ presets[id].label }}
-                                                </option>
-                                            </select>
-                                        </label>
+                                    <p class="mixer_info">
+                                        <strong>{{ $t("wingMixerCurrentMixer") }}:</strong>
+                                        {{
+                                            mixerState.airframe === CUSTOM_AIRPLANE_MIXER
+                                                ? $t("wingMixerCustomAirplane")
+                                                : $t("wingMixerOtherMixer", { n: mixerState.airframe })
+                                        }}
+                                    </p>
+
+                                    <p style="margin-top: 10px">{{ $t("wingMixerPresets") }}</p>
+                                    <div class="preset_buttons">
+                                        <button
+                                            v-for="id in presetIds"
+                                            :key="id"
+                                            type="button"
+                                            class="preset_button"
+                                            :disabled="loading || applyingPreset"
+                                            :title="presets[id].description"
+                                            @click="applyPreset(id)"
+                                        >
+                                            {{ presets[id].label }}
+                                        </button>
                                     </div>
-                                    <table v-if="currentWiring" class="wiring_table">
+                                    <p class="preset_hint">{{ $t("wingMixerPresetHint") }}</p>
+
+                                    <div class="wiring_panel">
+                                        <div class="wiring_header">
+                                            <strong>{{ $t("wingMixerWiringTitle") }}</strong>
+                                            <label class="wiring_selector_label">
+                                                {{ $t("wingMixerWiringSelectLabel") }}
+                                                <select v-model="wiringPresetId" class="wiring_selector">
+                                                    <option v-for="id in presetIds" :key="id" :value="id">
+                                                        {{ presets[id].label }}
+                                                    </option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                        <table v-if="currentWiring" class="wiring_table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{{ $t("wingMixerWiringPad") }}</th>
+                                                    <th>{{ $t("wingMixerWiringSignal") }}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="w in currentWiring" :key="w.pad">
+                                                    <td class="wiring_pad">{{ w.pad }}</td>
+                                                    <td>{{ w.fn }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                        <p class="wiring_hint">{{ $t("wingMixerWiringHint") }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Function → Output mapping editor -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingMixerRulesTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingMixerRulesDesc") }}</p>
+
+                                    <div v-if="yawConflict" class="yaw_conflict_banner">
+                                        ⚠ {{ $t("wingMixerYawConflict") }}
+                                    </div>
+
+                                    <table class="fields">
                                         <thead>
                                             <tr>
-                                                <th>{{ $t("wingMixerWiringPad") }}</th>
-                                                <th>{{ $t("wingMixerWiringSignal") }}</th>
+                                                <th>#</th>
+                                                <th>{{ $t("wingMixerOutput") }}</th>
+                                                <th>{{ $t("wingMixerInput") }}</th>
+                                                <th>{{ $t("wingMixerRate") }}</th>
+                                                <th>{{ $t("wingMixerSpeed") }}</th>
+                                                <th>{{ $t("wingMixerMin") }}</th>
+                                                <th>{{ $t("wingMixerMax") }}</th>
+                                                <th :title="$t('wingMixerBoxHelp')">{{ $t("wingMixerBox") }} ⓘ</th>
+                                                <th></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <tr v-for="w in currentWiring" :key="w.pad">
-                                                <td class="wiring_pad">{{ w.pad }}</td>
-                                                <td>{{ w.fn }}</td>
+                                            <tr v-for="(rule, idx) in mixerState.rules" :key="idx">
+                                                <td>{{ idx + 1 }}</td>
+                                                <td>
+                                                    <select v-model.number="rule.target" :disabled="loading">
+                                                        <option
+                                                            v-for="opt in PLANE_SLOT_OPTIONS"
+                                                            :key="opt.value"
+                                                            :value="opt.value"
+                                                        >
+                                                            {{ opt.label }}
+                                                        </option>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select v-model.number="rule.input" :disabled="loading">
+                                                        <option v-for="(lbl, i) in INPUT_LABELS" :key="i" :value="i">
+                                                            {{ lbl }}
+                                                        </option>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        :min="-125"
+                                                        :max="125"
+                                                        v-model.number="rule.rate"
+                                                        :disabled="loading"
+                                                        style="width: 4em"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="255"
+                                                        v-model.number="rule.speed"
+                                                        :disabled="loading"
+                                                        style="width: 4em"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        :min="-100"
+                                                        :max="100"
+                                                        v-model.number="rule.min"
+                                                        :disabled="loading"
+                                                        style="width: 4em"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        :min="-100"
+                                                        :max="100"
+                                                        v-model.number="rule.max"
+                                                        :disabled="loading"
+                                                        style="width: 4em"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <select v-model.number="rule.box" :disabled="loading">
+                                                        <option v-for="(lbl, i) in BOX_LABELS" :key="i" :value="i">
+                                                            {{ lbl }}
+                                                        </option>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <button
+                                                        type="button"
+                                                        class="rule_delete"
+                                                        :disabled="loading"
+                                                        :title="$t('wingMixerDeleteRule')"
+                                                        @click="removeRule(idx)"
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            <tr v-if="mixerState.rules.length === 0">
+                                                <td colspan="9" class="empty_row">
+                                                    {{ $t("wingMixerNoRules") }}
+                                                </td>
                                             </tr>
                                         </tbody>
                                     </table>
-                                    <p class="wiring_hint">{{ $t("wingMixerWiringHint") }}</p>
+                                    <div class="rule_actions">
+                                        <span class="quick_add_label">{{ $t("wingMixerQuickAddLabel") }}</span>
+                                        <button
+                                            v-for="tpl in QUICK_ADD_TEMPLATES"
+                                            :key="tpl.id"
+                                            type="button"
+                                            class="quick_add_button"
+                                            :disabled="
+                                                loading || mixerState.rules.length + tpl.rules.length > MAX_SERVO_RULES
+                                            "
+                                            :title="$t(tpl.labelKey)"
+                                            @click="addTemplate(tpl.id)"
+                                        >
+                                            + {{ $t(tpl.labelKey) }}
+                                        </button>
+                                        <span class="rule_count">
+                                            {{ mixerState.rules.length }} / {{ MAX_SERVO_RULES }}
+                                        </span>
+                                    </div>
+                                    <p class="quick_add_hint">{{ $t("wingMixerQuickAddHint") }}</p>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </template>
+                <!-- ═══ /Mixer sub-tab ═══ -->
 
-                <!-- Function → Output mapping editor -->
-                <div class="grid-row">
-                    <div class="grid-col col12">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingMixerRulesTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingMixerRulesDesc") }}</p>
-
-                                <div v-if="yawConflict" class="yaw_conflict_banner">
-                                    ⚠ {{ $t("wingMixerYawConflict") }}
+                <!-- ═══ Tuning sub-tab ═══ -->
+                <template v-if="activeSubTab === 'tuning'">
+                    <!-- Yaw Type + Angle Mode -->
+                    <div class="grid-row">
+                        <div class="grid-col col6">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingYawTypeTitle") }}</div>
                                 </div>
-
-                                <table class="fields">
-                                    <thead>
-                                        <tr>
-                                            <th>#</th>
-                                            <th>{{ $t("wingMixerOutput") }}</th>
-                                            <th>{{ $t("wingMixerInput") }}</th>
-                                            <th>{{ $t("wingMixerRate") }}</th>
-                                            <th>{{ $t("wingMixerSpeed") }}</th>
-                                            <th>{{ $t("wingMixerMin") }}</th>
-                                            <th>{{ $t("wingMixerMax") }}</th>
-                                            <th :title="$t('wingMixerBoxHelp')">{{ $t("wingMixerBox") }} ⓘ</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="(rule, idx) in mixerState.rules" :key="idx">
-                                            <td>{{ idx + 1 }}</td>
-                                            <td>
-                                                <select v-model.number="rule.target" :disabled="loading">
-                                                    <option
-                                                        v-for="opt in PLANE_SLOT_OPTIONS"
-                                                        :key="opt.value"
-                                                        :value="opt.value"
-                                                    >
-                                                        {{ opt.label }}
-                                                    </option>
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <select v-model.number="rule.input" :disabled="loading">
-                                                    <option v-for="(lbl, i) in INPUT_LABELS" :key="i" :value="i">
-                                                        {{ lbl }}
-                                                    </option>
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    :min="-125"
-                                                    :max="125"
-                                                    v-model.number="rule.rate"
-                                                    :disabled="loading"
-                                                    style="width: 4em"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="255"
-                                                    v-model.number="rule.speed"
-                                                    :disabled="loading"
-                                                    style="width: 4em"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    :min="-100"
-                                                    :max="100"
-                                                    v-model.number="rule.min"
-                                                    :disabled="loading"
-                                                    style="width: 4em"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    :min="-100"
-                                                    :max="100"
-                                                    v-model.number="rule.max"
-                                                    :disabled="loading"
-                                                    style="width: 4em"
-                                                />
-                                            </td>
-                                            <td>
-                                                <select v-model.number="rule.box" :disabled="loading">
-                                                    <option v-for="(lbl, i) in BOX_LABELS" :key="i" :value="i">
-                                                        {{ lbl }}
-                                                    </option>
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <button
-                                                    type="button"
-                                                    class="rule_delete"
-                                                    :disabled="loading"
-                                                    :title="$t('wingMixerDeleteRule')"
-                                                    @click="removeRule(idx)"
-                                                >
-                                                    ×
-                                                </button>
-                                            </td>
-                                        </tr>
-                                        <tr v-if="mixerState.rules.length === 0">
-                                            <td colspan="9" class="empty_row">
-                                                {{ $t("wingMixerNoRules") }}
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <div class="rule_actions">
-                                    <span class="quick_add_label">{{ $t("wingMixerQuickAddLabel") }}</span>
-                                    <button
-                                        v-for="tpl in QUICK_ADD_TEMPLATES"
-                                        :key="tpl.id"
-                                        type="button"
-                                        class="quick_add_button"
-                                        :disabled="
-                                            loading || mixerState.rules.length + tpl.rules.length > MAX_SERVO_RULES
-                                        "
-                                        :title="$t(tpl.labelKey)"
-                                        @click="addTemplate(tpl.id)"
-                                    >
-                                        + {{ $t(tpl.labelKey) }}
-                                    </button>
-                                    <span class="rule_count">
-                                        {{ mixerState.rules.length }} / {{ MAX_SERVO_RULES }}
-                                    </span>
+                                <div class="spacer">
+                                    <p>{{ $t("wingYawTypeDesc") }}</p>
+                                    <select v-model="fields.yaw_type" :disabled="loading">
+                                        <option value="RUDDER">RUDDER</option>
+                                        <option value="DIFF_THRUST">DIFF_THRUST</option>
+                                    </select>
                                 </div>
-                                <p class="quick_add_hint">{{ $t("wingMixerQuickAddHint") }}</p>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Yaw Type + Angle Mode -->
-                <div class="grid-row">
-                    <div class="grid-col col6">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingYawTypeTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingYawTypeDesc") }}</p>
-                                <select v-model="fields.yaw_type" :disabled="loading">
-                                    <option value="RUDDER">RUDDER</option>
-                                    <option value="DIFF_THRUST">DIFF_THRUST</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="grid-col col6">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingAngleModeTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingAngleModeDesc") }}</p>
-                                <table class="fields">
-                                    <thead>
-                                        <tr>
-                                            <th>{{ $t("wingParameter") }}</th>
-                                            <th>{{ $t("wingValue") }}</th>
-                                            <th>{{ $t("wingSlider") }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td
-                                                title="Trims pitch attitude in Angle mode. Units of 0.1°. Negative pitches the nose down. See BF PR #14009."
-                                            >
-                                                angle_pitch_offset (0.1°)
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    :min="-1000"
-                                                    :max="1000"
-                                                    v-model.number="fields.angle_pitch_offset"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="range"
-                                                    :min="-1000"
-                                                    :max="1000"
-                                                    v-model.number="fields.angle_pitch_offset"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="Earth-reference strength for Angle mode axis mixing. Set 0 to disable mixing for wings (often preferable)."
-                                            >
-                                                angle_earth_ref
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    v-model.number="fields.angle_earth_ref"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="100"
-                                                    v-model.number="fields.angle_earth_ref"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- S-term -->
-                <div class="grid-row">
-                    <div class="grid-col col12">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingSTermTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingSTermDesc") }}</p>
-                                <table class="fields">
-                                    <thead>
-                                        <tr>
-                                            <th>{{ $t("wingAxis") }}</th>
-                                            <th>{{ $t("wingValue") }}</th>
-                                            <th>{{ $t("wingSlider") }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="axis in ['pitch', 'roll', 'yaw']" :key="axis">
-                                            <td>{{ axis.charAt(0).toUpperCase() + axis.slice(1) }}</td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    :max="PID_GAIN_MAX"
-                                                    v-model.number="fields[`s_${axis}`]"
-                                                    :disabled="loading || (axis === 'yaw' && diffThrustMode)"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    :max="PID_GAIN_MAX"
-                                                    v-model.number="fields[`s_${axis}`]"
-                                                    :disabled="loading || (axis === 'yaw' && diffThrustMode)"
-                                                />
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <p v-if="diffThrustMode" style="color: #c80">{{ $t("wingSYawForcedZero") }}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- TPA Mode + Airspeed -->
-                <div class="grid-row">
-                    <div class="grid-col col12">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingTpaAirspeedTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingTpaAirspeedDesc") }}</p>
-                                <table class="fields">
-                                    <thead>
-                                        <tr>
-                                            <th>{{ $t("wingParameter") }}</th>
-                                            <th>{{ $t("wingValue") }}</th>
-                                            <th>{{ $t("wingSlider") }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td
-                                                title="PID scaling mode. PDS enables S-term scaling at low speeds for wings. See BF PR #14010."
-                                            >
-                                                tpa_mode
-                                            </td>
-                                            <td colspan="2">
-                                                <select v-model="fields.tpa_mode" :disabled="loading">
-                                                    <option value="PD">PD</option>
-                                                    <option value="D">D</option>
-                                                    <option value="PDS">PDS (wing)</option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="Airspeed estimation model. BASIC works for most pilots. ADVANCED uses additional params (adv_prop_pitch, adv_mass, adv_drag_k, adv_thrust) that must be set via CLI. See BF PR #13895."
-                                            >
-                                                tpa_speed_type
-                                            </td>
-                                            <td colspan="2">
-                                                <select v-model="fields.tpa_speed_type" :disabled="loading">
-                                                    <option value="BASIC">BASIC</option>
-                                                    <option value="ADVANCED">ADVANCED (CLI only)</option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="BASIC airspeed model filter delay. See BF PR #13895 for tuning procedure."
-                                            >
-                                                tpa_speed_basic_delay
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    max="65535"
-                                                    v-model.number="fields.tpa_speed_basic_delay"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td></td>
-                                        </tr>
-                                        <tr>
-                                            <td title="BASIC airspeed model gravity term. See BF PR #13895 for tuning.">
-                                                tpa_speed_basic_gravity
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    max="65535"
-                                                    v-model.number="fields.tpa_speed_basic_gravity"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td></td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="Battery full-charge voltage × 100. Example: 3S = 1260 (12.6V), 6S = 2520 (25.2V). Use the cell-count dropdown to set correctly."
-                                            >
-                                                tpa_speed_max_voltage
-                                                <small>(V × 100)</small>
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="3360"
-                                                    v-model.number="fields.tpa_speed_max_voltage"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td>
-                                                <select
-                                                    @change="onCellCountChange"
-                                                    :value="detectedCellCount"
-                                                    :disabled="loading"
-                                                    title="Pick your cell count to auto-fill max_voltage."
-                                                >
-                                                    <option value="">— cells —</option>
-                                                    <option v-for="n in [2, 3, 4, 5, 6, 7, 8]" :key="n" :value="n">
-                                                        {{ n }}S ({{ (n * 4.2).toFixed(1) }}V)
-                                                    </option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="Pitch offset for BASIC airspeed estimation, in units of 0.1° (firmware comment: 'pitch offset in degrees*10 for craft speed estimation'). Compensates for FC mounting angle relative to the wing's aero-zero reference. Default 0."
-                                            >
-                                                tpa_speed_pitch_offset (0.1°)
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="-32768"
-                                                    max="32767"
-                                                    v-model.number="fields.tpa_speed_pitch_offset"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td></td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <p v-if="fields.tpa_speed_type === 'ADVANCED'" style="color: #c80">
-                                    {{ $t("wingTpaAdvancedHint") }}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- TPA Curve -->
-                <div class="grid-row">
-                    <div class="grid-col col12">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingTpaCurveTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingTpaCurveDesc") }}</p>
-                                <table class="fields">
-                                    <thead>
-                                        <tr>
-                                            <th>{{ $t("wingParameter") }}</th>
-                                            <th>{{ $t("wingValue") }}</th>
-                                            <th>{{ $t("wingSlider") }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td
-                                                title="Curve shape. HYPERBOLIC is recommended for planes. CLASSIC uses tpa_low_* params (CLI only) instead of this curve. See BF PR #13805."
-                                            >
-                                                tpa_curve_type
-                                            </td>
-                                            <td colspan="2">
-                                                <select v-model="fields.tpa_curve_type" :disabled="loading">
-                                                    <option value="CLASSIC">CLASSIC</option>
-                                                    <option value="HYPERBOLIC">HYPERBOLIC</option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="Throttle % below which PID multiplier stays at pid_thr0. Dashed yellow line on the curve."
-                                            >
-                                                tpa_curve_stall_throttle
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="100"
-                                                    v-model.number="fields.tpa_curve_stall_throttle"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="100"
-                                                    v-model.number="fields.tpa_curve_stall_throttle"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="PID multiplier % at zero throttle / stall. Typical: 200 (2.0×) for planes."
-                                            >
-                                                tpa_curve_pid_thr0
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="1000"
-                                                    v-model.number="fields.tpa_curve_pid_thr0"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="1000"
-                                                    v-model.number="fields.tpa_curve_pid_thr0"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="PID multiplier % at full throttle. Typical: 70 (0.7×) for planes."
-                                            >
-                                                tpa_curve_pid_thr100
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    max="1000"
-                                                    v-model.number="fields.tpa_curve_pid_thr100"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="range"
-                                                    min="0"
-                                                    max="1000"
-                                                    v-model.number="fields.tpa_curve_pid_thr100"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="Curve slope parameter. Divided by 10 in the formula. Values near 10 approach a step; negative values invert curvature."
-                                            >
-                                                tpa_curve_expo
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    min="-100"
-                                                    max="100"
-                                                    v-model.number="fields.tpa_curve_expo"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="range"
-                                                    min="-100"
-                                                    max="100"
-                                                    v-model.number="fields.tpa_curve_expo"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <!-- TPA curve live preview (HYPERBOLIC math from Limon's PR #13805) -->
-                                <div v-if="fields.tpa_curve_type === 'HYPERBOLIC'" class="curve_container">
-                                    <svg :width="tpaChart.width" :height="tpaChart.height" class="curve_svg">
-                                        <!-- axes -->
-                                        <line
-                                            :x1="tpaChart.padLeft"
-                                            :y1="tpaChart.padTop"
-                                            :x2="tpaChart.padLeft"
-                                            :y2="tpaChart.height - tpaChart.padBottom"
-                                            stroke="#888"
-                                            stroke-width="1"
-                                        />
-                                        <line
-                                            :x1="tpaChart.padLeft"
-                                            :y1="tpaChart.height - tpaChart.padBottom"
-                                            :x2="tpaChart.width - tpaChart.padRight"
-                                            :y2="tpaChart.height - tpaChart.padBottom"
-                                            stroke="#888"
-                                            stroke-width="1"
-                                        />
-                                        <!-- stall threshold vertical line -->
-                                        <line
-                                            :x1="tpaChart.stallX"
-                                            :y1="tpaChart.padTop"
-                                            :x2="tpaChart.stallX"
-                                            :y2="tpaChart.height - tpaChart.padBottom"
-                                            stroke="#c80"
-                                            stroke-width="1"
-                                            stroke-dasharray="4 3"
-                                        />
-                                        <text
-                                            :x="tpaChart.stallX + 3"
-                                            :y="tpaChart.padTop + 10"
-                                            fill="#c80"
-                                            font-size="10"
-                                        >
-                                            stall
-                                        </text>
-                                        <!-- curve -->
-                                        <path :d="tpaChart.pathD" fill="none" stroke="#ffb800" stroke-width="2" />
-                                        <!-- labels -->
-                                        <text
-                                            :x="tpaChart.padLeft - 4"
-                                            :y="tpaChart.padTop + 4"
-                                            text-anchor="end"
-                                            fill="#aaa"
-                                            font-size="10"
-                                        >
-                                            {{ tpaChart.yMax }}
-                                        </text>
-                                        <text
-                                            :x="tpaChart.padLeft - 4"
-                                            :y="tpaChart.height - tpaChart.padBottom"
-                                            text-anchor="end"
-                                            fill="#aaa"
-                                            font-size="10"
-                                        >
-                                            {{ tpaChart.yMin }}
-                                        </text>
-                                        <text :x="tpaChart.padLeft" :y="tpaChart.height - 4" fill="#aaa" font-size="10">
-                                            0%
-                                        </text>
-                                        <text
-                                            :x="tpaChart.width - tpaChart.padRight"
-                                            :y="tpaChart.height - 4"
-                                            text-anchor="end"
-                                            fill="#aaa"
-                                            font-size="10"
-                                        >
-                                            100% throttle
-                                        </text>
-                                    </svg>
+                        <div class="grid-col col6">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingAngleModeTitle") }}</div>
                                 </div>
-                                <p v-else class="curve_hint">
-                                    {{ $t("wingTpaClassicNoPreview") }}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- SPA -->
-                <div class="grid-row">
-                    <div class="grid-col col12">
-                        <div class="gui_box">
-                            <div class="gui_box_titlebar">
-                                <div class="spacer_box_title">{{ $t("wingSpaTitle") }}</div>
-                            </div>
-                            <div class="spacer">
-                                <p>{{ $t("wingSpaDesc") }}</p>
-                                <table class="fields">
-                                    <thead>
-                                        <tr>
-                                            <th>{{ $t("wingAxis") }}</th>
-                                            <th>Center</th>
-                                            <th></th>
-                                            <th>Width</th>
-                                            <th></th>
-                                            <th>Mode</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <template v-for="axis in ['roll', 'pitch', 'yaw']" :key="axis">
+                                <div class="spacer">
+                                    <p>{{ $t("wingAngleModeDesc") }}</p>
+                                    <table class="fields">
+                                        <thead>
                                             <tr>
-                                                <td>{{ axis }}</td>
+                                                <th>{{ $t("wingParameter") }}</th>
+                                                <th>{{ $t("wingValue") }}</th>
+                                                <th>{{ $t("wingSlider") }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td
+                                                    title="Trims pitch attitude in Angle mode. Units of 0.1°. Negative pitches the nose down. See BF PR #14009."
+                                                >
+                                                    angle_pitch_offset (0.1°)
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        :min="-1000"
+                                                        :max="1000"
+                                                        v-model.number="fields.angle_pitch_offset"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        :min="-1000"
+                                                        :max="1000"
+                                                        v-model.number="fields.angle_pitch_offset"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="Earth-reference strength for Angle mode axis mixing. Set 0 to disable mixing for wings (often preferable)."
+                                                >
+                                                    angle_earth_ref
+                                                </td>
                                                 <td>
                                                     <input
                                                         type="number"
                                                         min="0"
-                                                        max="65535"
-                                                        v-model.number="fields[`spa_${axis}_center`]"
+                                                        max="100"
+                                                        v-model.number="fields.angle_earth_ref"
                                                         :disabled="loading"
                                                     />
                                                 </td>
@@ -767,166 +342,669 @@
                                                     <input
                                                         type="range"
                                                         min="0"
-                                                        :max="SPA_SETPOINT_MAX"
-                                                        v-model.number="fields[`spa_${axis}_center`]"
+                                                        max="100"
+                                                        v-model.number="fields.angle_earth_ref"
                                                         :disabled="loading"
                                                     />
                                                 </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- S-term -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingSTermTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingSTermDesc") }}</p>
+                                    <table class="fields">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingAxis") }}</th>
+                                                <th>{{ $t("wingValue") }}</th>
+                                                <th>{{ $t("wingSlider") }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="axis in ['pitch', 'roll', 'yaw']" :key="axis">
+                                                <td>{{ axis.charAt(0).toUpperCase() + axis.slice(1) }}</td>
                                                 <td>
                                                     <input
                                                         type="number"
                                                         min="0"
-                                                        max="65535"
-                                                        v-model.number="fields[`spa_${axis}_width`]"
-                                                        :disabled="loading"
+                                                        :max="PID_GAIN_MAX"
+                                                        v-model.number="fields[`s_${axis}`]"
+                                                        :disabled="loading || (axis === 'yaw' && diffThrustMode)"
                                                     />
                                                 </td>
                                                 <td>
                                                     <input
                                                         type="range"
                                                         min="0"
-                                                        :max="SPA_WIDTH_SLIDER_MAX"
-                                                        v-model.number="fields[`spa_${axis}_width`]"
-                                                        :disabled="loading"
+                                                        :max="PID_GAIN_MAX"
+                                                        v-model.number="fields[`s_${axis}`]"
+                                                        :disabled="loading || (axis === 'yaw' && diffThrustMode)"
                                                     />
                                                 </td>
-                                                <td>
-                                                    <select v-model="fields[`spa_${axis}_mode`]" :disabled="loading">
-                                                        <option value="OFF">OFF</option>
-                                                        <option value="I_FREEZE">I_FREEZE</option>
-                                                        <option value="I">I</option>
-                                                        <option value="PID">PID</option>
-                                                        <option value="PD_I_FREEZE">PD_I_FREEZE</option>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <p v-if="diffThrustMode" style="color: #c80">{{ $t("wingSYawForcedZero") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TPA Mode + Airspeed -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingTpaAirspeedTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingTpaAirspeedDesc") }}</p>
+                                    <table class="fields">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingParameter") }}</th>
+                                                <th>{{ $t("wingValue") }}</th>
+                                                <th>{{ $t("wingSlider") }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td
+                                                    title="PID scaling mode. PDS enables S-term scaling at low speeds for wings. See BF PR #14010."
+                                                >
+                                                    tpa_mode
+                                                </td>
+                                                <td colspan="2">
+                                                    <select v-model="fields.tpa_mode" :disabled="loading">
+                                                        <option value="PD">PD</option>
+                                                        <option value="D">D</option>
+                                                        <option value="PDS">PDS (wing)</option>
                                                     </select>
                                                 </td>
                                             </tr>
-                                            <tr v-if="fields[`spa_${axis}_mode`] !== 'OFF'">
-                                                <td colspan="6">
-                                                    <div class="curve_container">
-                                                        <svg
-                                                            :width="spaChart(axis).width"
-                                                            :height="spaChart(axis).height"
-                                                            class="curve_svg"
-                                                        >
-                                                            <!-- gridlines at 0.5 PID -->
-                                                            <line
-                                                                :x1="spaChart(axis).padLeft"
-                                                                :y1="spaChart(axis).midY"
-                                                                :x2="spaChart(axis).width - spaChart(axis).padRight"
-                                                                :y2="spaChart(axis).midY"
-                                                                stroke="#444"
-                                                                stroke-width="1"
-                                                                stroke-dasharray="2 3"
-                                                            />
-                                                            <!-- axes -->
-                                                            <line
-                                                                :x1="spaChart(axis).padLeft"
-                                                                :y1="spaChart(axis).padTop"
-                                                                :x2="spaChart(axis).padLeft"
-                                                                :y2="spaChart(axis).height - spaChart(axis).padBottom"
-                                                                stroke="#888"
-                                                                stroke-width="1"
-                                                            />
-                                                            <line
-                                                                :x1="spaChart(axis).padLeft"
-                                                                :y1="spaChart(axis).height - spaChart(axis).padBottom"
-                                                                :x2="spaChart(axis).width - spaChart(axis).padRight"
-                                                                :y2="spaChart(axis).height - spaChart(axis).padBottom"
-                                                                stroke="#888"
-                                                                stroke-width="1"
-                                                            />
-                                                            <!-- left limit (green dashed) -->
-                                                            <line
-                                                                :x1="spaChart(axis).leftLimitX"
-                                                                :y1="spaChart(axis).padTop"
-                                                                :x2="spaChart(axis).leftLimitX"
-                                                                :y2="spaChart(axis).height - spaChart(axis).padBottom"
-                                                                stroke="#3c3"
-                                                                stroke-width="1"
-                                                                stroke-dasharray="4 3"
-                                                            />
-                                                            <!-- right limit (green dashed) -->
-                                                            <line
-                                                                :x1="spaChart(axis).rightLimitX"
-                                                                :y1="spaChart(axis).padTop"
-                                                                :x2="spaChart(axis).rightLimitX"
-                                                                :y2="spaChart(axis).height - spaChart(axis).padBottom"
-                                                                stroke="#3c3"
-                                                                stroke-width="1"
-                                                                stroke-dasharray="4 3"
-                                                            />
-                                                            <!-- center (red dashed) -->
-                                                            <line
-                                                                :x1="spaChart(axis).centerX"
-                                                                :y1="spaChart(axis).padTop"
-                                                                :x2="spaChart(axis).centerX"
-                                                                :y2="spaChart(axis).height - spaChart(axis).padBottom"
-                                                                stroke="#e44"
-                                                                stroke-width="1"
-                                                                stroke-dasharray="4 3"
-                                                            />
-                                                            <!-- curve -->
-                                                            <path
-                                                                :d="spaChart(axis).pathD"
-                                                                fill="none"
-                                                                stroke="#3af"
-                                                                stroke-width="2"
-                                                            />
-                                                            <!-- labels -->
-                                                            <text
-                                                                :x="spaChart(axis).padLeft - 4"
-                                                                :y="spaChart(axis).padTop + 4"
-                                                                text-anchor="end"
-                                                                fill="#aaa"
-                                                                font-size="10"
-                                                            >
-                                                                1.0
-                                                            </text>
-                                                            <text
-                                                                :x="spaChart(axis).padLeft - 4"
-                                                                :y="spaChart(axis).height - spaChart(axis).padBottom"
-                                                                text-anchor="end"
-                                                                fill="#aaa"
-                                                                font-size="10"
-                                                            >
-                                                                0.0
-                                                            </text>
-                                                            <text
-                                                                :x="spaChart(axis).padLeft"
-                                                                :y="spaChart(axis).height - 4"
-                                                                fill="#aaa"
-                                                                font-size="10"
-                                                            >
-                                                                0
-                                                            </text>
-                                                            <text
-                                                                :x="spaChart(axis).width - spaChart(axis).padRight"
-                                                                :y="spaChart(axis).height - 4"
-                                                                text-anchor="end"
-                                                                fill="#aaa"
-                                                                font-size="10"
-                                                            >
-                                                                {{ SPA_SETPOINT_MAX }} setpoint
-                                                            </text>
-                                                            <text
-                                                                :x="spaChart(axis).centerX + 3"
-                                                                :y="spaChart(axis).padTop + 10"
-                                                                fill="#e44"
-                                                                font-size="10"
-                                                            >
-                                                                center
-                                                            </text>
-                                                        </svg>
-                                                    </div>
+                                            <tr>
+                                                <td
+                                                    title="Airspeed estimation model. BASIC works for most pilots. ADVANCED uses additional params (adv_prop_pitch, adv_mass, adv_drag_k, adv_thrust) that must be set via CLI. See BF PR #13895."
+                                                >
+                                                    tpa_speed_type
+                                                </td>
+                                                <td colspan="2">
+                                                    <select v-model="fields.tpa_speed_type" :disabled="loading">
+                                                        <option value="BASIC">BASIC</option>
+                                                        <option value="ADVANCED">ADVANCED (CLI only)</option>
+                                                    </select>
                                                 </td>
                                             </tr>
-                                        </template>
-                                    </tbody>
-                                </table>
+                                            <tr>
+                                                <td
+                                                    title="BASIC airspeed model filter delay. See BF PR #13895 for tuning procedure."
+                                                >
+                                                    tpa_speed_basic_delay
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max="65535"
+                                                        v-model.number="fields.tpa_speed_basic_delay"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td></td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="BASIC airspeed model gravity term. See BF PR #13895 for tuning."
+                                                >
+                                                    tpa_speed_basic_gravity
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max="65535"
+                                                        v-model.number="fields.tpa_speed_basic_gravity"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td></td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="Battery full-charge voltage × 100. Example: 3S = 1260 (12.6V), 6S = 2520 (25.2V). Use the cell-count dropdown to set correctly."
+                                                >
+                                                    tpa_speed_max_voltage
+                                                    <small>(V × 100)</small>
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="3360"
+                                                        v-model.number="fields.tpa_speed_max_voltage"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <select
+                                                        @change="onCellCountChange"
+                                                        :value="detectedCellCount"
+                                                        :disabled="loading"
+                                                        title="Pick your cell count to auto-fill max_voltage."
+                                                    >
+                                                        <option value="">— cells —</option>
+                                                        <option v-for="n in [2, 3, 4, 5, 6, 7, 8]" :key="n" :value="n">
+                                                            {{ n }}S ({{ (n * 4.2).toFixed(1) }}V)
+                                                        </option>
+                                                    </select>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="Pitch offset for BASIC airspeed estimation, in units of 0.1° (firmware comment: 'pitch offset in degrees*10 for craft speed estimation'). Compensates for FC mounting angle relative to the wing's aero-zero reference. Default 0."
+                                                >
+                                                    tpa_speed_pitch_offset (0.1°)
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="-32768"
+                                                        max="32767"
+                                                        v-model.number="fields.tpa_speed_pitch_offset"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <p v-if="fields.tpa_speed_type === 'ADVANCED'" style="color: #c80">
+                                        {{ $t("wingTpaAdvancedHint") }}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+
+                    <!-- TPA Curve -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingTpaCurveTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingTpaCurveDesc") }}</p>
+                                    <table class="fields">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingParameter") }}</th>
+                                                <th>{{ $t("wingValue") }}</th>
+                                                <th>{{ $t("wingSlider") }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td
+                                                    title="Curve shape. HYPERBOLIC is recommended for planes. CLASSIC uses tpa_low_* params (CLI only) instead of this curve. See BF PR #13805."
+                                                >
+                                                    tpa_curve_type
+                                                </td>
+                                                <td colspan="2">
+                                                    <select v-model="fields.tpa_curve_type" :disabled="loading">
+                                                        <option value="CLASSIC">CLASSIC</option>
+                                                        <option value="HYPERBOLIC">HYPERBOLIC</option>
+                                                    </select>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="Throttle % below which PID multiplier stays at pid_thr0. Dashed yellow line on the curve."
+                                                >
+                                                    tpa_curve_stall_throttle
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        v-model.number="fields.tpa_curve_stall_throttle"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="100"
+                                                        v-model.number="fields.tpa_curve_stall_throttle"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="PID multiplier % at zero throttle / stall. Typical: 200 (2.0×) for planes."
+                                                >
+                                                    tpa_curve_pid_thr0
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="1000"
+                                                        v-model.number="fields.tpa_curve_pid_thr0"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="1000"
+                                                        v-model.number="fields.tpa_curve_pid_thr0"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="PID multiplier % at full throttle. Typical: 70 (0.7×) for planes."
+                                                >
+                                                    tpa_curve_pid_thr100
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="1000"
+                                                        v-model.number="fields.tpa_curve_pid_thr100"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        min="0"
+                                                        max="1000"
+                                                        v-model.number="fields.tpa_curve_pid_thr100"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    title="Curve slope parameter. Divided by 10 in the formula. Values near 10 approach a step; negative values invert curvature."
+                                                >
+                                                    tpa_curve_expo
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="-100"
+                                                        max="100"
+                                                        v-model.number="fields.tpa_curve_expo"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        min="-100"
+                                                        max="100"
+                                                        v-model.number="fields.tpa_curve_expo"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <!-- TPA curve live preview (HYPERBOLIC math from Limon's PR #13805) -->
+                                    <div v-if="fields.tpa_curve_type === 'HYPERBOLIC'" class="curve_container">
+                                        <svg :width="tpaChart.width" :height="tpaChart.height" class="curve_svg">
+                                            <!-- axes -->
+                                            <line
+                                                :x1="tpaChart.padLeft"
+                                                :y1="tpaChart.padTop"
+                                                :x2="tpaChart.padLeft"
+                                                :y2="tpaChart.height - tpaChart.padBottom"
+                                                stroke="#888"
+                                                stroke-width="1"
+                                            />
+                                            <line
+                                                :x1="tpaChart.padLeft"
+                                                :y1="tpaChart.height - tpaChart.padBottom"
+                                                :x2="tpaChart.width - tpaChart.padRight"
+                                                :y2="tpaChart.height - tpaChart.padBottom"
+                                                stroke="#888"
+                                                stroke-width="1"
+                                            />
+                                            <!-- stall threshold vertical line -->
+                                            <line
+                                                :x1="tpaChart.stallX"
+                                                :y1="tpaChart.padTop"
+                                                :x2="tpaChart.stallX"
+                                                :y2="tpaChart.height - tpaChart.padBottom"
+                                                stroke="#c80"
+                                                stroke-width="1"
+                                                stroke-dasharray="4 3"
+                                            />
+                                            <text
+                                                :x="tpaChart.stallX + 3"
+                                                :y="tpaChart.padTop + 10"
+                                                fill="#c80"
+                                                font-size="10"
+                                            >
+                                                stall
+                                            </text>
+                                            <!-- curve -->
+                                            <path :d="tpaChart.pathD" fill="none" stroke="#ffb800" stroke-width="2" />
+                                            <!-- labels -->
+                                            <text
+                                                :x="tpaChart.padLeft - 4"
+                                                :y="tpaChart.padTop + 4"
+                                                text-anchor="end"
+                                                fill="#aaa"
+                                                font-size="10"
+                                            >
+                                                {{ tpaChart.yMax }}
+                                            </text>
+                                            <text
+                                                :x="tpaChart.padLeft - 4"
+                                                :y="tpaChart.height - tpaChart.padBottom"
+                                                text-anchor="end"
+                                                fill="#aaa"
+                                                font-size="10"
+                                            >
+                                                {{ tpaChart.yMin }}
+                                            </text>
+                                            <text
+                                                :x="tpaChart.padLeft"
+                                                :y="tpaChart.height - 4"
+                                                fill="#aaa"
+                                                font-size="10"
+                                            >
+                                                0%
+                                            </text>
+                                            <text
+                                                :x="tpaChart.width - tpaChart.padRight"
+                                                :y="tpaChart.height - 4"
+                                                text-anchor="end"
+                                                fill="#aaa"
+                                                font-size="10"
+                                            >
+                                                100% throttle
+                                            </text>
+                                        </svg>
+                                    </div>
+                                    <p v-else class="curve_hint">
+                                        {{ $t("wingTpaClassicNoPreview") }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SPA -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingSpaTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingSpaDesc") }}</p>
+                                    <table class="fields">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingAxis") }}</th>
+                                                <th>Center</th>
+                                                <th></th>
+                                                <th>Width</th>
+                                                <th></th>
+                                                <th>Mode</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template v-for="axis in ['roll', 'pitch', 'yaw']" :key="axis">
+                                                <tr>
+                                                    <td>{{ axis }}</td>
+                                                    <td>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max="65535"
+                                                            v-model.number="fields[`spa_${axis}_center`]"
+                                                            :disabled="loading"
+                                                        />
+                                                    </td>
+                                                    <td>
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            :max="SPA_SETPOINT_MAX"
+                                                            v-model.number="fields[`spa_${axis}_center`]"
+                                                            :disabled="loading"
+                                                        />
+                                                    </td>
+                                                    <td>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max="65535"
+                                                            v-model.number="fields[`spa_${axis}_width`]"
+                                                            :disabled="loading"
+                                                        />
+                                                    </td>
+                                                    <td>
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            :max="SPA_WIDTH_SLIDER_MAX"
+                                                            v-model.number="fields[`spa_${axis}_width`]"
+                                                            :disabled="loading"
+                                                        />
+                                                    </td>
+                                                    <td>
+                                                        <select
+                                                            v-model="fields[`spa_${axis}_mode`]"
+                                                            :disabled="loading"
+                                                        >
+                                                            <option value="OFF">OFF</option>
+                                                            <option value="I_FREEZE">I_FREEZE</option>
+                                                            <option value="I">I</option>
+                                                            <option value="PID">PID</option>
+                                                            <option value="PD_I_FREEZE">PD_I_FREEZE</option>
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="fields[`spa_${axis}_mode`] !== 'OFF'">
+                                                    <td colspan="6">
+                                                        <div class="curve_container">
+                                                            <svg
+                                                                :width="spaChart(axis).width"
+                                                                :height="spaChart(axis).height"
+                                                                class="curve_svg"
+                                                            >
+                                                                <!-- gridlines at 0.5 PID -->
+                                                                <line
+                                                                    :x1="spaChart(axis).padLeft"
+                                                                    :y1="spaChart(axis).midY"
+                                                                    :x2="spaChart(axis).width - spaChart(axis).padRight"
+                                                                    :y2="spaChart(axis).midY"
+                                                                    stroke="#444"
+                                                                    stroke-width="1"
+                                                                    stroke-dasharray="2 3"
+                                                                />
+                                                                <!-- axes -->
+                                                                <line
+                                                                    :x1="spaChart(axis).padLeft"
+                                                                    :y1="spaChart(axis).padTop"
+                                                                    :x2="spaChart(axis).padLeft"
+                                                                    :y2="
+                                                                        spaChart(axis).height - spaChart(axis).padBottom
+                                                                    "
+                                                                    stroke="#888"
+                                                                    stroke-width="1"
+                                                                />
+                                                                <line
+                                                                    :x1="spaChart(axis).padLeft"
+                                                                    :y1="
+                                                                        spaChart(axis).height - spaChart(axis).padBottom
+                                                                    "
+                                                                    :x2="spaChart(axis).width - spaChart(axis).padRight"
+                                                                    :y2="
+                                                                        spaChart(axis).height - spaChart(axis).padBottom
+                                                                    "
+                                                                    stroke="#888"
+                                                                    stroke-width="1"
+                                                                />
+                                                                <!-- left limit (green dashed) -->
+                                                                <line
+                                                                    :x1="spaChart(axis).leftLimitX"
+                                                                    :y1="spaChart(axis).padTop"
+                                                                    :x2="spaChart(axis).leftLimitX"
+                                                                    :y2="
+                                                                        spaChart(axis).height - spaChart(axis).padBottom
+                                                                    "
+                                                                    stroke="#3c3"
+                                                                    stroke-width="1"
+                                                                    stroke-dasharray="4 3"
+                                                                />
+                                                                <!-- right limit (green dashed) -->
+                                                                <line
+                                                                    :x1="spaChart(axis).rightLimitX"
+                                                                    :y1="spaChart(axis).padTop"
+                                                                    :x2="spaChart(axis).rightLimitX"
+                                                                    :y2="
+                                                                        spaChart(axis).height - spaChart(axis).padBottom
+                                                                    "
+                                                                    stroke="#3c3"
+                                                                    stroke-width="1"
+                                                                    stroke-dasharray="4 3"
+                                                                />
+                                                                <!-- center (red dashed) -->
+                                                                <line
+                                                                    :x1="spaChart(axis).centerX"
+                                                                    :y1="spaChart(axis).padTop"
+                                                                    :x2="spaChart(axis).centerX"
+                                                                    :y2="
+                                                                        spaChart(axis).height - spaChart(axis).padBottom
+                                                                    "
+                                                                    stroke="#e44"
+                                                                    stroke-width="1"
+                                                                    stroke-dasharray="4 3"
+                                                                />
+                                                                <!-- curve -->
+                                                                <path
+                                                                    :d="spaChart(axis).pathD"
+                                                                    fill="none"
+                                                                    stroke="#3af"
+                                                                    stroke-width="2"
+                                                                />
+                                                                <!-- labels -->
+                                                                <text
+                                                                    :x="spaChart(axis).padLeft - 4"
+                                                                    :y="spaChart(axis).padTop + 4"
+                                                                    text-anchor="end"
+                                                                    fill="#aaa"
+                                                                    font-size="10"
+                                                                >
+                                                                    1.0
+                                                                </text>
+                                                                <text
+                                                                    :x="spaChart(axis).padLeft - 4"
+                                                                    :y="
+                                                                        spaChart(axis).height - spaChart(axis).padBottom
+                                                                    "
+                                                                    text-anchor="end"
+                                                                    fill="#aaa"
+                                                                    font-size="10"
+                                                                >
+                                                                    0.0
+                                                                </text>
+                                                                <text
+                                                                    :x="spaChart(axis).padLeft"
+                                                                    :y="spaChart(axis).height - 4"
+                                                                    fill="#aaa"
+                                                                    font-size="10"
+                                                                >
+                                                                    0
+                                                                </text>
+                                                                <text
+                                                                    :x="spaChart(axis).width - spaChart(axis).padRight"
+                                                                    :y="spaChart(axis).height - 4"
+                                                                    text-anchor="end"
+                                                                    fill="#aaa"
+                                                                    font-size="10"
+                                                                >
+                                                                    {{ SPA_SETPOINT_MAX }} setpoint
+                                                                </text>
+                                                                <text
+                                                                    :x="spaChart(axis).centerX + 3"
+                                                                    :y="spaChart(axis).padTop + 10"
+                                                                    fill="#e44"
+                                                                    font-size="10"
+                                                                >
+                                                                    center
+                                                                </text>
+                                                            </svg>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <!-- ═══ /Tuning sub-tab ═══ -->
+
+                <!-- ═══ Launch sub-tab (placeholder until MSP lands) ═══ -->
+                <template v-if="activeSubTab === 'launch'">
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingSubTabLaunchTitle") }}</div>
+                                </div>
+                                <div class="spacer subtab_placeholder">
+                                    <p>{{ $t("wingSubTabLaunchPlaceholder") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ═══ GPS Rescue sub-tab (placeholder until MSP lands) ═══ -->
+                <template v-if="activeSubTab === 'gps_rescue'">
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingSubTabGpsRescueTitle") }}</div>
+                                </div>
+                                <div class="spacer subtab_placeholder">
+                                    <p>{{ $t("wingSubTabGpsRescuePlaceholder") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
             </template>
         </div>
 
@@ -1188,6 +1266,30 @@ export default defineComponent({
         const mixerDirty = computed(() => !mixerStatesEqual(mixerState, initialMixerState.value));
 
         const applyingPreset = ref(false);
+
+        // Sub-tab state. Keeps the Wing Tuning page navigable as more
+        // features land (Launch, GPS Rescue, eventually VTOL). Persists
+        // the last-visited sub-tab across remount via localStorage so
+        // returning to the tab opens where the user left off.
+        const SUB_TAB_STORAGE_KEY = "wingTuningActiveSubTab";
+        const SUB_TAB_IDS = ["tuning", "mixer", "launch", "gps_rescue"];
+        const activeSubTab = ref(
+            (() => {
+                try {
+                    const stored = globalThis.localStorage?.getItem(SUB_TAB_STORAGE_KEY);
+                    return SUB_TAB_IDS.includes(stored) ? stored : "tuning";
+                } catch {
+                    return "tuning";
+                }
+            })(),
+        );
+        watch(activeSubTab, (v) => {
+            try {
+                globalThis.localStorage?.setItem(SUB_TAB_STORAGE_KEY, v);
+            } catch {
+                /* no-op: localStorage unavailable / quota exceeded */
+            }
+        });
 
         // Wiring reference selector. Defaults to the first preset so
         // the reference panel is visible immediately on tab load —
@@ -1532,6 +1634,8 @@ export default defineComponent({
             mixerDirty,
             yawConflict,
             applyingPreset,
+            activeSubTab,
+            SUB_TAB_IDS,
             wiringPresetId,
             currentWiring,
             applyPreset,
@@ -1760,5 +1864,40 @@ button {
 .preset_modal_sub {
     color: #888;
     font-size: 0.95em;
+}
+.subtab_bar {
+    display: flex;
+    gap: 2px;
+    margin: 12px 0 14px 0;
+    border-bottom: 2px solid var(--surface-400, rgba(255, 255, 255, 0.15));
+    padding-left: 4px;
+}
+.subtab_button {
+    padding: 8px 18px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    font-size: 0.95em;
+    color: #aaa;
+    margin-bottom: -2px;
+}
+.subtab_button:hover:not(.active) {
+    background: var(--surface-200, rgba(255, 255, 255, 0.04));
+    color: var(--text, #fff);
+}
+.subtab_button.active {
+    background: var(--surface-200, rgba(255, 255, 255, 0.04));
+    border-color: var(--surface-400, rgba(255, 255, 255, 0.15));
+    border-bottom: 2px solid var(--surface-200, rgba(255, 255, 255, 0.04));
+    color: var(--primary-500, #ffb800);
+    font-weight: 500;
+}
+.subtab_placeholder {
+    padding: 30px 20px;
+    color: #888;
+    font-style: italic;
+    text-align: center;
 }
 </style>

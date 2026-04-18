@@ -450,6 +450,30 @@
     "wingTuningApiRequired": {
         "message": "Wing Tuning requires firmware built with USE_WING enabled. Please update or rebuild your flight controller firmware."
     },
+    "wingSubTab_tuning": {
+        "message": "Tuning"
+    },
+    "wingSubTab_mixer": {
+        "message": "Mixer"
+    },
+    "wingSubTab_launch": {
+        "message": "Launch"
+    },
+    "wingSubTab_gps_rescue": {
+        "message": "GPS Rescue"
+    },
+    "wingSubTabLaunchTitle": {
+        "message": "Wing Auto-launch"
+    },
+    "wingSubTabLaunchPlaceholder": {
+        "message": "Wing auto-launch configuration UI is coming in a future release. For now, configure via CLI: wing_launch_accel_thresh, wing_launch_throttle, wing_launch_climb_time, etc. See WING_CLI_REFERENCE.md in the firmware repo for the full parameter list."
+    },
+    "wingSubTabGpsRescueTitle": {
+        "message": "GPS Rescue (Wing)"
+    },
+    "wingSubTabGpsRescuePlaceholder": {
+        "message": "Wing GPS rescue configuration UI is coming in a future release. For now, configure via CLI: gps_rescue_return_alt, gps_rescue_orbit_radius, gps_rescue_cruise_throttle, etc. See WING_CLI_REFERENCE.md in the firmware repo for the full parameter list."
+    },
     "wingMixerAirframeTitle": {
         "message": "Aircraft Setup"
     },
