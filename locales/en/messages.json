@@ -463,7 +463,7 @@
         "message": "Custom Airplane (preset-driven)"
     },
     "wingMixerOtherMixer": {
-        "message": "Mixer index $n$ (not preset-driven — apply a preset to switch)"
+        "message": "Mixer index {{n}} (not Custom Airplane — custom smix rules won't reach the physical outputs until you switch; apply a preset or add a function below)"
     },
     "wingMixerApplying": {
         "message": "Applying preset…"
@@ -512,6 +512,30 @@
     },
     "wingMixerDeleteRule": {
         "message": "Delete rule"
+    },
+    "wingMixerQuickAddLabel": {
+        "message": "Add function:"
+    },
+    "wingMixerQuickAileron": {
+        "message": "Aileron pair"
+    },
+    "wingMixerQuickElevator": {
+        "message": "Elevator"
+    },
+    "wingMixerQuickRudder": {
+        "message": "Rudder"
+    },
+    "wingMixerQuickElevons": {
+        "message": "Elevons (pair)"
+    },
+    "wingMixerQuickVTail": {
+        "message": "V-Tail (pair)"
+    },
+    "wingMixerQuickRaw": {
+        "message": "Raw rule"
+    },
+    "wingMixerQuickAddHint": {
+        "message": "Function buttons append pre-configured rules to the table and switch the mixer to Custom Airplane. You can edit each rule before saving."
     },
     "wingMixerNoRules": {
         "message": "No servo mix rules. Apply a preset or click \"Add rule\" to start."

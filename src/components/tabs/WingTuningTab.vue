@@ -193,18 +193,25 @@
                                     </tbody>
                                 </table>
                                 <div class="rule_actions">
+                                    <span class="quick_add_label">{{ $t("wingMixerQuickAddLabel") }}</span>
                                     <button
+                                        v-for="tpl in QUICK_ADD_TEMPLATES"
+                                        :key="tpl.id"
                                         type="button"
-                                        class="add_rule"
-                                        :disabled="loading || mixerState.rules.length >= MAX_SERVO_RULES"
-                                        @click="addRule"
+                                        class="quick_add_button"
+                                        :disabled="
+                                            loading || mixerState.rules.length + tpl.rules.length > MAX_SERVO_RULES
+                                        "
+                                        :title="$t(tpl.labelKey)"
+                                        @click="addTemplate(tpl.id)"
                                     >
-                                        + {{ $t("wingMixerAddRule") }}
+                                        + {{ $t(tpl.labelKey) }}
                                     </button>
                                     <span class="rule_count">
                                         {{ mixerState.rules.length }} / {{ MAX_SERVO_RULES }}
                                     </span>
                                 </div>
+                                <p class="quick_add_hint">{{ $t("wingMixerQuickAddHint") }}</p>
                             </div>
                         </div>
                     </div>
@@ -1012,6 +1019,75 @@ for (let slot = PLANE_SLOT_MIN; slot <= PLANE_SLOT_MAX; slot++) {
     PLANE_SLOT_OPTIONS.push({ value: slot, label: `S${slot - PLANE_SLOT_MIN + 1}` });
 }
 
+// Quick-add rule templates. Each template writes 1 or more rules that
+// together implement a single plane function (aileron pair, elevon pair,
+// V-tail, etc). Users still edit individual rules after if they want,
+// but the templates encode the slot + input + rate conventions so
+// newcomers don't have to know MIXER_CUSTOM_AIRPLANE slot semantics.
+//
+// SLOT constants match planePresets.js:SLOT (2=elevator, 3=flapperon L,
+// 4=flapperon R, 5=rudder, 6/7=aux). FULL = 100% (single axis), MIX = 50%
+// (shared-axis, prevents saturation when both inputs hit max).
+const Q_SLOT_ELEVATOR = 2;
+const Q_SLOT_FLAPPERON_L = 3;
+const Q_SLOT_FLAPPERON_R = 4;
+const Q_SLOT_RUDDER = 5;
+const Q_FULL_RATE = 100;
+const Q_MIX_RATE = 50;
+const Q_INPUT_ROLL = 0;
+const Q_INPUT_PITCH = 1;
+const Q_INPUT_YAW = 2;
+
+function qRule(target, input, rate) {
+    return { target, input, rate, speed: 0, min: -100, max: 100, box: 0 };
+}
+
+const QUICK_ADD_TEMPLATES = [
+    {
+        id: "aileron_pair",
+        labelKey: "wingMixerQuickAileron",
+        rules: [
+            qRule(Q_SLOT_FLAPPERON_L, Q_INPUT_ROLL, +Q_FULL_RATE),
+            qRule(Q_SLOT_FLAPPERON_R, Q_INPUT_ROLL, -Q_FULL_RATE),
+        ],
+    },
+    {
+        id: "elevator",
+        labelKey: "wingMixerQuickElevator",
+        rules: [qRule(Q_SLOT_ELEVATOR, Q_INPUT_PITCH, +Q_FULL_RATE)],
+    },
+    {
+        id: "rudder",
+        labelKey: "wingMixerQuickRudder",
+        rules: [qRule(Q_SLOT_RUDDER, Q_INPUT_YAW, +Q_FULL_RATE)],
+    },
+    {
+        id: "elevons",
+        labelKey: "wingMixerQuickElevons",
+        rules: [
+            qRule(Q_SLOT_FLAPPERON_L, Q_INPUT_ROLL, +Q_MIX_RATE),
+            qRule(Q_SLOT_FLAPPERON_L, Q_INPUT_PITCH, +Q_MIX_RATE),
+            qRule(Q_SLOT_FLAPPERON_R, Q_INPUT_ROLL, -Q_MIX_RATE),
+            qRule(Q_SLOT_FLAPPERON_R, Q_INPUT_PITCH, +Q_MIX_RATE),
+        ],
+    },
+    {
+        id: "v_tail",
+        labelKey: "wingMixerQuickVTail",
+        rules: [
+            qRule(Q_SLOT_ELEVATOR, Q_INPUT_PITCH, +Q_MIX_RATE),
+            qRule(Q_SLOT_ELEVATOR, Q_INPUT_YAW, +Q_MIX_RATE),
+            qRule(Q_SLOT_RUDDER, Q_INPUT_PITCH, +Q_MIX_RATE),
+            qRule(Q_SLOT_RUDDER, Q_INPUT_YAW, -Q_MIX_RATE),
+        ],
+    },
+    {
+        id: "raw",
+        labelKey: "wingMixerQuickRaw",
+        rules: [qRule(Q_SLOT_FLAPPERON_L, Q_INPUT_ROLL, +Q_FULL_RATE)],
+    },
+];
+
 function emptyMixerState() {
     return { airframe: 0, reverseMotorDir: 0, rules: [] };
 }
@@ -1340,21 +1416,29 @@ export default defineComponent({
             }
         }
 
-        function addRule() {
-            if (mixerState.rules.length >= MAX_SERVO_RULES) {
+        // Append rules from a quick-add template (or a single "raw" rule).
+        // Silently switches the airframe to MIXER_CUSTOM_AIRPLANE (24)
+        // because custom smix rules only reach physical outputs on that
+        // mixer. User still clicks Save to commit — the MSP write path
+        // covers airframe + rules in one EEPROM_WRITE, no reboot needed
+        // unless the template specifies mmix (these don't).
+        function addTemplate(id) {
+            const template = QUICK_ADD_TEMPLATES.find((t) => t.id === id);
+            if (!template) {
                 return;
             }
-            // Default target to plane slot S1 (= internal slot 2) so new
-            // rules land on a real physical output.
-            mixerState.rules.push({
-                target: PLANE_SLOT_MIN,
-                input: 0,
-                rate: 100,
-                speed: 0,
-                min: -100,
-                max: 100,
-                box: 0,
-            });
+            // Drop the click entirely if the whole template wouldn't fit.
+            // Better to do nothing than push a partial function block.
+            const spaceLeft = MAX_SERVO_RULES - mixerState.rules.length;
+            if (spaceLeft < template.rules.length) {
+                return;
+            }
+            if (mixerState.airframe !== CUSTOM_AIRPLANE_MIXER) {
+                mixerState.airframe = CUSTOM_AIRPLANE_MIXER;
+            }
+            for (const r of template.rules) {
+                mixerState.rules.push({ ...r });
+            }
         }
 
         function removeRule(index) {
@@ -1394,7 +1478,8 @@ export default defineComponent({
             yawConflict,
             applyingPreset,
             applyPreset,
-            addRule,
+            QUICK_ADD_TEMPLATES,
+            addTemplate,
             removeRule,
             presetIds: Object.keys(PLANE_PRESETS),
             presets: PLANE_PRESETS,
@@ -1474,12 +1559,35 @@ button {
 .rule_actions {
     margin-top: 10px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
 }
-.add_rule {
-    padding: 6px 14px;
+.quick_add_label {
+    font-size: 0.9em;
+    color: #aaa;
+    margin-right: 4px;
+}
+.quick_add_button {
+    padding: 5px 12px;
     cursor: pointer;
+    font-size: 0.9em;
+    background: var(--surface-200, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--surface-400, rgba(255, 255, 255, 0.15));
+    border-radius: 4px;
+}
+.quick_add_button:hover:not(:disabled) {
+    background: var(--surface-300, rgba(255, 255, 255, 0.08));
+}
+.quick_add_button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.quick_add_hint {
+    margin-top: 8px;
+    color: #888;
+    font-size: 0.85em;
+    font-style: italic;
 }
 .rule_count {
     color: #888;
