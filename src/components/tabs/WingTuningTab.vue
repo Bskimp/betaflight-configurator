@@ -38,6 +38,205 @@
                     </div>
                 </div>
 
+                <!-- Aircraft Setup (airframe + presets) -->
+                <div class="grid-row">
+                    <div class="grid-col col12">
+                        <div class="gui_box">
+                            <div class="gui_box_titlebar">
+                                <div class="spacer_box_title">{{ $t("wingMixerAirframeTitle") }}</div>
+                            </div>
+                            <div class="spacer">
+                                <p>{{ $t("wingMixerAirframeDesc") }}</p>
+                                <table class="fields">
+                                    <thead>
+                                        <tr>
+                                            <th>{{ $t("wingParameter") }}</th>
+                                            <th>{{ $t("wingValue") }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td
+                                                title="Base airframe mixer. AIRPLANE for tail-and-wing planes; FLYING_WING for delta/elevon planes."
+                                            >
+                                                {{ $t("wingMixerAirframe") }}
+                                            </td>
+                                            <td>
+                                                <select v-model.number="mixerState.airframe" :disabled="loading">
+                                                    <option :value="0">—</option>
+                                                    <option
+                                                        v-for="af in PLANE_AIRFRAMES"
+                                                        :key="af.value"
+                                                        :value="af.value"
+                                                    >
+                                                        {{ af.label }}
+                                                    </option>
+                                                </select>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td
+                                                title="Reverse motor direction (prop-in vs prop-out). Rarely needed on planes."
+                                            >
+                                                {{ $t("wingMixerReverseMotor") }}
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    v-model="mixerState.reverseMotorDir"
+                                                    :true-value="1"
+                                                    :false-value="0"
+                                                    :disabled="loading"
+                                                />
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+
+                                <p style="margin-top: 10px">{{ $t("wingMixerPresets") }}</p>
+                                <div class="preset_buttons">
+                                    <button
+                                        v-for="id in presetIds"
+                                        :key="id"
+                                        type="button"
+                                        class="preset_button"
+                                        :disabled="loading"
+                                        :title="presets[id].description"
+                                        @click="applyPreset(id)"
+                                    >
+                                        {{ presets[id].label }}
+                                    </button>
+                                </div>
+                                <p class="preset_hint">{{ $t("wingMixerPresetHint") }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Function → Output mapping editor -->
+                <div class="grid-row">
+                    <div class="grid-col col12">
+                        <div class="gui_box">
+                            <div class="gui_box_titlebar">
+                                <div class="spacer_box_title">{{ $t("wingMixerRulesTitle") }}</div>
+                            </div>
+                            <div class="spacer">
+                                <p>{{ $t("wingMixerRulesDesc") }}</p>
+                                <table class="fields">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>{{ $t("wingMixerOutput") }}</th>
+                                            <th>{{ $t("wingMixerInput") }}</th>
+                                            <th>{{ $t("wingMixerRate") }}</th>
+                                            <th>{{ $t("wingMixerSpeed") }}</th>
+                                            <th>{{ $t("wingMixerMin") }}</th>
+                                            <th>{{ $t("wingMixerMax") }}</th>
+                                            <th>{{ $t("wingMixerBox") }}</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="(rule, idx) in mixerState.rules" :key="idx">
+                                            <td>{{ idx + 1 }}</td>
+                                            <td>
+                                                <select v-model.number="rule.target" :disabled="loading">
+                                                    <option v-for="s in MAX_SERVOS" :key="s - 1" :value="s - 1">
+                                                        S{{ s }}
+                                                    </option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <select v-model.number="rule.input" :disabled="loading">
+                                                    <option v-for="(lbl, i) in INPUT_LABELS" :key="i" :value="i">
+                                                        {{ lbl }}
+                                                    </option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    :min="-125"
+                                                    :max="125"
+                                                    v-model.number="rule.rate"
+                                                    :disabled="loading"
+                                                    style="width: 4em"
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="255"
+                                                    v-model.number="rule.speed"
+                                                    :disabled="loading"
+                                                    style="width: 4em"
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    :min="-100"
+                                                    :max="100"
+                                                    v-model.number="rule.min"
+                                                    :disabled="loading"
+                                                    style="width: 4em"
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    :min="-100"
+                                                    :max="100"
+                                                    v-model.number="rule.max"
+                                                    :disabled="loading"
+                                                    style="width: 4em"
+                                                />
+                                            </td>
+                                            <td>
+                                                <select v-model.number="rule.box" :disabled="loading">
+                                                    <option v-for="(lbl, i) in BOX_LABELS" :key="i" :value="i">
+                                                        {{ lbl }}
+                                                    </option>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    class="rule_delete"
+                                                    :disabled="loading"
+                                                    :title="$t('wingMixerDeleteRule')"
+                                                    @click="removeRule(idx)"
+                                                >
+                                                    ×
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        <tr v-if="mixerState.rules.length === 0">
+                                            <td colspan="9" class="empty_row">
+                                                {{ $t("wingMixerNoRules") }}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <div class="rule_actions">
+                                    <button
+                                        type="button"
+                                        class="add_rule"
+                                        :disabled="loading || mixerState.rules.length >= MAX_SERVO_RULES"
+                                        @click="addRule"
+                                    >
+                                        + {{ $t("wingMixerAddRule") }}
+                                    </button>
+                                    <span class="rule_count">
+                                        {{ mixerState.rules.length }} / {{ MAX_SERVO_RULES }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Yaw Type + Angle Mode -->
                 <div class="grid-row">
                     <div class="grid-col col6">
@@ -749,6 +948,7 @@ import MSP from "../../js/msp";
 import MSPCodes from "../../js/msp/MSPCodes";
 import { mspHelper } from "../../js/msp/MSPHelper";
 import { computeTpaCurve, computeSpaCurve, SPA_SETPOINT_MAX } from "../../js/utils/wing_math.js";
+import { PLANE_PRESETS } from "../../js/utils/planePresets.js";
 
 const PID_GAIN_MAX = 200;
 
@@ -797,6 +997,74 @@ function defaultFields() {
     return f;
 }
 
+// Plane-relevant mixer indices (1-based FC.MIXER_CONFIG.mixer values).
+// Matches model.js:mixerList entries flagged as plane/wing airframes.
+const PLANE_AIRFRAMES = [
+    { value: 8, label: "Flying Wing" },
+    { value: 14, label: "Airplane" },
+    { value: 24, label: "Custom Airplane" },
+];
+
+// Servo mixer input source labels — matches firmware inputSource_e at
+// src/main/flight/servos.h. Order is the wire contract.
+const INPUT_LABELS = [
+    "STABILIZED_ROLL",
+    "STABILIZED_PITCH",
+    "STABILIZED_YAW",
+    "STABILIZED_THROTTLE",
+    "RC_ROLL",
+    "RC_PITCH",
+    "RC_YAW",
+    "RC_THROTTLE",
+    "RC_AUX1",
+    "RC_AUX2",
+    "RC_AUX3",
+    "RC_AUX4",
+];
+
+// Mixer box modes. 0 = always-on, 1-3 = BOXSERVO1-3 flight-mode-gated.
+const BOX_LABELS = ["Always", "BOXSERVO1", "BOXSERVO2", "BOXSERVO3"];
+
+const MAX_SERVO_RULES = 16; // firmware: 2 * MAX_SUPPORTED_SERVOS
+const MAX_SERVOS = 8;
+
+function emptyMixerState() {
+    return { airframe: 0, reverseMotorDir: 0, rules: [] };
+}
+
+function cloneMixerState(state) {
+    return {
+        airframe: state.airframe,
+        reverseMotorDir: state.reverseMotorDir,
+        rules: state.rules.map((r) => ({ ...r })),
+    };
+}
+
+function mixerStatesEqual(a, b) {
+    if (a.airframe !== b.airframe || a.reverseMotorDir !== b.reverseMotorDir) {
+        return false;
+    }
+    if (a.rules.length !== b.rules.length) {
+        return false;
+    }
+    for (let i = 0; i < a.rules.length; i++) {
+        const r1 = a.rules[i];
+        const r2 = b.rules[i];
+        if (
+            r1.target !== r2.target ||
+            r1.input !== r2.input ||
+            r1.rate !== r2.rate ||
+            r1.speed !== r2.speed ||
+            r1.min !== r2.min ||
+            r1.max !== r2.max ||
+            r1.box !== r2.box
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 export default defineComponent({
     name: "WingTuningTab",
     components: { BaseTab },
@@ -804,6 +1072,9 @@ export default defineComponent({
     setup() {
         const fields = reactive(defaultFields());
         const initialFields = ref({ ...fields });
+
+        const mixerState = reactive(emptyMixerState());
+        const initialMixerState = ref(cloneMixerState(mixerState));
 
         const loading = ref(false);
         const saving = ref(false);
@@ -817,7 +1088,11 @@ export default defineComponent({
             }
         });
 
-        const dirty = computed(() => FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]));
+        const mixerDirty = computed(() => !mixerStatesEqual(mixerState, initialMixerState.value));
+
+        const dirty = computed(
+            () => FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]) || mixerDirty.value,
+        );
 
         // Capability check — tab requires a USE_WING firmware build.
         // The MSP codes (MSP2_WING_TUNING / MSP2_SET_WING_TUNING) ship
@@ -925,6 +1200,21 @@ export default defineComponent({
                     }
                 }
                 initialFields.value = { ...fields };
+
+                await MSP.promise(MSPCodes.MSP_MIXER_CONFIG);
+                mixerState.airframe = FC.MIXER_CONFIG.mixer;
+                mixerState.reverseMotorDir = FC.MIXER_CONFIG.reverseMotorDir;
+
+                await MSP.promise(MSPCodes.MSP_SERVO_MIX_RULES);
+                // FC.SERVO_RULES may contain trailing all-zero slots;
+                // strip them so the editor shows only populated rules.
+                // A rule with target=0/input=0/rate=0 is indistinguishable
+                // from a blank slot; firmware treats rate==0 as no-op.
+                mixerState.rules = (FC.SERVO_RULES || [])
+                    .filter((r) => r.rate !== 0 || r.min !== 0 || r.max !== 0)
+                    .map((r) => ({ ...r }));
+
+                initialMixerState.value = cloneMixerState(mixerState);
             } catch (e) {
                 console.error("[WingTuning] reload failed:", e);
                 error.value = e.message || String(e);
@@ -937,21 +1227,68 @@ export default defineComponent({
             saving.value = true;
             error.value = null;
             try {
-                // Copy form state into FC.WING_TUNING so crunch reads the
-                // correct values. Enum strings pass through; crunch maps
-                // them to indices via wingEnumLookups.
+                // Wing tuning fields first (atomic, via the MSP2 pair).
                 for (const def of FIELD_DEFS) {
                     FC.WING_TUNING[def.name] = fields[def.name];
                 }
                 await MSP.promise(MSPCodes.MSP2_SET_WING_TUNING, mspHelper.crunch(MSPCodes.MSP2_SET_WING_TUNING));
+
+                // Mixer config (airframe + motor direction).
+                FC.MIXER_CONFIG.mixer = mixerState.airframe;
+                FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
+                await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
+
+                // Servo mix rules — firmware handler is per-rule (index-addressed).
+                // Pad the local list up to MAX_SERVO_RULES with zeroed entries so
+                // a shorter list overwrites previously-stored trailing rules with
+                // no-op (rate=0) rather than leaving stale rules in place.
+                FC.SERVO_RULES = padRulesToMax(mixerState.rules);
+                await new Promise((resolve, reject) => {
+                    try {
+                        mspHelper.sendServoMixRules(resolve);
+                    } catch (err) {
+                        reject(err);
+                    }
+                });
+
                 await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+
                 initialFields.value = { ...fields };
+                initialMixerState.value = cloneMixerState(mixerState);
             } catch (e) {
                 console.error("[WingTuning] save failed:", e);
                 error.value = e.message || String(e);
             } finally {
                 saving.value = false;
             }
+        }
+
+        function padRulesToMax(rules) {
+            const padded = rules.slice(0, MAX_SERVO_RULES).map((r) => ({ ...r }));
+            while (padded.length < MAX_SERVO_RULES) {
+                padded.push({ target: 0, input: 0, rate: 0, speed: 0, min: 0, max: 0, box: 0 });
+            }
+            return padded;
+        }
+
+        function applyPreset(id) {
+            const preset = PLANE_PRESETS[id];
+            if (!preset) {
+                return;
+            }
+            mixerState.airframe = preset.mixerIndex;
+            mixerState.rules = preset.rules.map((r) => ({ ...r }));
+        }
+
+        function addRule() {
+            if (mixerState.rules.length >= MAX_SERVO_RULES) {
+                return;
+            }
+            mixerState.rules.push({ target: 0, input: 0, rate: 100, speed: 0, min: -100, max: 100, box: 0 });
+        }
+
+        function removeRule(index) {
+            mixerState.rules.splice(index, 1);
         }
 
         function onTabReady() {
@@ -965,6 +1302,11 @@ export default defineComponent({
             PID_GAIN_MAX,
             SPA_SETPOINT_MAX,
             SPA_WIDTH_SLIDER_MAX: 500,
+            PLANE_AIRFRAMES,
+            INPUT_LABELS,
+            BOX_LABELS,
+            MAX_SERVO_RULES,
+            MAX_SERVOS,
             fields,
             loading,
             saving,
@@ -977,6 +1319,13 @@ export default defineComponent({
             onCellCountChange,
             tpaChart,
             spaChart,
+            mixerState,
+            mixerDirty,
+            applyPreset,
+            addRule,
+            removeRule,
+            presetIds: Object.keys(PLANE_PRESETS),
+            presets: PLANE_PRESETS,
             reload,
             save,
             onTabReady,
@@ -1027,5 +1376,61 @@ button {
     margin-top: 8px;
     color: #888;
     font-style: italic;
+}
+.preset_buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+.preset_button {
+    padding: 6px 14px;
+    background: var(--surface-200, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--surface-400, rgba(255, 255, 255, 0.15));
+    border-radius: 4px;
+    cursor: pointer;
+}
+.preset_button:hover:not(:disabled) {
+    background: var(--surface-300, rgba(255, 255, 255, 0.08));
+}
+.preset_hint {
+    margin-top: 8px;
+    color: #888;
+    font-size: 0.9em;
+    font-style: italic;
+}
+.rule_actions {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.add_rule {
+    padding: 6px 14px;
+    cursor: pointer;
+}
+.rule_count {
+    color: #888;
+    font-size: 0.9em;
+}
+.rule_delete {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--error-500, #c33);
+    background: transparent;
+    border: 1px solid var(--error-500, #c33);
+    border-radius: 3px;
+}
+.rule_delete:hover:not(:disabled) {
+    background: var(--error-transparent-1, rgba(200, 60, 60, 0.1));
+}
+.empty_row {
+    text-align: center;
+    color: #888;
+    font-style: italic;
+    padding: 12px;
 }
 </style>

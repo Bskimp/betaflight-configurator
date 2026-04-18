@@ -617,6 +617,24 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     }
                     break;
                 case MSPCodes.MSP_SERVO_MIX_RULES:
+                    // N rules of 7 bytes each: target, input, rate(i8), speed,
+                    // min(i8), max(i8), box. Firmware returns MAX_SERVO_RULES
+                    // entries unconditionally (16 on BF). Matches the per-rule
+                    // layout of MSP_SET_SERVO_MIX_RULE.
+                    FC.SERVO_RULES = [];
+                    if (data.byteLength % 7 === 0) {
+                        for (let i = 0; i < data.byteLength; i += 7) {
+                            FC.SERVO_RULES.push({
+                                target: data.readU8(),
+                                input: data.readU8(),
+                                rate: data.read8(),
+                                speed: data.readU8(),
+                                min: data.read8(),
+                                max: data.read8(),
+                                box: data.readU8(),
+                            });
+                        }
+                    }
                     break;
 
                 case MSPCodes.MSP_SERVO_CONFIGURATIONS:
@@ -704,6 +722,10 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     break;
                 case MSPCodes.MSP_SET_SERVO_CONFIGURATION:
                     console.log("Servo Configuration saved");
+                    break;
+                case MSPCodes.MSP_SET_SERVO_MIX_RULE:
+                    // Per-rule save ack; final save batched with MSP_EEPROM_WRITE
+                    // by the caller.
                     break;
                 case MSPCodes.MSP_EEPROM_WRITE:
                     console.log("Settings Saved in EEPROM");
@@ -2624,6 +2646,44 @@ MspHelper.prototype.sendServoConfigurations = function (onCompleteCallback) {
 
         MSP.send_message(MSPCodes.MSP_SET_SERVO_CONFIGURATION, buffer, false, nextFunction);
     }
+};
+
+// Sends all FC.SERVO_RULES via MSP_SET_SERVO_MIX_RULE, one rule per MSP
+// frame (firmware handler at msp.c:MSP_SET_SERVO_MIX_RULE is single-rule,
+// index-addressed). Signed fields (rate/min/max) masked to 0xff so
+// negative values serialize as two's-complement bytes.
+MspHelper.prototype.sendServoMixRules = function (onCompleteCallback) {
+    let nextFunction = send_next_rule;
+    let ruleIndex = 0;
+
+    if (!FC.SERVO_RULES || FC.SERVO_RULES.length === 0) {
+        onCompleteCallback();
+        return;
+    }
+
+    function send_next_rule() {
+        const rule = FC.SERVO_RULES[ruleIndex];
+        const buffer = [];
+
+        buffer
+            .push8(ruleIndex)
+            .push8(rule.target)
+            .push8(rule.input)
+            .push8(rule.rate & 0xff)
+            .push8(rule.speed)
+            .push8(rule.min & 0xff)
+            .push8(rule.max & 0xff)
+            .push8(rule.box);
+
+        ruleIndex++;
+        if (ruleIndex === FC.SERVO_RULES.length) {
+            nextFunction = onCompleteCallback;
+        }
+
+        MSP.send_message(MSPCodes.MSP_SET_SERVO_MIX_RULE, buffer, false, nextFunction);
+    }
+
+    send_next_rule();
 };
 
 MspHelper.prototype.sendModeRanges = function (onCompleteCallback) {
