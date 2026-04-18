@@ -454,13 +454,25 @@
         "message": "Aircraft Setup"
     },
     "wingMixerAirframeDesc": {
-        "message": "Select the base airframe mixer. Presets below fill in the function mapping for common layouts."
+        "message": "Presets apply the Custom Airplane mixer with the right servo rules and motor mix for your layout. The FC reboots after applying a preset."
     },
-    "wingMixerAirframe": {
-        "message": "Airframe"
+    "wingMixerCurrentMixer": {
+        "message": "Current mixer"
     },
-    "wingMixerReverseMotor": {
-        "message": "Reverse motor direction"
+    "wingMixerCustomAirplane": {
+        "message": "Custom Airplane (preset-driven)"
+    },
+    "wingMixerOtherMixer": {
+        "message": "Mixer index $n$ (not preset-driven — apply a preset to switch)"
+    },
+    "wingMixerApplying": {
+        "message": "Applying preset…"
+    },
+    "wingMixerRebooting": {
+        "message": "Writing motor mix and rebooting the flight controller. The tab will reconnect automatically."
+    },
+    "wingMixerYawConflict": {
+        "message": "Conflict: yaw_type is DIFF_THRUST, but a servo rule uses STABILIZED_YAW. Differential thrust (motors) and a rudder servo will both drive yaw and fight each other on every yaw input. Remove the rudder rule, or change yaw_type to RUDDER."
     },
     "wingMixerPresets": {
         "message": "Apply preset:"

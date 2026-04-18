@@ -47,51 +47,15 @@
                             </div>
                             <div class="spacer">
                                 <p>{{ $t("wingMixerAirframeDesc") }}</p>
-                                <table class="fields">
-                                    <thead>
-                                        <tr>
-                                            <th>{{ $t("wingParameter") }}</th>
-                                            <th>{{ $t("wingValue") }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td
-                                                title="Base airframe mixer. AIRPLANE for tail-and-wing planes; FLYING_WING for delta/elevon planes."
-                                            >
-                                                {{ $t("wingMixerAirframe") }}
-                                            </td>
-                                            <td>
-                                                <select v-model.number="mixerState.airframe" :disabled="loading">
-                                                    <option :value="0">—</option>
-                                                    <option
-                                                        v-for="af in PLANE_AIRFRAMES"
-                                                        :key="af.value"
-                                                        :value="af.value"
-                                                    >
-                                                        {{ af.label }}
-                                                    </option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td
-                                                title="Reverse motor direction (prop-in vs prop-out). Rarely needed on planes."
-                                            >
-                                                {{ $t("wingMixerReverseMotor") }}
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="checkbox"
-                                                    v-model="mixerState.reverseMotorDir"
-                                                    :true-value="1"
-                                                    :false-value="0"
-                                                    :disabled="loading"
-                                                />
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+
+                                <p class="mixer_info">
+                                    <strong>{{ $t("wingMixerCurrentMixer") }}:</strong>
+                                    {{
+                                        mixerState.airframe === CUSTOM_AIRPLANE_MIXER
+                                            ? $t("wingMixerCustomAirplane")
+                                            : $t("wingMixerOtherMixer", { n: mixerState.airframe })
+                                    }}
+                                </p>
 
                                 <p style="margin-top: 10px">{{ $t("wingMixerPresets") }}</p>
                                 <div class="preset_buttons">
@@ -100,7 +64,7 @@
                                         :key="id"
                                         type="button"
                                         class="preset_button"
-                                        :disabled="loading"
+                                        :disabled="loading || applyingPreset"
                                         :title="presets[id].description"
                                         @click="applyPreset(id)"
                                     >
@@ -122,6 +86,11 @@
                             </div>
                             <div class="spacer">
                                 <p>{{ $t("wingMixerRulesDesc") }}</p>
+
+                                <div v-if="yawConflict" class="yaw_conflict_banner">
+                                    ⚠ {{ $t("wingMixerYawConflict") }}
+                                </div>
+
                                 <table class="fields">
                                     <thead>
                                         <tr>
@@ -935,6 +904,15 @@
                     $t("wingTuningReload")
                 }}</a>
             </div>
+
+            <!-- Preset-apply modal. Covers the tab while MSP writes +
+                 CLI mmix + reboot are in flight. -->
+            <div v-if="applyingPreset" class="preset_modal_overlay">
+                <div class="preset_modal_box">
+                    <p class="preset_modal_title">{{ $t("wingMixerApplying") }}</p>
+                    <p class="preset_modal_sub">{{ $t("wingMixerRebooting") }}</p>
+                </div>
+            </div>
         </div>
     </BaseTab>
 </template>
@@ -948,7 +926,8 @@ import MSP from "../../js/msp";
 import MSPCodes from "../../js/msp/MSPCodes";
 import { mspHelper } from "../../js/msp/MSPHelper";
 import { computeTpaCurve, computeSpaCurve, SPA_SETPOINT_MAX } from "../../js/utils/wing_math.js";
-import { PLANE_PRESETS } from "../../js/utils/planePresets.js";
+import { PLANE_PRESETS, INPUT_SOURCES } from "../../js/utils/planePresets.js";
+import { applyMotorMix } from "../../js/utils/wingMixerCli.js";
 
 const PID_GAIN_MAX = 200;
 
@@ -997,14 +976,6 @@ function defaultFields() {
     return f;
 }
 
-// Plane-relevant mixer indices (1-based FC.MIXER_CONFIG.mixer values).
-// Matches model.js:mixerList entries flagged as plane/wing airframes.
-const PLANE_AIRFRAMES = [
-    { value: 8, label: "Flying Wing" },
-    { value: 14, label: "Airplane" },
-    { value: 24, label: "Custom Airplane" },
-];
-
 // Servo mixer input source labels — matches firmware inputSource_e at
 // src/main/flight/servos.h. Order is the wire contract.
 const INPUT_LABELS = [
@@ -1027,6 +998,7 @@ const BOX_LABELS = ["Always", "BOXSERVO1", "BOXSERVO2", "BOXSERVO3"];
 
 const MAX_SERVO_RULES = 16; // firmware: 2 * MAX_SUPPORTED_SERVOS
 const MAX_SERVOS = 8;
+const CUSTOM_AIRPLANE_MIXER = 24; // MIXER_CUSTOM_AIRPLANE, see flight/mixer.h
 
 function emptyMixerState() {
     return { airframe: 0, reverseMotorDir: 0, rules: [] };
@@ -1089,6 +1061,18 @@ export default defineComponent({
         });
 
         const mixerDirty = computed(() => !mixerStatesEqual(mixerState, initialMixerState.value));
+
+        const applyingPreset = ref(false);
+
+        // Loud warning when the user has picked DIFF_THRUST but still has
+        // a servo rule driving yaw — the rudder and the motor differential
+        // will fight each other on every yaw input.
+        const yawConflict = computed(() => {
+            if (fields.yaw_type !== "DIFF_THRUST") {
+                return false;
+            }
+            return mixerState.rules.some((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
+        });
 
         const dirty = computed(
             () => FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]) || mixerDirty.value,
@@ -1271,13 +1255,59 @@ export default defineComponent({
             return padded;
         }
 
-        function applyPreset(id) {
+        // Apply a full preset: yaw_type, airframe, servo rules, motor mix.
+        // All of MSP gets written first (atomic), then the CLI one-shot
+        // applies mmix + triggers a save+reboot. User interaction is
+        // blocked behind a modal during the whole flow.
+        async function applyPreset(id) {
             const preset = PLANE_PRESETS[id];
-            if (!preset) {
+            if (!preset || applyingPreset.value || loading.value || saving.value) {
                 return;
             }
-            mixerState.airframe = preset.mixerIndex;
-            mixerState.rules = preset.rules.map((r) => ({ ...r }));
+            applyingPreset.value = true;
+            error.value = null;
+            try {
+                // Stage reactive state. The existing diffThrustMode watcher
+                // zeroes s_yaw when yaw_type flips to DIFF_THRUST.
+                fields.yaw_type = preset.yawType;
+                mixerState.airframe = preset.mixerIndex;
+                mixerState.reverseMotorDir = 0;
+                mixerState.rules = preset.rules.map((r) => ({ ...r }));
+
+                // MSP writes (wing tuning fields, mixer type, servo rules).
+                for (const def of FIELD_DEFS) {
+                    FC.WING_TUNING[def.name] = fields[def.name];
+                }
+                await MSP.promise(MSPCodes.MSP2_SET_WING_TUNING, mspHelper.crunch(MSPCodes.MSP2_SET_WING_TUNING));
+
+                FC.MIXER_CONFIG.mixer = mixerState.airframe;
+                FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
+                await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
+
+                FC.SERVO_RULES = padRulesToMax(mixerState.rules);
+                await new Promise((resolve, reject) => {
+                    try {
+                        mspHelper.sendServoMixRules(resolve);
+                    } catch (err) {
+                        reject(err);
+                    }
+                });
+
+                // Motor mix + save + reboot via CLI one-shot. BF has no MSP
+                // for mmix today. `save` in CLI persists AND reboots, so no
+                // explicit EEPROM_WRITE or MSP_REBOOT needed.
+                await applyMotorMix(preset.mmix);
+
+                // Mark current state as the new baseline so when the user
+                // reconnects post-reboot, the dirty indicator starts clean.
+                initialFields.value = { ...fields };
+                initialMixerState.value = cloneMixerState(mixerState);
+            } catch (e) {
+                console.error("[WingTuning] preset apply failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                applyingPreset.value = false;
+            }
         }
 
         function addRule() {
@@ -1302,11 +1332,11 @@ export default defineComponent({
             PID_GAIN_MAX,
             SPA_SETPOINT_MAX,
             SPA_WIDTH_SLIDER_MAX: 500,
-            PLANE_AIRFRAMES,
             INPUT_LABELS,
             BOX_LABELS,
             MAX_SERVO_RULES,
             MAX_SERVOS,
+            CUSTOM_AIRPLANE_MIXER,
             fields,
             loading,
             saving,
@@ -1321,6 +1351,8 @@ export default defineComponent({
             spaChart,
             mixerState,
             mixerDirty,
+            yawConflict,
+            applyingPreset,
             applyPreset,
             addRule,
             removeRule,
@@ -1432,5 +1464,45 @@ button {
     color: #888;
     font-style: italic;
     padding: 12px;
+}
+.mixer_info {
+    margin-top: 6px;
+    margin-bottom: 6px;
+    font-size: 0.95em;
+}
+.yaw_conflict_banner {
+    margin: 8px 0 12px 0;
+    padding: 10px 14px;
+    background: var(--error-transparent-1, rgba(200, 60, 60, 0.1));
+    border: 1px solid var(--error-500, #c33);
+    border-radius: 4px;
+    color: var(--error-500, #c33);
+    font-weight: 500;
+}
+.preset_modal_overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.preset_modal_box {
+    background: var(--surface-100, #222);
+    border: 1px solid var(--surface-400, rgba(255, 255, 255, 0.15));
+    border-radius: 6px;
+    padding: 24px 32px;
+    max-width: 400px;
+    text-align: center;
+}
+.preset_modal_title {
+    font-size: 1.1em;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+.preset_modal_sub {
+    color: #888;
+    font-size: 0.95em;
 }
 </style>
