@@ -507,6 +507,9 @@
     "wingMixerBox": {
         "message": "Box"
     },
+    "wingMixerBoxHelp": {
+        "message": "Flight-mode gate. 0 = always applied. 1-3 = rule only applies when the corresponding BOXSERVO1/2/3 flight mode is active (assign a switch via the Modes tab, e.g. for switch-controlled flaps)."
+    },
     "wingMixerAddRule": {
         "message": "Add rule"
     },

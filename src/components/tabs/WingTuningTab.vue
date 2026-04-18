@@ -101,7 +101,7 @@
                                             <th>{{ $t("wingMixerSpeed") }}</th>
                                             <th>{{ $t("wingMixerMin") }}</th>
                                             <th>{{ $t("wingMixerMax") }}</th>
-                                            <th>{{ $t("wingMixerBox") }}</th>
+                                            <th :title="$t('wingMixerBoxHelp')">{{ $t("wingMixerBox") }} ⓘ</th>
                                             <th></th>
                                         </tr>
                                     </thead>
