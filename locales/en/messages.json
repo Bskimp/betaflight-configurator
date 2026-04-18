@@ -450,6 +450,114 @@
     "wingTuningApiRequired": {
         "message": "Wing Tuning requires firmware built with USE_WING enabled. Please update or rebuild your flight controller firmware."
     },
+    "wingMixerAirframeTitle": {
+        "message": "Aircraft Setup"
+    },
+    "wingMixerAirframeDesc": {
+        "message": "Presets apply the Custom Airplane mixer with the right servo rules and motor mix for your layout. The FC reboots after applying a preset."
+    },
+    "wingMixerCurrentMixer": {
+        "message": "Current mixer"
+    },
+    "wingMixerCustomAirplane": {
+        "message": "Custom Airplane (preset-driven)"
+    },
+    "wingMixerOtherMixer": {
+        "message": "Mixer index {{n}} (not Custom Airplane — custom smix rules won't reach the physical outputs until you switch; apply a preset or add a function below)"
+    },
+    "wingMixerApplying": {
+        "message": "Applying preset…"
+    },
+    "wingMixerRebooting": {
+        "message": "Writing motor mix and rebooting the flight controller. The tab will reconnect automatically."
+    },
+    "wingMixerYawConflict": {
+        "message": "Conflict: yaw_type is DIFF_THRUST, but a servo rule uses STABILIZED_YAW. Differential thrust (motors) and a rudder servo will both drive yaw and fight each other on every yaw input. Remove the rudder rule, or change yaw_type to RUDDER."
+    },
+    "wingMixerPresets": {
+        "message": "Apply preset:"
+    },
+    "wingMixerPresetHint": {
+        "message": "Presets fill airframe + function mapping. You can edit individual rules below before saving."
+    },
+    "wingMixerWiringTitle": {
+        "message": "Wiring reference"
+    },
+    "wingMixerWiringSelectLabel": {
+        "message": "Show wiring for:"
+    },
+    "wingMixerWiringPad": {
+        "message": "Resource"
+    },
+    "wingMixerWiringSignal": {
+        "message": "Signal"
+    },
+    "wingMixerWiringHint": {
+        "message": "These are firmware resource labels, not silkscreen pad names. On most plane FCs they map directly to the pad with the same label; on quad FCs or non-standard boards you'll need to remap via CLI (resource SERVO N <pin>; save) to match your wiring. Timer / DMA allocation is your responsibility — check timer show and dma show in CLI before reassigning resources so you don't collide with motors or UART DMA streams."
+    },
+    "wingMixerRulesTitle": {
+        "message": "Function → Output Mapping"
+    },
+    "wingMixerRulesDesc": {
+        "message": "Each row maps a flight input (roll/pitch/yaw/throttle) onto a servo output. Multiple rules per output sum — that's how elevons and V-tails work."
+    },
+    "wingMixerOutput": {
+        "message": "Output"
+    },
+    "wingMixerInput": {
+        "message": "Input"
+    },
+    "wingMixerRate": {
+        "message": "Rate"
+    },
+    "wingMixerSpeed": {
+        "message": "Speed"
+    },
+    "wingMixerMin": {
+        "message": "Min"
+    },
+    "wingMixerMax": {
+        "message": "Max"
+    },
+    "wingMixerBox": {
+        "message": "Box"
+    },
+    "wingMixerBoxHelp": {
+        "message": "Flight-mode gate. 0 = always applied. 1-3 = rule only applies when the corresponding BOXSERVO1/2/3 flight mode is active (assign a switch via the Modes tab, e.g. for switch-controlled flaps)."
+    },
+    "wingMixerAddRule": {
+        "message": "Add rule"
+    },
+    "wingMixerDeleteRule": {
+        "message": "Delete rule"
+    },
+    "wingMixerQuickAddLabel": {
+        "message": "Add function:"
+    },
+    "wingMixerQuickAileron": {
+        "message": "Aileron pair"
+    },
+    "wingMixerQuickElevator": {
+        "message": "Elevator"
+    },
+    "wingMixerQuickRudder": {
+        "message": "Rudder"
+    },
+    "wingMixerQuickElevons": {
+        "message": "Elevons (pair)"
+    },
+    "wingMixerQuickVTail": {
+        "message": "V-Tail (pair)"
+    },
+    "wingMixerQuickRaw": {
+        "message": "Raw rule"
+    },
+    "wingMixerQuickAddHint": {
+        "message": "Function buttons append pre-configured rules to the table and switch the mixer to Custom Airplane. You can edit each rule before saving."
+    },
+    "wingMixerNoRules": {
+        "message": "No servo mix rules. Apply a preset or click \"Add rule\" to start."
+    },
     "wingSTermTitle": {
         "message": "S-term (PIDF_S controller)"
     },
