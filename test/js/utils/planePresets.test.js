@@ -30,7 +30,7 @@ describe("PLANE_PRESETS", () => {
         }
     });
 
-    it("every preset has yawType + mmix + rules", () => {
+    it("every preset has yawType + mmix + rules + wiring", () => {
         for (const id of PRESET_IDS) {
             const preset = PLANE_PRESETS[id];
             expect(preset.id).toBe(id);
@@ -41,7 +41,23 @@ describe("PLANE_PRESETS", () => {
             expect(preset.mmix.length).toBeGreaterThan(0);
             expect(Array.isArray(preset.rules)).toBe(true);
             expect(preset.rules.length).toBeGreaterThan(0);
+            expect(Array.isArray(preset.wiring)).toBe(true);
+            for (const w of preset.wiring) {
+                expect(typeof w.pad).toBe("string");
+                expect(w.pad.length).toBeGreaterThan(0);
+                expect(typeof w.fn).toBe("string");
+                expect(w.fn.length).toBeGreaterThan(0);
+            }
+            // Wiring must cover every motor in mmix.
+            const motorEntries = preset.wiring.filter((w) => w.pad.startsWith("MOTOR "));
+            expect(motorEntries.length).toBe(preset.mmix.length);
         }
+    });
+
+    it("diff-thrust wiring calls out Left Motor + Right Motor explicitly", () => {
+        const diff = PLANE_PRESETS.flying_wing_diff_thrust.wiring;
+        const motors = diff.filter((w) => w.pad.startsWith("MOTOR "));
+        expect(motors.map((m) => m.fn).sort()).toEqual(["Left Motor", "Right Motor"]);
     });
 
     it("every rule field is in firmware servoMixer_t range", () => {

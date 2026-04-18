@@ -93,6 +93,15 @@ const DIFF_THRUST_MOTORS = [
     { throttle: 1.0, roll: 0, pitch: 0, yaw: -0.4 },
 ];
 
+// Per-preset wiring reference. Each entry: { pad, fn } — which
+// physical FC pad the user should plug each control surface or motor
+// signal wire into. Shown in the tab after a preset is applied.
+//
+// Pad names match BF silkscreen conventions: "SERVO 1" = first servo
+// output pad, "MOTOR 1" = first motor output pad. If the board uses
+// different silkscreen labels, the user's FC doc should still map to
+// the same underlying pin order.
+
 export const PLANE_PRESETS = {
     standard: {
         id: "standard",
@@ -102,16 +111,20 @@ export const PLANE_PRESETS = {
         yawType: "RUDDER",
         mmix: SINGLE_MOTOR,
         rules: [
-            rule(SLOT.ELEVATOR, INPUT_SOURCES.STABILIZED_PITCH, +100), // S1 elevator
-            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_ROLL, +100), // S2 aileron L
-            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -100), // S3 aileron R
-            rule(SLOT.RUDDER, INPUT_SOURCES.STABILIZED_YAW, +100), // S4 rudder
+            rule(SLOT.ELEVATOR, INPUT_SOURCES.STABILIZED_PITCH, +100),
+            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_ROLL, +100),
+            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -100),
+            rule(SLOT.RUDDER, INPUT_SOURCES.STABILIZED_YAW, +100),
+        ],
+        wiring: [
+            { pad: "SERVO 1", fn: "Elevator" },
+            { pad: "SERVO 2", fn: "Aileron L" },
+            { pad: "SERVO 3", fn: "Aileron R" },
+            { pad: "SERVO 4", fn: "Rudder" },
+            { pad: "MOTOR 1", fn: "Motor" },
         ],
     },
 
-    // Single-motor flying wing: two elevons, no rudder. Most common
-    // wing setup. Yaw control is effectively zero from pilot inputs —
-    // rudderless wings turn by rolling.
     flying_wing: {
         id: "flying_wing",
         label: "Flying Wing",
@@ -120,10 +133,15 @@ export const PLANE_PRESETS = {
         yawType: "RUDDER",
         mmix: SINGLE_MOTOR,
         rules: [
-            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_ROLL, +50), // S2 L elevon — roll
-            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_PITCH, +50), // S2 L elevon — pitch
-            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -50), // S3 R elevon — roll reversed
-            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_PITCH, +50), // S3 R elevon — pitch
+            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_ROLL, +50),
+            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_PITCH, +50),
+            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -50),
+            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_PITCH, +50),
+        ],
+        wiring: [
+            { pad: "SERVO 2", fn: "Left Elevon" },
+            { pad: "SERVO 3", fn: "Right Elevon" },
+            { pad: "MOTOR 1", fn: "Motor" },
         ],
     },
 
@@ -140,11 +158,14 @@ export const PLANE_PRESETS = {
             rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -50),
             rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_PITCH, +50),
         ],
+        wiring: [
+            { pad: "SERVO 2", fn: "Left Elevon" },
+            { pad: "SERVO 3", fn: "Right Elevon" },
+            { pad: "MOTOR 1", fn: "Left Motor" },
+            { pad: "MOTOR 2", fn: "Right Motor" },
+        ],
     },
 
-    // V-tail plane: two ailerons (S2/S3) + V-tail ruddervators on the
-    // ELEVATOR and RUDDER slots (S1/S4). Each V-tail surface mixes
-    // pitch + yaw at 50/50.
     v_tail: {
         id: "v_tail",
         label: "V-Tail",
@@ -153,12 +174,19 @@ export const PLANE_PRESETS = {
         yawType: "RUDDER",
         mmix: SINGLE_MOTOR,
         rules: [
-            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_ROLL, +100), // S2 aileron L
-            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -100), // S3 aileron R
-            rule(SLOT.ELEVATOR, INPUT_SOURCES.STABILIZED_PITCH, +50), // S1 L ruddervator — pitch
-            rule(SLOT.ELEVATOR, INPUT_SOURCES.STABILIZED_YAW, +50), // S1 L ruddervator — yaw
-            rule(SLOT.RUDDER, INPUT_SOURCES.STABILIZED_PITCH, +50), // S4 R ruddervator — pitch
-            rule(SLOT.RUDDER, INPUT_SOURCES.STABILIZED_YAW, -50), // S4 R ruddervator — yaw reversed
+            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_ROLL, +100),
+            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -100),
+            rule(SLOT.ELEVATOR, INPUT_SOURCES.STABILIZED_PITCH, +50),
+            rule(SLOT.ELEVATOR, INPUT_SOURCES.STABILIZED_YAW, +50),
+            rule(SLOT.RUDDER, INPUT_SOURCES.STABILIZED_PITCH, +50),
+            rule(SLOT.RUDDER, INPUT_SOURCES.STABILIZED_YAW, -50),
+        ],
+        wiring: [
+            { pad: "SERVO 1", fn: "Left V-Tail" },
+            { pad: "SERVO 2", fn: "Aileron L" },
+            { pad: "SERVO 3", fn: "Aileron R" },
+            { pad: "SERVO 4", fn: "Right V-Tail" },
+            { pad: "MOTOR 1", fn: "Motor" },
         ],
     },
 };

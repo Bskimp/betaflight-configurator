@@ -480,6 +480,21 @@
     "wingMixerPresetHint": {
         "message": "Presets fill airframe + function mapping. You can edit individual rules below before saving."
     },
+    "wingMixerWiringTitle": {
+        "message": "Wiring reference"
+    },
+    "wingMixerWiringSelectLabel": {
+        "message": "Show wiring for:"
+    },
+    "wingMixerWiringPad": {
+        "message": "FC pad"
+    },
+    "wingMixerWiringSignal": {
+        "message": "Signal"
+    },
+    "wingMixerWiringHint": {
+        "message": "Plug each control surface / motor signal wire into the pad on the left. Pad names follow BF silkscreen conventions — check your FC documentation if the labels differ."
+    },
     "wingMixerRulesTitle": {
         "message": "Function → Output Mapping"
     },

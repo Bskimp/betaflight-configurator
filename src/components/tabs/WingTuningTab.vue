@@ -72,6 +72,35 @@
                                     </button>
                                 </div>
                                 <p class="preset_hint">{{ $t("wingMixerPresetHint") }}</p>
+
+                                <div class="wiring_panel">
+                                    <div class="wiring_header">
+                                        <strong>{{ $t("wingMixerWiringTitle") }}</strong>
+                                        <label class="wiring_selector_label">
+                                            {{ $t("wingMixerWiringSelectLabel") }}
+                                            <select v-model="wiringPresetId" class="wiring_selector">
+                                                <option v-for="id in presetIds" :key="id" :value="id">
+                                                    {{ presets[id].label }}
+                                                </option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <table v-if="currentWiring" class="wiring_table">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingMixerWiringPad") }}</th>
+                                                <th>{{ $t("wingMixerWiringSignal") }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="w in currentWiring" :key="w.pad">
+                                                <td class="wiring_pad">{{ w.pad }}</td>
+                                                <td>{{ w.fn }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <p class="wiring_hint">{{ $t("wingMixerWiringHint") }}</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -937,7 +966,13 @@ import MSP from "../../js/msp";
 import MSPCodes from "../../js/msp/MSPCodes";
 import { mspHelper } from "../../js/msp/MSPHelper";
 import { computeTpaCurve, computeSpaCurve, SPA_SETPOINT_MAX } from "../../js/utils/wing_math.js";
-import { PLANE_PRESETS, INPUT_SOURCES, PLANE_SLOT_MIN, PLANE_SLOT_MAX } from "../../js/utils/planePresets.js";
+import {
+    PLANE_PRESETS,
+    PRESET_IDS,
+    INPUT_SOURCES,
+    PLANE_SLOT_MIN,
+    PLANE_SLOT_MAX,
+} from "../../js/utils/planePresets.js";
 import { applyMotorMix } from "../../js/utils/wingMixerCli.js";
 import { useConnectionStore } from "../../stores/connection";
 
@@ -1154,6 +1189,21 @@ export default defineComponent({
 
         const applyingPreset = ref(false);
 
+        // Wiring reference selector. Defaults to the first preset so
+        // the reference panel is visible immediately on tab load —
+        // users can pick any preset to see where to plug signal wires
+        // without committing, and the panel stays put across preset
+        // applies + FC reboot + reconnect (component remount picks up
+        // the same default).
+        const wiringPresetId = ref(PRESET_IDS[0] || null);
+
+        const currentWiring = computed(() => {
+            if (!wiringPresetId.value) {
+                return null;
+            }
+            return PLANE_PRESETS[wiringPresetId.value]?.wiring || null;
+        });
+
         // Loud warning when the user has picked DIFF_THRUST but still has
         // a servo rule driving yaw — the rudder and the motor differential
         // will fight each other on every yaw input.
@@ -1355,6 +1405,11 @@ export default defineComponent({
                 return;
             }
             applyingPreset.value = true;
+            // Move the wiring reference panel to the preset being
+            // applied. Stays set across the reboot because the ref
+            // defaults to something on remount anyway, and the user
+            // can still pick a different one after.
+            wiringPresetId.value = id;
             error.value = null;
             // Halt update_live_status polling for the full MSP+CLI+reboot
             // window. Otherwise the 250 ms MSP_STATUS cadence queues up
@@ -1477,6 +1532,8 @@ export default defineComponent({
             mixerDirty,
             yawConflict,
             applyingPreset,
+            wiringPresetId,
+            currentWiring,
             applyPreset,
             QUICK_ADD_TEMPLATES,
             addTemplate,
@@ -1554,6 +1611,57 @@ button {
     margin-top: 8px;
     color: #888;
     font-size: 0.9em;
+    font-style: italic;
+}
+.wiring_panel {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: var(--surface-100, rgba(255, 255, 255, 0.03));
+    border-left: 3px solid var(--primary-500, #ffb800);
+    border-radius: 3px;
+}
+.wiring_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+    font-size: 0.95em;
+}
+.wiring_selector_label {
+    color: #888;
+    font-weight: normal;
+    font-size: 0.9em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.wiring_selector {
+    min-width: 180px;
+}
+.wiring_table {
+    width: auto;
+    margin-top: 4px;
+    border-collapse: collapse;
+}
+.wiring_table th,
+.wiring_table td {
+    padding: 3px 14px 3px 0;
+    text-align: left;
+    font-size: 0.9em;
+}
+.wiring_table th {
+    color: #888;
+    font-weight: normal;
+}
+.wiring_pad {
+    font-family: monospace;
+    font-weight: 600;
+}
+.wiring_hint {
+    margin: 8px 0 0 0;
+    color: #888;
+    font-size: 0.85em;
     font-style: italic;
 }
 .rule_actions {
