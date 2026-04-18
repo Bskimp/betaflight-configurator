@@ -487,13 +487,13 @@
         "message": "Show wiring for:"
     },
     "wingMixerWiringPad": {
-        "message": "FC pad"
+        "message": "Resource"
     },
     "wingMixerWiringSignal": {
         "message": "Signal"
     },
     "wingMixerWiringHint": {
-        "message": "Plug each control surface / motor signal wire into the pad on the left. Pad names follow BF silkscreen conventions — check your FC documentation if the labels differ."
+        "message": "These are firmware resource labels, not silkscreen pad names. On most plane FCs they map directly to the pad with the same label; on quad FCs or non-standard boards you'll need to remap via CLI (resource SERVO N <pin>; save) to match your wiring. Timer / DMA allocation is your responsibility — check timer show and dma show in CLI before reassigning resources so you don't collide with motors or UART DMA streams."
     },
     "wingMixerRulesTitle": {
         "message": "Function → Output Mapping"
