@@ -2219,41 +2219,47 @@ export default defineComponent({
                 FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
                 await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
 
-                // Note: the stock `mspHelper.sendServoMixRules` path used to
-                // send each rule via MSP_SET_SERVO_MIX_RULE (code 242). That
-                // MSP code is marked "Not used" in MSPCodes.js — firmware
-                // deprecated it in favor of the CLI `smix` command. We
-                // stash the rules into FC.SERVO_RULES for Vue-state
-                // consistency but skip the MSP write; the CLI batch below
-                // is the actual path that persists them.
+                // Servo mix rules via MSP_SET_SERVO_MIX_RULE. The "Not used"
+                // comment in MSPCodes.js is STALE — modern BF firmware
+                // accepts this MSP code; the Save button in this same tab
+                // has always used it and bench-confirmed it persists smix
+                // rules correctly. Previous attempts to replace it with
+                // CLI `smix` emissions failed on bench (smix rules dropped
+                // at save time); the MSP path is the tested-working route.
                 FC.SERVO_RULES = padRulesToMax(mixerState.rules);
+                await new Promise((resolve, reject) => {
+                    try {
+                        mspHelper.sendServoMixRules(resolve);
+                    } catch (err) {
+                        reject(err);
+                    }
+                });
 
                 // Drop any queued MSP calls before we trigger the reboot
                 // so pending MSP_STATUS / etc don't pile up waiting for a
                 // response that'll never come until the FC is back.
                 connectionStore.clearMspQueue();
 
-                // Resource remap + motor mix + servo mix + save + reboot,
-                // one CLI batch. Handles three problems at once:
+                // Resource remap + motor mix + save + reboot, one CLI batch.
                 //
-                // 1. On quad-declared boards (4M/0S like FURYF4OSD) smix
-                //    rules targeting S3/S4 would have no physical SERVO
-                //    resources to drive. Recommender's servoCount top-up
-                //    extends the pool from `pwmCapableFreePads` so the
-                //    preset's requested servo count is actually bound.
+                // smix rules already went via MSP above (see block a few
+                // lines up). That path is what the Save button has
+                // always used and what the user's bench-confirmed manual
+                // flow relies on; its "Not used" comment in MSPCodes.js
+                // is stale. The CLI batch here handles the two things
+                // MSP can't do cleanly from the configurator side: pin
+                // resource remap (no MSP for this) and motor mix (no MSP
+                // for mmix).
                 //
-                // 2. smix rules via the deprecated MSP code silently drop.
-                //    Emitting them as CLI `smix` commands is the BF-current
-                //    path and they actually persist.
+                // Servo count still matters for the remap — on quad-
+                // declared boards (4M/0S) we need to bind enough SERVO
+                // resources to back the preset's smix rules, otherwise
+                // smix rules targeting S3/S4 have no physical pad.
                 //
-                // 3. Single save+reboot keeps everything atomic — no half-
-                //    applied state if the user yanks USB mid-flow.
-                //
-                // Uses the Hardware sub-tab's board-wiring choice so AIO vs
-                // discrete applies consistently across both apply paths.
-                // LED_STRIP / UART release stay OFF here — those are
-                // opt-ins that only fire when the user ticks them in the
-                // Hardware sub-tab.
+                // Board wiring (discrete vs AIO) comes from the Hardware
+                // sub-tab so both apply paths stay consistent. LED_STRIP
+                // / UART release stay OFF here — opt-ins via Hardware
+                // sub-tab only.
                 if (!hardwareAnalysis.value) {
                     await loadHardware();
                 }
@@ -2277,23 +2283,10 @@ export default defineComponent({
                             `mmix ${i} ${m.throttle.toFixed(3)} ${m.roll.toFixed(3)} ${m.pitch.toFixed(3)} ${m.yaw.toFixed(3)}`,
                     ),
                 );
-                // smix syntax: `smix INDEX TARGET INPUT RATE SPEED MIN MAX BOX`
-                // Signed fields (rate/min/max) — BF CLI accepts signed ints.
-                //
-                // Skipping `smix reset` deliberately — on bench retest,
-                // including it caused ALL subsequent smix writes to
-                // silently drop (mmix persisted, smix didn't). Without
-                // the reset, BF overwrites indices 0..N-1 cleanly.
-                // Stale rules at indices >= preset.rules.length from a
-                // prior preset can linger, but are a minor concern
-                // (no target slot overlap with a fresh airframe) and
-                // preferable to losing the whole mix.
-                const smixLines = preset.rules.map(
-                    (r, i) =>
-                        `smix ${i} ${r.target} ${r.input} ${r.rate} ${r.speed ?? 0} ${r.min ?? -100} ${r.max ?? 100} ${r.box ?? 0}`,
-                );
                 // applyCliLines auto-appends `save` if the batch doesn't end with it.
-                await applyCliLines([...resourceLines, ...mmixLines, ...smixLines]);
+                // The save commits BOTH the MSP-written smix rules AND the
+                // CLI-written resource/mmix changes to EEPROM, then reboots.
+                await applyCliLines([...resourceLines, ...mmixLines]);
 
                 // Mark current state as the new baseline so when the user
                 // reconnects post-reboot, the dirty indicator starts clean.
