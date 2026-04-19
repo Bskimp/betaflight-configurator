@@ -1349,6 +1349,32 @@
                                                 </label>
                                             </div>
 
+                                            <!-- Spare UART release — one checkbox per UART that's enabled
+                                                 but has no function assigned AND has at least one
+                                                 PWM-capable pad. Only renders when at least one such UART
+                                                 exists; quiet on UART-tight boards. -->
+                                            <div
+                                                v-if="
+                                                    hardwareAnalysis.spareUarts &&
+                                                    hardwareAnalysis.spareUarts.length > 0
+                                                "
+                                                class="hw_motor_toggle hw_uart_stack"
+                                            >
+                                                <label v-for="u in hardwareAnalysis.spareUarts" :key="u.index">
+                                                    <input
+                                                        type="checkbox"
+                                                        :checked="remapReleaseUarts.has(u.index)"
+                                                        @change="toggleReleaseUart(u.index)"
+                                                    />
+                                                    {{
+                                                        $t("wingHardwareReleaseUart", {
+                                                            n: u.index,
+                                                            pads: [u.txPad, u.rxPad].filter(Boolean).join(" / "),
+                                                        })
+                                                    }}
+                                                </label>
+                                            </div>
+
                                             <!-- Physical-pad sanity warning for AIO users: candidate
                                                  pads come from the board's TIMER_PIN_MAP but some AIOs
                                                  don't route those to accessible headers. Firmware has
@@ -1736,6 +1762,10 @@ export default defineComponent({
                     timerShow: parseTimerShow(ts.lines),
                     dmaShow: parseDmaShow(ds.lines),
                     timerDump: parseTimerDump(td.lines),
+                    // Serial port function assignments (MSP_SERIAL_CONFIG, fetched
+                    // at connect by serial_backend.js). Used to identify unused
+                    // UARTs whose pads can be repurposed as servo outputs.
+                    serialPorts: FC.SERIAL_CONFIG?.ports || [],
                 });
             } catch (e) {
                 console.error("[WingTuning] Hardware load failed:", e);
@@ -1757,6 +1787,11 @@ export default defineComponent({
         // Useful on tight AIOs where the declared-but-unclaimed PWM pads
         // aren't physically broken out (common on compact 4-in-1 AIOs).
         const remapReleaseLedStrip = ref(false);
+        // Set of UART indices the user has opted in to release. Each entry
+        // must correspond to an analysis.spareUarts entry (UART with no
+        // function assigned AND with at least one PWM-capable pad); the
+        // UI only renders checkboxes for qualifying UARTs.
+        const remapReleaseUarts = reactive(new Set());
         const applyingRemap = ref(false);
         const wingRemap = computed(() => {
             if (!hardwareAnalysis.value) {
@@ -1774,8 +1809,14 @@ export default defineComponent({
                 motorCount: remapMotorCount.value,
                 boardWiring: remapBoardWiring.value,
                 releaseLedStrip: remapReleaseLedStrip.value,
+                releaseUarts: [...remapReleaseUarts].sort((a, b) => a - b),
             });
         });
+
+        function toggleReleaseUart(index) {
+            if (remapReleaseUarts.has(index)) remapReleaseUarts.delete(index);
+            else remapReleaseUarts.add(index);
+        }
 
         async function applyRemap() {
             if (wingRemap.value.isNoOp || wingRemap.value.cliLines.length === 0) return;
@@ -2264,6 +2305,8 @@ export default defineComponent({
             remapMotorCount,
             remapBoardWiring,
             remapReleaseLedStrip,
+            remapReleaseUarts,
+            toggleReleaseUart,
             applyingRemap,
             wingRemap,
             applyRemap,

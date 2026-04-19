@@ -22,15 +22,18 @@ const DEFAULT_MOTOR_COUNT = 2;
  *   "discrete": motor pads route to servo headers, safe to reassign as servos.
  *   "aio": motor pads soldered to ESCs; released motors stay released, servos
  *   come from the pool of free PWM pads instead.
- * @param {boolean} [options.releaseLedStrip=false] - when true, the LED_STRIP
- *   pad is released and added to the servo candidate pool. Useful on AIOs
- *   where declared-but-unclaimed PWM pads aren't physically broken out but
- *   the LED_STRIP pad is.
+ * @param {boolean} [options.releaseLedStrip=false] - release LED_STRIP and
+ *   add its pad to the servo candidate pool. In AIO mode the LED_STRIP pad
+ *   gets PRIORITY (most likely to be physically broken out on AIOs).
+ * @param {number[]} [options.releaseUarts=[]] - UART indices (1-based) to
+ *   release. Each must be in analysis.spareUarts; their PWM-capable TX/RX
+ *   pads join the servo candidate pool.
  */
 export function computeWingRemap(analysis, options = {}) {
     const motorCount = options.motorCount ?? DEFAULT_MOTOR_COUNT;
     const boardWiring = options.boardWiring === "aio" ? "aio" : "discrete";
     const releaseLedStrip = options.releaseLedStrip === true;
+    const releaseUarts = Array.isArray(options.releaseUarts) ? options.releaseUarts : [];
 
     if (!analysis || !Array.isArray(analysis.motors)) {
         return noOp("analyzer returned no motor data");
@@ -68,19 +71,35 @@ export function computeWingRemap(analysis, options = {}) {
     // If analyzer didn't surface pwmCapableFreePads (older firmware,
     // no timer dump available), AIO mode falls back to the previous
     // "manual" behavior with a warning.
-    const pwmFreePads = Array.isArray(analysis.pwmCapableFreePads) ? [...analysis.pwmCapableFreePads] : [];
-
-    // Optional LED_STRIP release — on AIOs where declared-unclaimed PWM
-    // pads aren't physically broken out, the LED_STRIP pad usually is.
-    // Opt-in because most users want their RGB; flagging a warning if
-    // there's no LED_STRIP on the board avoids silent no-ops.
+    // Priority-ordered candidate pool for servo assignment.
+    //   AIO mode: [LED_STRIP, UART pads in requested order, declared-free PWM]
+    //     LED_STRIP / UART pads are almost always broken out on AIO headers;
+    //     declared-free pads (M5-M8 slot declarations) often aren't.
+    //   Discrete mode: servos come from motor pads, so the "extras" (LED/UART)
+    //     only get used if the motor pool is exhausted — appended at end.
+    const priorityPads = [];
     const ledReleased = [];
+    const uartsReleased = [];
+
     if (releaseLedStrip && Array.isArray(analysis.ledStrips)) {
         for (const ls of analysis.ledStrips) {
-            pwmFreePads.push({ pad: ls.pad, timer: ls.timer, channel: ls.channel });
+            priorityPads.push({ pad: ls.pad, timer: ls.timer, channel: ls.channel });
             ledReleased.push(ls.pad);
         }
     }
+    if (releaseUarts.length > 0 && Array.isArray(analysis.spareUarts)) {
+        for (const uartIndex of releaseUarts) {
+            const spare = analysis.spareUarts.find((u) => u.index === uartIndex);
+            if (!spare) continue;
+            uartsReleased.push({ index: uartIndex, txPad: spare.txPad, rxPad: spare.rxPad });
+            if (spare.txPad) priorityPads.push({ pad: spare.txPad, timer: null, channel: null, side: "tx" });
+            if (spare.rxPad) priorityPads.push({ pad: spare.rxPad, timer: null, channel: null, side: "rx" });
+        }
+    }
+
+    const declaredFreePwm = Array.isArray(analysis.pwmCapableFreePads) ? [...analysis.pwmCapableFreePads] : [];
+    const pwmFreePads =
+        boardWiring === "aio" ? [...priorityPads, ...declaredFreePwm] : [...declaredFreePwm, ...priorityPads];
 
     const servosToAssign = [];
     const skipWarnings = [];
@@ -100,6 +119,13 @@ export function computeWingRemap(analysis, options = {}) {
     // how many strip entries the analyzer captured.
     if (ledReleased.length > 0) {
         cliLines.push(`resource LED_STRIP 1 NONE`);
+    }
+
+    // UART releases follow the same ordering: free the SERIAL_TX/RX
+    // resource(s) before binding the pad to a SERVO slot.
+    for (const u of uartsReleased) {
+        if (u.txPad) cliLines.push(`resource SERIAL_TX ${u.index} NONE`);
+        if (u.rxPad) cliLines.push(`resource SERIAL_RX ${u.index} NONE`);
     }
 
     // Assign phase: wire servos to the appropriate pad source.
@@ -151,15 +177,27 @@ export function computeWingRemap(analysis, options = {}) {
             message: "Release LED_STRIP option is on, but no LED_STRIP resource is currently bound. Nothing released.",
         });
     }
+    for (const requestedIdx of releaseUarts) {
+        if (!uartsReleased.find((u) => u.index === requestedIdx)) {
+            skipWarnings.push({
+                code: "uart_not_releasable",
+                message: `UART${requestedIdx} requested for release but not in spareUarts (no PWM-capable pad, or has a function assigned). Nothing released.`,
+            });
+        }
+    }
 
     const keepStr = keep.map((m) => `M${m.index}`).join(", ") || "(none)";
     const servoStr = servosToAssign.length > 0 ? servosToAssign.map((s) => `S${s.slot}=${s.pad}`).join(", ") : "(none)";
     const ledSuffix = ledReleased.length > 0 ? ` (LED_STRIP released from ${ledReleased[0]} to free a servo pad)` : "";
+    const uartSuffix =
+        uartsReleased.length > 0
+            ? ` (released UART${uartsReleased.map((u) => u.index).join(", UART")} for extra servo pad${uartsReleased.length === 1 ? "" : "s"})`
+            : "";
     let summary;
     if (boardWiring === "aio") {
-        summary = `Keep ${keepStr} as motors (on their ESC-soldered pads); release ${motorsToRelease.length} unused motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign servos to free PWM pads: ${servoStr}.${ledSuffix}`;
+        summary = `Keep ${keepStr} as motors (on their ESC-soldered pads); release ${motorsToRelease.length} unused motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign servos to free PWM pads: ${servoStr}.${ledSuffix}${uartSuffix}`;
     } else {
-        summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and reassign pads to servos: ${servoStr}.${ledSuffix}`;
+        summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and reassign pads to servos: ${servoStr}.${ledSuffix}${uartSuffix}`;
     }
 
     return {

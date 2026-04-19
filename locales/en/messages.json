@@ -531,6 +531,9 @@
     "wingHardwareReleaseLedStrip": {
         "message": "Also release LED_STRIP pad for an extra servo (disables RGB)"
     },
+    "wingHardwareReleaseUart": {
+        "message": "Also release UART{{n}} ({{pads}}) — no function assigned, pads are PWM-capable"
+    },
     "wingHardwareAioPhysicalVerify": {
         "message": "Candidate servo pads come from the firmware's TIMER_PIN_MAP. On tightly-integrated AIOs, not all of these are broken out to accessible headers — verify against your board's pad map before flying. If the suggested pads aren't usable, enable 'release LED_STRIP' or run CLI manually with pads your board actually exposes."
     },

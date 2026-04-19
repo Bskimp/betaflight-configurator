@@ -158,8 +158,13 @@ function deriveWarnings({ motors, servos, ledStrips, freeDmaStreams }) {
  *   have a PWM timer but currently show as FREE in resourceShow).
  *   Used by the AIO remap recommender to find servo-eligible pads
  *   without reassigning motor pads that are soldered to ESCs.
+ * @param {Array} [input.serialPorts] - optional FC.SERIAL_CONFIG.ports
+ *   ([{identifier, functions: string[]}]). When present, surfaces
+ *   spareUarts: UARTs with no function assigned AND with at least one
+ *   PWM-capable pad (TX or RX). Recommender's UART-release flow can
+ *   repurpose those pads as servo outputs.
  */
-export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDump = [] }) {
+export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDump = [], serialPorts = [] }) {
     const timerByKey = buildTimerLookup(timerShow);
     const dmaByKey = buildDmaLookup(dmaShow);
     const uartDmaByDirIndex = buildUartDmaLookup(dmaShow);
@@ -235,6 +240,32 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
         ? timerDump.filter((t) => freePads.has(t.pad)).map((t) => ({ pad: t.pad, timer: t.timer, channel: t.channel }))
         : [];
 
+    // Spare UARTs: ports that exist (resource bound) but have no serial
+    // function assigned. For each, check whether the TX/RX pad is on a
+    // PWM-capable timer (timerDump cross-ref). Released UART pads can
+    // become servo outputs. UART# = identifier + 1 (BF SERIAL_PORT_USART1=0).
+    const pwmPadSet = new Set((Array.isArray(timerDump) ? timerDump : []).map((t) => t.pad));
+    const spareUarts = [];
+    if (Array.isArray(serialPorts)) {
+        for (const port of serialPorts) {
+            if (!port) continue;
+            const fns = Array.isArray(port.functions) ? port.functions : [];
+            if (fns.length > 0) continue;
+            const uartIndex = (port.identifier ?? -1) + 1;
+            if (uartIndex <= 0) continue;
+            const serial = serials.find((s) => s.index === uartIndex);
+            if (!serial) continue;
+            const txPwm = serial.txPad && pwmPadSet.has(serial.txPad);
+            const rxPwm = serial.rxPad && pwmPadSet.has(serial.rxPad);
+            if (!txPwm && !rxPwm) continue;
+            spareUarts.push({
+                index: uartIndex,
+                txPad: txPwm ? serial.txPad : null,
+                rxPad: rxPwm ? serial.rxPad : null,
+            });
+        }
+    }
+
     const warnings = deriveWarnings({ motors, servos, ledStrips, freeDmaStreams });
 
     return {
@@ -246,6 +277,7 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
         freeDmaStreams,
         hardwareFixedPads,
         pwmCapableFreePads,
+        spareUarts,
         warnings,
     };
 }

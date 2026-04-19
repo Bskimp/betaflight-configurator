@@ -242,7 +242,10 @@ describe("computeWingRemap LED_STRIP release option", () => {
         expect(r.warnings.some((w) => w.code === "aio_no_free_pwm_pad")).toBe(true);
     });
 
-    it("supplements existing pwmCapableFreePads when LED_STRIP release is on", () => {
+    it("AIO mode: LED_STRIP pad takes PRIORITY over declared-unclaimed PWM pads", () => {
+        // On AIOs the LED_STRIP pad is far more reliably broken out than
+        // the M5-M8 declared-but-unclaimed pads, so when the user opts
+        // in to LED_STRIP release we want it picked FIRST.
         const r = computeWingRemap(
             analysis(aioMotors, {
                 ledStrips: [{ pad: "A09", timer: 1, channel: 2, dmaStream: null }],
@@ -250,9 +253,28 @@ describe("computeWingRemap LED_STRIP release option", () => {
             }),
             { motorCount: 2, boardWiring: "aio", releaseLedStrip: true },
         );
-        // 2 motor releases + 2 servo candidates (PwmFree + LED_STRIP) → clean.
-        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["B05", "A09"]);
+        // Expect A09 (LED_STRIP) as SERVO 1, B05 (M5 declared pad) as SERVO 2.
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["A09", "B05"]);
         expect(r.cliLines).toContain("resource LED_STRIP 1 NONE");
+    });
+
+    it("discrete mode: LED_STRIP gets appended (motor pads are primary)", () => {
+        // In discrete mode motor pads are the primary servo source, so
+        // LED_STRIP shouldn't displace them — it just adds headroom on
+        // the end if needed.
+        const fourMotors = [
+            { index: 1, pad: "B07", timer: null, channel: null, dmaStream: null, bidirBurst: false },
+            { index: 2, pad: "B06", timer: null, channel: null, dmaStream: null, bidirBurst: false },
+            { index: 3, pad: "B15", timer: null, channel: null, dmaStream: null, bidirBurst: false },
+            { index: 4, pad: "A08", timer: null, channel: null, dmaStream: null, bidirBurst: false },
+        ];
+        const r = computeWingRemap(
+            analysis(fourMotors, { ledStrips: [{ pad: "A09", timer: 1, channel: 2, dmaStream: null }] }),
+            { motorCount: 2, releaseLedStrip: true },
+        );
+        // Discrete mode reuses motor pads, so LED_STRIP doesn't get used
+        // unless the motor pool is exhausted. Servos = ex-motor pads.
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["B15", "A08"]);
     });
 
     it("warns when LED_STRIP release is on but no LED_STRIP is bound", () => {
@@ -277,5 +299,59 @@ describe("computeWingRemap LED_STRIP release option", () => {
         expect(r.cliLines).not.toContain("resource LED_STRIP 1 NONE");
         // servo 1 uses the PWM free pad, not LED_STRIP
         expect(r.servosToAssign.map((s) => s.pad)).toEqual(["B05"]);
+    });
+});
+
+describe("computeWingRemap UART release option", () => {
+    const aioMotors = [
+        { index: 1, pad: "B00", timer: 3, channel: 3, dmaStream: null, bidirBurst: true },
+        { index: 2, pad: "B01", timer: 3, channel: 4, dmaStream: null, bidirBurst: true },
+        { index: 3, pad: "A03", timer: 2, channel: 4, dmaStream: null, bidirBurst: false },
+        { index: 4, pad: "A02", timer: 2, channel: 3, dmaStream: null, bidirBurst: false },
+    ];
+
+    it("releases UART resources and adds their PWM-capable pads to candidate pool", () => {
+        const r = computeWingRemap(
+            analysis(aioMotors, {
+                spareUarts: [
+                    { index: 3, txPad: "B10", rxPad: null }, // only TX is PWM-capable
+                    { index: 5, txPad: "C12", rxPad: "D02" },
+                ],
+            }),
+            { motorCount: 2, boardWiring: "aio", releaseUarts: [3, 5] },
+        );
+        // Three released UART pads (UART3 TX, UART5 TX, UART5 RX) get
+        // prepended to candidate pool in AIO mode. Motor releases consume
+        // the first 2 candidates: B10, C12.
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["B10", "C12"]);
+        // Verify CLI sequence releases UART resources before binding SERVOs.
+        expect(r.cliLines).toContain("resource SERIAL_TX 3 NONE");
+        expect(r.cliLines).toContain("resource SERIAL_TX 5 NONE");
+        expect(r.cliLines).toContain("resource SERIAL_RX 5 NONE");
+    });
+
+    it("warns when a requested UART has no spare/PWM-capable pad", () => {
+        const r = computeWingRemap(
+            analysis(aioMotors, { spareUarts: [{ index: 3, txPad: "B10", rxPad: null }] }),
+            { motorCount: 2, boardWiring: "aio", releaseUarts: [3, 6] }, // UART6 not in spareUarts
+        );
+        const w = r.warnings.find((x) => x.code === "uart_not_releasable");
+        expect(w).toBeDefined();
+        expect(w.message).toMatch(/UART6/);
+    });
+
+    it("UART release combines with LED_STRIP release (both prepended in AIO)", () => {
+        const r = computeWingRemap(
+            analysis(aioMotors, {
+                ledStrips: [{ pad: "A09", timer: 1, channel: 2, dmaStream: null }],
+                spareUarts: [{ index: 3, txPad: "B10", rxPad: null }],
+            }),
+            { motorCount: 2, boardWiring: "aio", releaseLedStrip: true, releaseUarts: [3] },
+        );
+        // Both LED_STRIP (A09) and UART3 TX (B10) prepend; LED_STRIP first.
+        // 2 motor releases pick from the front: A09, B10.
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["A09", "B10"]);
+        expect(r.cliLines).toContain("resource LED_STRIP 1 NONE");
+        expect(r.cliLines).toContain("resource SERIAL_TX 3 NONE");
     });
 });
