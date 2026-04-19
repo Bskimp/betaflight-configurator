@@ -2215,9 +2215,16 @@ export default defineComponent({
                 }
                 await MSP.promise(MSPCodes.MSP2_SET_WING_TUNING, mspHelper.crunch(MSPCodes.MSP2_SET_WING_TUNING));
 
+                // Mixer type change is done via CLI in the combined batch
+                // below — NOT via MSP here. Setting mixer via MSP and THEN
+                // running CLI smix commands in the same session seems to
+                // wipe the smix rules on save (bench-confirmed behavior:
+                // mmix + resource persisted but smix rules didn't, even
+                // without any reset command). Keeping mixer change inside
+                // the CLI batch makes the ordering explicit and avoids the
+                // MSP/CLI state-sync issue.
                 FC.MIXER_CONFIG.mixer = mixerState.airframe;
                 FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
-                await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
 
                 // Note: the stock `mspHelper.sendServoMixRules` path used to
                 // send each rule via MSP_SET_SERVO_MIX_RULE (code 242). That
@@ -2292,8 +2299,13 @@ export default defineComponent({
                     (r, i) =>
                         `smix ${i} ${r.target} ${r.input} ${r.rate} ${r.speed ?? 0} ${r.min ?? -100} ${r.max ?? 100} ${r.box ?? 0}`,
                 );
+                // Mixer type FIRST — any mixer change needs to happen
+                // before smix writes so BF's mixer-change init (which
+                // may reset smix) doesn't clobber our rules. CUSTOMAIRPLANE
+                // = 24 per flight/mixer.h; presets set mixerIndex to match.
+                const mixerLine = `mixer ${mixerState.airframe}`;
                 // applyCliLines auto-appends `save` if the batch doesn't end with it.
-                await applyCliLines([...resourceLines, ...mmixLines, ...smixLines]);
+                await applyCliLines([mixerLine, ...resourceLines, ...mmixLines, ...smixLines]);
 
                 // Mark current state as the new baseline so when the user
                 // reconnects post-reboot, the dirty indicator starts clean.
