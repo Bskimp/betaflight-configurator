@@ -1339,6 +1339,27 @@
                                                 </label>
                                             </div>
 
+                                            <!-- LED_STRIP release checkbox: only useful when there's an
+                                                 LED_STRIP bound. Keeps the opt-in hidden on boards that
+                                                 don't have one so it doesn't clutter the UI. -->
+                                            <div v-if="hardwareAnalysis.ledStrips.length > 0" class="hw_motor_toggle">
+                                                <label>
+                                                    <input type="checkbox" v-model="remapReleaseLedStrip" />
+                                                    {{ $t("wingHardwareReleaseLedStrip") }}
+                                                </label>
+                                            </div>
+
+                                            <!-- Physical-pad sanity warning for AIO users: candidate
+                                                 pads come from the board's TIMER_PIN_MAP but some AIOs
+                                                 don't route those to accessible headers. Firmware has
+                                                 no way to know what's broken out; this is user-verify. -->
+                                            <p
+                                                v-if="remapBoardWiring === 'aio' && wingRemap.servosToAssign.length > 0"
+                                                class="hw_severity_info"
+                                            >
+                                                {{ $t("wingHardwareAioPhysicalVerify") }}
+                                            </p>
+
                                             <pre class="hw_cli_preview">{{ wingRemap.cliLines.join("\n") }}</pre>
 
                                             <p v-if="wingRemap.warnings.length > 0" class="hw_notices">
@@ -1732,6 +1753,10 @@ export default defineComponent({
         // (safe to reassign); "aio" = motor pads soldered directly to ESCs
         // (released but not reassigned — user picks free PWM pads manually).
         const remapBoardWiring = ref("discrete");
+        // Opt-in: release LED_STRIP so its pad can become a servo output.
+        // Useful on tight AIOs where the declared-but-unclaimed PWM pads
+        // aren't physically broken out (common on compact 4-in-1 AIOs).
+        const remapReleaseLedStrip = ref(false);
         const applyingRemap = ref(false);
         const wingRemap = computed(() => {
             if (!hardwareAnalysis.value) {
@@ -1748,6 +1773,7 @@ export default defineComponent({
             return computeWingRemap(hardwareAnalysis.value, {
                 motorCount: remapMotorCount.value,
                 boardWiring: remapBoardWiring.value,
+                releaseLedStrip: remapReleaseLedStrip.value,
             });
         });
 
@@ -2237,6 +2263,7 @@ export default defineComponent({
             loadHardware,
             remapMotorCount,
             remapBoardWiring,
+            remapReleaseLedStrip,
             applyingRemap,
             wingRemap,
             applyRemap,

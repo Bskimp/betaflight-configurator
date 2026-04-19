@@ -20,21 +20,17 @@ const DEFAULT_MOTOR_COUNT = 2;
  * @param {number} [options.motorCount=2] - motors to keep (1 or 2)
  * @param {"discrete"|"aio"} [options.boardWiring="discrete"] -
  *   "discrete": motor pads route to servo headers, safe to reassign as servos.
- *   "aio": motor pads are soldered directly to ESCs; released motors stay
- *   released (user must pick free pads for servos manually).
- * @returns {{
- *   isNoOp: boolean,
- *   boardWiring: "discrete"|"aio",
- *   motorsToRelease: Array<{index:number, pad:string}>,
- *   servosToAssign: Array<{slot:number, pad:string, fromMotorIndex:number}>,
- *   cliLines: string[],
- *   summary: string,
- *   warnings: Array<{code:string, message:string}>,
- * }}
+ *   "aio": motor pads soldered to ESCs; released motors stay released, servos
+ *   come from the pool of free PWM pads instead.
+ * @param {boolean} [options.releaseLedStrip=false] - when true, the LED_STRIP
+ *   pad is released and added to the servo candidate pool. Useful on AIOs
+ *   where declared-but-unclaimed PWM pads aren't physically broken out but
+ *   the LED_STRIP pad is.
  */
 export function computeWingRemap(analysis, options = {}) {
     const motorCount = options.motorCount ?? DEFAULT_MOTOR_COUNT;
     const boardWiring = options.boardWiring === "aio" ? "aio" : "discrete";
+    const releaseLedStrip = options.releaseLedStrip === true;
 
     if (!analysis || !Array.isArray(analysis.motors)) {
         return noOp("analyzer returned no motor data");
@@ -74,6 +70,18 @@ export function computeWingRemap(analysis, options = {}) {
     // "manual" behavior with a warning.
     const pwmFreePads = Array.isArray(analysis.pwmCapableFreePads) ? [...analysis.pwmCapableFreePads] : [];
 
+    // Optional LED_STRIP release — on AIOs where declared-unclaimed PWM
+    // pads aren't physically broken out, the LED_STRIP pad usually is.
+    // Opt-in because most users want their RGB; flagging a warning if
+    // there's no LED_STRIP on the board avoids silent no-ops.
+    const ledReleased = [];
+    if (releaseLedStrip && Array.isArray(analysis.ledStrips)) {
+        for (const ls of analysis.ledStrips) {
+            pwmFreePads.push({ pad: ls.pad, timer: ls.timer, channel: ls.channel });
+            ledReleased.push(ls.pad);
+        }
+    }
+
     const servosToAssign = [];
     const skipWarnings = [];
     const cliLines = [];
@@ -83,6 +91,15 @@ export function computeWingRemap(analysis, options = {}) {
     for (const m of release) {
         cliLines.push(`resource MOTOR ${m.index} NONE`);
         motorsToRelease.push({ index: m.index, pad: m.pad });
+    }
+
+    // LED_STRIP release must happen before servo assignment, same
+    // ordering rule as motors — BF rejects `resource SERVO X PAD`
+    // while PAD is still bound elsewhere. Only one LED_STRIP resource
+    // per board, so a single release line covers it regardless of
+    // how many strip entries the analyzer captured.
+    if (ledReleased.length > 0) {
+        cliLines.push(`resource LED_STRIP 1 NONE`);
     }
 
     // Assign phase: wire servos to the appropriate pad source.
@@ -128,13 +145,21 @@ export function computeWingRemap(analysis, options = {}) {
 
     cliLines.push("save");
 
+    if (releaseLedStrip && ledReleased.length === 0) {
+        skipWarnings.push({
+            code: "led_strip_not_present",
+            message: "Release LED_STRIP option is on, but no LED_STRIP resource is currently bound. Nothing released.",
+        });
+    }
+
     const keepStr = keep.map((m) => `M${m.index}`).join(", ") || "(none)";
     const servoStr = servosToAssign.length > 0 ? servosToAssign.map((s) => `S${s.slot}=${s.pad}`).join(", ") : "(none)";
+    const ledSuffix = ledReleased.length > 0 ? ` (LED_STRIP released from ${ledReleased[0]} to free a servo pad)` : "";
     let summary;
     if (boardWiring === "aio") {
-        summary = `Keep ${keepStr} as motors (on their ESC-soldered pads); release ${motorsToRelease.length} unused motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign servos to free PWM pads: ${servoStr}.`;
+        summary = `Keep ${keepStr} as motors (on their ESC-soldered pads); release ${motorsToRelease.length} unused motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign servos to free PWM pads: ${servoStr}.${ledSuffix}`;
     } else {
-        summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and reassign pads to servos: ${servoStr}.`;
+        summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and reassign pads to servos: ${servoStr}.${ledSuffix}`;
     }
 
     return {

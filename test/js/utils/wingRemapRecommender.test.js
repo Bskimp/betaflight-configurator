@@ -213,3 +213,69 @@ describe("computeWingRemap AIO mode", () => {
         expect(r.boardWiring).toBe("aio");
     });
 });
+
+describe("computeWingRemap LED_STRIP release option", () => {
+    const aioMotors = [
+        { index: 1, pad: "B00", timer: 3, channel: 3, dmaStream: null, bidirBurst: true },
+        { index: 2, pad: "B01", timer: 3, channel: 4, dmaStream: null, bidirBurst: true },
+        { index: 3, pad: "A03", timer: 2, channel: 4, dmaStream: null, bidirBurst: false },
+        { index: 4, pad: "A02", timer: 2, channel: 3, dmaStream: null, bidirBurst: false },
+    ];
+
+    it("adds LED_STRIP release line before servo assignments when opted in", () => {
+        const r = computeWingRemap(
+            analysis(aioMotors, { ledStrips: [{ pad: "A09", timer: 1, channel: 2, dmaStream: null }] }),
+            { motorCount: 2, boardWiring: "aio", releaseLedStrip: true },
+        );
+        // Expect LED_STRIP release to land between the MOTOR releases
+        // and the SERVO assignments (BF can't bind SERVO X to a pad
+        // still claimed by LED_STRIP).
+        expect(r.cliLines).toEqual([
+            "resource MOTOR 3 NONE",
+            "resource MOTOR 4 NONE",
+            "resource LED_STRIP 1 NONE",
+            "resource SERVO 1 A09",
+            "save",
+        ]);
+        // Only one ex-motor released + LED_STRIP pad available → 1 servo.
+        // The other motor release has no candidate pad; shortage warning.
+        expect(r.warnings.some((w) => w.code === "aio_no_free_pwm_pad")).toBe(true);
+    });
+
+    it("supplements existing pwmCapableFreePads when LED_STRIP release is on", () => {
+        const r = computeWingRemap(
+            analysis(aioMotors, {
+                ledStrips: [{ pad: "A09", timer: 1, channel: 2, dmaStream: null }],
+                pwmCapableFreePads: [{ pad: "B05", timer: 1, channel: 3 }],
+            }),
+            { motorCount: 2, boardWiring: "aio", releaseLedStrip: true },
+        );
+        // 2 motor releases + 2 servo candidates (PwmFree + LED_STRIP) → clean.
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["B05", "A09"]);
+        expect(r.cliLines).toContain("resource LED_STRIP 1 NONE");
+    });
+
+    it("warns when LED_STRIP release is on but no LED_STRIP is bound", () => {
+        const r = computeWingRemap(analysis(aioMotors, { ledStrips: [] }), {
+            motorCount: 2,
+            boardWiring: "aio",
+            releaseLedStrip: true,
+        });
+        const w = r.warnings.find((x) => x.code === "led_strip_not_present");
+        expect(w).toBeDefined();
+        expect(r.cliLines).not.toContain("resource LED_STRIP 1 NONE");
+    });
+
+    it("LED_STRIP option is ignored by default (user must opt in)", () => {
+        const r = computeWingRemap(
+            analysis(aioMotors, {
+                ledStrips: [{ pad: "A09", timer: 1, channel: 2, dmaStream: null }],
+                pwmCapableFreePads: [{ pad: "B05", timer: 1, channel: 3 }],
+            }),
+            { motorCount: 2, boardWiring: "aio" }, // no releaseLedStrip
+        );
+        expect(r.cliLines).not.toContain("resource LED_STRIP 1 NONE");
+        // servo 1 uses the PWM free pad, not LED_STRIP
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["B05"]);
+    });
+});
