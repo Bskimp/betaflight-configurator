@@ -513,6 +513,21 @@
     "wingHardwareHint": {
         "message": "TIMUP burst means bidir DSHOT + RPM filter are running on a shared burst trigger — the correct mode for 2-motor wings on a single timer group."
     },
+    "wingHardwareRemap": {
+        "message": "Recommended wing layout"
+    },
+    "wingHardwareOneMotor": {
+        "message": "1 motor (elevon-style)"
+    },
+    "wingHardwareTwoMotors": {
+        "message": "2 motors (diff-thrust capable)"
+    },
+    "wingHardwareApplyRemap": {
+        "message": "Apply remap + reboot FC"
+    },
+    "wingHardwareApplying": {
+        "message": "Applying wing remap…"
+    },
     "wingSubTabLaunchTitle": {
         "message": "Wing Auto-launch"
     },

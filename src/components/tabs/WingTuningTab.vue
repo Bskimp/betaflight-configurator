@@ -1308,9 +1308,60 @@
                                                 </li>
                                             </ul>
                                         </template>
+
+                                        <!-- Recommended wing remap -->
+                                        <h3>{{ $t("wingHardwareRemap") }}</h3>
+                                        <template v-if="wingRemap.isNoOp">
+                                            <p class="hw_muted">{{ wingRemap.summary }}</p>
+                                        </template>
+                                        <template v-else>
+                                            <p>{{ wingRemap.summary }}</p>
+
+                                            <div class="hw_motor_toggle">
+                                                <label>
+                                                    <input type="radio" :value="1" v-model.number="remapMotorCount" />
+                                                    {{ $t("wingHardwareOneMotor") }}
+                                                </label>
+                                                <label>
+                                                    <input type="radio" :value="2" v-model.number="remapMotorCount" />
+                                                    {{ $t("wingHardwareTwoMotors") }}
+                                                </label>
+                                            </div>
+
+                                            <pre class="hw_cli_preview">{{ wingRemap.cliLines.join("\n") }}</pre>
+
+                                            <p v-if="wingRemap.warnings.length > 0" class="hw_notices">
+                                                <span
+                                                    v-for="(w, i) in wingRemap.warnings"
+                                                    :key="i"
+                                                    class="hw_severity_warn"
+                                                    >{{ w.message }}<br
+                                                /></span>
+                                            </p>
+
+                                            <a
+                                                class="update"
+                                                href="#"
+                                                :class="{ disabled: applyingRemap }"
+                                                @click.prevent="applyRemap"
+                                                >{{ $t("wingHardwareApplyRemap") }}</a
+                                            >
+                                        </template>
                                     </template>
 
                                     <p class="launch_hint">{{ $t("wingHardwareHint") }}</p>
+
+                                    <!-- Apply-remap modal -->
+                                    <div v-if="applyingRemap" class="preset_modal_overlay">
+                                        <div class="preset_modal_box">
+                                            <p class="preset_modal_title">
+                                                {{ $t("wingHardwareApplying") }}
+                                            </p>
+                                            <p class="preset_modal_sub">
+                                                {{ $t("wingMixerRebooting") }}
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1362,9 +1413,10 @@ import {
     PLANE_SLOT_MIN,
     PLANE_SLOT_MAX,
 } from "../../js/utils/planePresets.js";
-import { applyMotorMix } from "../../js/utils/wingMixerCli.js";
+import { applyMotorMix, applyCliLines } from "../../js/utils/wingMixerCli.js";
 import { readCli, parseResourceShow, parseTimerShow, parseDmaShow } from "../../js/utils/cliOneShot.js";
 import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
+import { computeWingRemap } from "../../js/utils/wingRemapRecommender.js";
 import { useConnectionStore } from "../../stores/connection";
 
 const PID_GAIN_MAX = 200;
@@ -1652,6 +1704,50 @@ export default defineComponent({
                 hardwareError.value = e.message || String(e);
             } finally {
                 hardwareLoading.value = false;
+            }
+        }
+
+        // Remap recommendation state + apply flow. Motor count toggle
+        // drives the recommender; CLI preview shows what would be sent;
+        // Apply button confirms, sends via CLI one-shot, reboots, reloads.
+        const remapMotorCount = ref(2);
+        const applyingRemap = ref(false);
+        const wingRemap = computed(() => {
+            if (!hardwareAnalysis.value) {
+                return {
+                    isNoOp: true,
+                    cliLines: [],
+                    summary: "",
+                    motorsToRelease: [],
+                    servosToAssign: [],
+                    warnings: [],
+                };
+            }
+            return computeWingRemap(hardwareAnalysis.value, { motorCount: remapMotorCount.value });
+        });
+
+        async function applyRemap() {
+            if (wingRemap.value.isNoOp || wingRemap.value.cliLines.length === 0) return;
+            const preview = wingRemap.value.cliLines.join("\n");
+            if (
+                !confirm(`The following CLI commands will be sent and the FC will reboot:\n\n${preview}\n\nContinue?`)
+            ) {
+                return;
+            }
+            applyingRemap.value = true;
+            hardwareError.value = null;
+            try {
+                await applyCliLines(wingRemap.value.cliLines);
+                // FC is rebooting; give the serial layer time to drop + reconnect
+                // before we read state back. 8s is conservative; users on slower
+                // USB setups can hit Reload if it's not ready yet.
+                await new Promise((resolve) => setTimeout(resolve, 8000));
+                await loadHardware();
+            } catch (e) {
+                console.error("[WingTuning] applyRemap failed:", e);
+                hardwareError.value = e.message || String(e);
+            } finally {
+                applyingRemap.value = false;
             }
         }
 
@@ -2114,6 +2210,10 @@ export default defineComponent({
             hardwareLoading,
             hardwareError,
             loadHardware,
+            remapMotorCount,
+            applyingRemap,
+            wingRemap,
+            applyRemap,
             loading,
             saving,
             error,
@@ -2466,5 +2566,33 @@ button {
 .hw_severity_error {
     color: #c03030;
     font-weight: 500;
+}
+.hw_motor_toggle {
+    display: flex;
+    gap: 16px;
+    margin: 8px 0;
+}
+.hw_motor_toggle label {
+    cursor: pointer;
+    padding: 4px 10px;
+    border: 1px solid #444;
+    border-radius: 3px;
+    user-select: none;
+}
+.hw_motor_toggle input[type="radio"] {
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.hw_cli_preview {
+    background: #1a1a1a;
+    color: #ddd;
+    padding: 10px 12px;
+    border-radius: 3px;
+    font-family: "Consolas", "Menlo", monospace;
+    font-size: 0.85em;
+    line-height: 1.4;
+    overflow-x: auto;
+    margin: 8px 0;
+    white-space: pre;
 }
 </style>

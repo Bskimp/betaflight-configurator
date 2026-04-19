@@ -85,3 +85,40 @@ export async function applyMotorMix(motors) {
         CONFIGURATOR.cliActive = false;
     }
 }
+
+/**
+ * Apply an arbitrary batch of CLI command lines and trigger save+reboot.
+ * Used by the Wing Hardware sub-tab's "apply wing remap" flow to issue
+ * `resource MOTOR N NONE` / `resource SERVO M PAD` sequences.
+ *
+ * The input SHOULD end with a "save" line (the recommender emits one).
+ * If it doesn't, we append one ourselves so the caller can't accidentally
+ * leave the FC in an un-persisted state between commands and reboot.
+ *
+ * @param {string[]} lines - CLI commands (no trailing newlines)
+ * @returns {Promise<void>} Resolves after `save` is sent; FC reboots shortly after.
+ */
+export async function applyCliLines(lines) {
+    if (!Array.isArray(lines) || lines.length === 0) {
+        throw new Error("applyCliLines: lines must be a non-empty array");
+    }
+    const normalized = [...lines];
+    if (normalized[normalized.length - 1].trim().toLowerCase() !== "save") {
+        normalized.push("save");
+    }
+
+    CONFIGURATOR.cliActive = true;
+    try {
+        await sendByte(CLI_ENTER_BYTE);
+        await wait(CLI_ENTRY_DELAY_MS);
+
+        for (const line of normalized) {
+            await sendString(`${line}\n`);
+            await wait(CLI_LINE_DELAY_MS);
+        }
+
+        await wait(CLI_SETTLE_MS);
+    } finally {
+        CONFIGURATOR.cliActive = false;
+    }
+}
