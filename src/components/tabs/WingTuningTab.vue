@@ -1245,6 +1245,7 @@
                                                     <th>UART</th>
                                                     <th>TX pad</th>
                                                     <th>RX pad</th>
+                                                    <th>DMA</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1252,6 +1253,18 @@
                                                     <td>UART{{ u.index }}</td>
                                                     <td>{{ u.txPad || "—" }}</td>
                                                     <td>{{ u.rxPad || "—" }}</td>
+                                                    <td>
+                                                        <span v-if="u.txDma" class="hw_ok"
+                                                            >TX DMA{{ u.txDma.controller }}/S{{ u.txDma.stream }}</span
+                                                        >
+                                                        <span v-if="u.txDma && u.rxDma"> · </span>
+                                                        <span v-if="u.rxDma" class="hw_ok"
+                                                            >RX DMA{{ u.rxDma.controller }}/S{{ u.rxDma.stream }}</span
+                                                        >
+                                                        <span v-if="!u.txDma && !u.rxDma" class="hw_muted"
+                                                            >interrupt-driven</span
+                                                        >
+                                                    </td>
                                                 </tr>
                                             </tbody>
                                         </table>

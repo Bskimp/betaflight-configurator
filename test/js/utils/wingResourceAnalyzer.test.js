@@ -132,12 +132,29 @@ describe("analyzeWingResources on SPEEDYBEEF405WING bench", () => {
         expect(r.servos).toEqual([]);
     });
 
-    it("surfaces UART1 and UART6 with both TX and RX", () => {
+    it("surfaces UART1 and UART6 with both TX and RX, no DMA claimed in this config", () => {
         const r = benchAnalysis();
         expect(r.serials).toEqual([
-            { index: 1, txPad: "A09", rxPad: "A10" },
-            { index: 6, txPad: "C06", rxPad: "C07" },
+            { index: 1, txPad: "A09", rxPad: "A10", txDma: null, rxDma: null },
+            { index: 6, txPad: "C06", rxPad: "C07", txDma: null, rxDma: null },
         ]);
+    });
+
+    it("picks up UART DMA when firmware allocates it (USART/UART/SERIAL aliases)", () => {
+        // Synthetic: imagine UART2_TX got DMA1/S7. The analyzer should
+        // reflect it in the UART row regardless of which peripheral
+        // name BF emits in `dma show` (USART2_TX, UART2_TX, SERIAL_TX).
+        const resourceShow = [
+            { pad: "A02", peripheral: "SERIAL_TX", index: 2 },
+            { pad: "A03", peripheral: "SERIAL_RX", index: 2 },
+        ];
+        const dmaShow = [
+            { controller: 1, stream: 7, peripheral: "USART2_TX", index: 2 },
+            { controller: 1, stream: 1, peripheral: "FREE", index: null },
+        ];
+        const r = analyzeWingResources({ resourceShow, timerShow: [], dmaShow });
+        expect(r.serials[0].txDma).toEqual({ controller: 1, stream: 7 });
+        expect(r.serials[0].rxDma).toBeNull();
     });
 
     it("counts hardware-fixed pads (SPI, USB, ADC, etc.)", () => {

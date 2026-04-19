@@ -61,6 +61,26 @@ function buildDmaLookup(dmaShow) {
     return m;
 }
 
+// UART DMA can show up in `dma show` under several peripheral names
+// depending on BF version and MCU — USARTn_TX, UARTn_TX, SERIAL_TX, etc.
+// Collapse those aliases into a single (direction, index) lookup so we
+// can answer "is UARTn_TX using DMA" regardless of exact spelling.
+function buildUartDmaLookup(dmaShow) {
+    const m = new Map();
+    for (const e of dmaShow) {
+        if (e.peripheral === "FREE" || e.index === null) continue;
+        const p = e.peripheral;
+        const tx = /^(?:U?S?ART|SERIAL|UART)_?TX$|_TX$/i.test(p) && p.includes("TX");
+        const rx = /^(?:U?S?ART|SERIAL|UART)_?RX$|_RX$/i.test(p) && p.includes("RX");
+        if (!tx && !rx) continue;
+        m.set(`${tx ? "tx" : "rx"}:${e.index}`, {
+            controller: e.controller,
+            stream: e.stream,
+        });
+    }
+    return m;
+}
+
 function collectTimupStreams(dmaShow) {
     const s = new Set();
     for (const e of dmaShow) {
@@ -69,7 +89,7 @@ function collectTimupStreams(dmaShow) {
     return s;
 }
 
-function collectSerials(txMap, rxMap) {
+function collectSerials(txMap, rxMap, uartDmaLookup) {
     const indices = new Set([...txMap.keys(), ...rxMap.keys()]);
     const out = [];
     for (const idx of indices) {
@@ -77,6 +97,8 @@ function collectSerials(txMap, rxMap) {
             index: idx,
             txPad: txMap.get(idx) ?? null,
             rxPad: rxMap.get(idx) ?? null,
+            txDma: uartDmaLookup.get(`tx:${idx}`) ?? null,
+            rxDma: uartDmaLookup.get(`rx:${idx}`) ?? null,
         });
     }
     out.sort((a, b) => a.index - b.index);
@@ -135,6 +157,7 @@ function deriveWarnings({ motors, servos, ledStrips, freeDmaStreams }) {
 export function analyzeWingResources({ resourceShow, timerShow, dmaShow }) {
     const timerByKey = buildTimerLookup(timerShow);
     const dmaByKey = buildDmaLookup(dmaShow);
+    const uartDmaByDirIndex = buildUartDmaLookup(dmaShow);
     const timupStreams = collectTimupStreams(dmaShow);
 
     const motors = [];
@@ -191,7 +214,7 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow }) {
         }
     }
 
-    const serials = collectSerials(serialTx, serialRx);
+    const serials = collectSerials(serialTx, serialRx, uartDmaByDirIndex);
     const freeDmaStreams = dmaShow
         .filter((e) => e.peripheral === "FREE")
         .map(({ controller, stream }) => ({ controller, stream }));

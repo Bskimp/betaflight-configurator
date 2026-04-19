@@ -499,13 +499,13 @@
         "message": "Resource summary"
     },
     "wingHardwareFreePads": {
-        "message": "{n} free I/O pads"
+        "message": "{{n}} free I/O pads"
     },
     "wingHardwareFreeDma": {
-        "message": "{n} free DMA streams"
+        "message": "{{n}} free DMA streams"
     },
     "wingHardwareFixed": {
-        "message": "{n} board-wired pads (SPI, USB, ADC, gyro — not remappable)"
+        "message": "{{n}} board-wired pads (SPI, USB, ADC, gyro — not remappable)"
     },
     "wingHardwareNotices": {
         "message": "Notices"
