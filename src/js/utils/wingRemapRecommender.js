@@ -18,8 +18,13 @@ const DEFAULT_MOTOR_COUNT = 2;
  * @param {object} analysis - output of analyzeWingResources()
  * @param {object} [options]
  * @param {number} [options.motorCount=2] - motors to keep (1 or 2)
+ * @param {"discrete"|"aio"} [options.boardWiring="discrete"] -
+ *   "discrete": motor pads route to servo headers, safe to reassign as servos.
+ *   "aio": motor pads are soldered directly to ESCs; released motors stay
+ *   released (user must pick free pads for servos manually).
  * @returns {{
  *   isNoOp: boolean,
+ *   boardWiring: "discrete"|"aio",
  *   motorsToRelease: Array<{index:number, pad:string}>,
  *   servosToAssign: Array<{slot:number, pad:string, fromMotorIndex:number}>,
  *   cliLines: string[],
@@ -29,6 +34,7 @@ const DEFAULT_MOTOR_COUNT = 2;
  */
 export function computeWingRemap(analysis, options = {}) {
     const motorCount = options.motorCount ?? DEFAULT_MOTOR_COUNT;
+    const boardWiring = options.boardWiring === "aio" ? "aio" : "discrete";
 
     if (!analysis || !Array.isArray(analysis.motors)) {
         return noOp("analyzer returned no motor data");
@@ -44,10 +50,13 @@ export function computeWingRemap(analysis, options = {}) {
     const release = motors.slice(motorCount);
 
     if (release.length === 0) {
-        return noOp(
-            `Board declares ${motors.length} motor${motors.length === 1 ? "" : "s"}; ` +
-                `keeping all as motors for a ${motorCount}-motor wing. No remap needed.`,
-        );
+        return {
+            ...noOp(
+                `Board declares ${motors.length} motor${motors.length === 1 ? "" : "s"}; ` +
+                    `keeping all as motors for a ${motorCount}-motor wing. No remap needed.`,
+            ),
+            boardWiring,
+        };
     }
 
     // Pads we should never auto-reassign even if they're declared
@@ -64,6 +73,12 @@ export function computeWingRemap(analysis, options = {}) {
     for (const m of release) {
         cliLines.push(`resource MOTOR ${m.index} NONE`);
         motorsToRelease.push({ index: m.index, pad: m.pad });
+
+        // AIO mode: released motor pads stay unassigned — they're
+        // physically routed to ESCs, not servo headers. User assigns
+        // servos to free pads manually (the UI surfaces the free-pad
+        // list for picking).
+        if (boardWiring === "aio") continue;
 
         if (fixedPads.has(m.pad)) {
             skipWarnings.push({
@@ -83,13 +98,31 @@ export function computeWingRemap(analysis, options = {}) {
 
     cliLines.push("save");
 
+    if (boardWiring === "aio") {
+        skipWarnings.push({
+            code: "aio_needs_manual_servos",
+            message:
+                "AIO mode: motor slots released but NO servo pads assigned. Wire your servos to free PWM pads and run `resource SERVO <n> <pad>` via CLI before saving.",
+        });
+    }
+
     const keepStr = keep.map((m) => `M${m.index}`).join(", ") || "(none)";
-    const servoStr =
-        servosToAssign.length > 0 ? servosToAssign.map((s) => `S${s.slot}=${s.pad}`).join(", ") : "(no servos created)";
-    const summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign pads to servos: ${servoStr}.`;
+    let summary;
+    if (boardWiring === "aio") {
+        summary =
+            `Keep ${keepStr} as motors; release ${motorsToRelease.length} unused motor slot${motorsToRelease.length === 1 ? "" : "s"}. ` +
+            `Their pads stay on the board-ESC lines — assign servos to free I/O pads manually.`;
+    } else {
+        const servoStr =
+            servosToAssign.length > 0
+                ? servosToAssign.map((s) => `S${s.slot}=${s.pad}`).join(", ")
+                : "(no servos created)";
+        summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign pads to servos: ${servoStr}.`;
+    }
 
     return {
         isNoOp: false,
+        boardWiring,
         motorsToRelease,
         servosToAssign,
         cliLines,
@@ -101,6 +134,7 @@ export function computeWingRemap(analysis, options = {}) {
 function noOp(summary) {
     return {
         isNoOp: true,
+        boardWiring: "discrete",
         motorsToRelease: [],
         servosToAssign: [],
         cliLines: [],

@@ -1328,6 +1328,17 @@
                                                 </label>
                                             </div>
 
+                                            <div class="hw_motor_toggle">
+                                                <label>
+                                                    <input type="radio" value="discrete" v-model="remapBoardWiring" />
+                                                    {{ $t("wingHardwareWiringDiscrete") }}
+                                                </label>
+                                                <label>
+                                                    <input type="radio" value="aio" v-model="remapBoardWiring" />
+                                                    {{ $t("wingHardwareWiringAio") }}
+                                                </label>
+                                            </div>
+
                                             <pre class="hw_cli_preview">{{ wingRemap.cliLines.join("\n") }}</pre>
 
                                             <p v-if="wingRemap.warnings.length > 0" class="hw_notices">
@@ -1711,11 +1722,16 @@ export default defineComponent({
         // drives the recommender; CLI preview shows what would be sent;
         // Apply button confirms, sends via CLI one-shot, reboots, reloads.
         const remapMotorCount = ref(2);
+        // Board wiring mode: "discrete" = motor pads route to servo headers
+        // (safe to reassign); "aio" = motor pads soldered directly to ESCs
+        // (released but not reassigned — user picks free PWM pads manually).
+        const remapBoardWiring = ref("discrete");
         const applyingRemap = ref(false);
         const wingRemap = computed(() => {
             if (!hardwareAnalysis.value) {
                 return {
                     isNoOp: true,
+                    boardWiring: "discrete",
                     cliLines: [],
                     summary: "",
                     motorsToRelease: [],
@@ -1723,7 +1739,10 @@ export default defineComponent({
                     warnings: [],
                 };
             }
-            return computeWingRemap(hardwareAnalysis.value, { motorCount: remapMotorCount.value });
+            return computeWingRemap(hardwareAnalysis.value, {
+                motorCount: remapMotorCount.value,
+                boardWiring: remapBoardWiring.value,
+            });
         });
 
         async function applyRemap() {
@@ -2211,6 +2230,7 @@ export default defineComponent({
             hardwareError,
             loadHardware,
             remapMotorCount,
+            remapBoardWiring,
             applyingRemap,
             wingRemap,
             applyRemap,

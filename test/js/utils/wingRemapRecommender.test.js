@@ -128,3 +128,43 @@ describe("computeWingRemap", () => {
         expect(computeWingRemap({}).isNoOp).toBe(true);
     });
 });
+
+describe("computeWingRemap AIO mode", () => {
+    const aioMotors = [
+        { index: 1, pad: "B00", timer: 3, channel: 3, dmaStream: { controller: 1, stream: 7 }, bidirBurst: false },
+        { index: 2, pad: "B01", timer: 3, channel: 4, dmaStream: { controller: 1, stream: 2 }, bidirBurst: false },
+        { index: 3, pad: "A03", timer: 2, channel: 4, dmaStream: { controller: 1, stream: 6 }, bidirBurst: false },
+        { index: 4, pad: "A02", timer: 2, channel: 3, dmaStream: { controller: 1, stream: 1 }, bidirBurst: false },
+    ];
+
+    it("AIO mode releases extra motors but does NOT reassign as servos", () => {
+        const r = computeWingRemap(analysis(aioMotors), { motorCount: 2, boardWiring: "aio" });
+        expect(r.isNoOp).toBe(false);
+        expect(r.boardWiring).toBe("aio");
+        // Motors are released...
+        expect(r.motorsToRelease.map((m) => m.index)).toEqual([3, 4]);
+        // ...but no servos assigned — pads are ESC-soldered.
+        expect(r.servosToAssign).toEqual([]);
+        expect(r.cliLines).toEqual(["resource MOTOR 3 NONE", "resource MOTOR 4 NONE", "save"]);
+    });
+
+    it("AIO mode emits a manual-servo guidance warning", () => {
+        const r = computeWingRemap(analysis(aioMotors), { motorCount: 2, boardWiring: "aio" });
+        const warn = r.warnings.find((w) => w.code === "aio_needs_manual_servos");
+        expect(warn).toBeDefined();
+        expect(warn.message).toMatch(/free PWM pad/i);
+    });
+
+    it("discrete mode (default) still reassigns ex-motor pads as servos", () => {
+        const r = computeWingRemap(analysis(aioMotors), { motorCount: 2 });
+        expect(r.boardWiring).toBe("discrete");
+        expect(r.servosToAssign.length).toBe(2);
+        expect(r.cliLines).toContain("resource SERVO 1 A03");
+    });
+
+    it("AIO no-op (board has exactly N motors) still reports boardWiring", () => {
+        const r = computeWingRemap(analysis(aioMotors.slice(0, 2)), { motorCount: 2, boardWiring: "aio" });
+        expect(r.isNoOp).toBe(true);
+        expect(r.boardWiring).toBe("aio");
+    });
+});

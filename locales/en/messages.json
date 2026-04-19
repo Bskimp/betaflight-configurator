@@ -522,6 +522,12 @@
     "wingHardwareTwoMotors": {
         "message": "2 motors (diff-thrust capable)"
     },
+    "wingHardwareWiringDiscrete": {
+        "message": "Discrete ESCs (reuse motor pads)"
+    },
+    "wingHardwareWiringAio": {
+        "message": "AIO (motor pads wired to ESCs)"
+    },
     "wingHardwareApplyRemap": {
         "message": "Apply remap + reboot FC"
     },
