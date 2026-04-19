@@ -19,8 +19,17 @@ import CONFIGURATOR from "../data_storage";
 
 const CLI_ENTER_BYTE = 0x23; // '#'
 const CLI_ENTRY_DELAY_MS = 500; // BF prints banner + prompt before accepting input
-const CLI_LINE_DELAY_MS = 30; // time between lines so the parser keeps up
-const CLI_SETTLE_MS = 200; // post-save settle before reboot fully kicks in
+// 30 ms was enough for `mmix` + `resource` writes but bench tests on
+// FURYF4OSD showed smix rules occasionally dropping — BF seems to need
+// more time between lines when the batch gets longer (preset apply
+// hits ~15 lines: resource remap + mmix + smix). 100 ms is still
+// fast enough that a full apply finishes inside the modal window.
+const CLI_LINE_DELAY_MS = 100;
+// 200 ms wasn't always enough for the final `save` to fully commit
+// before the FC reboot yanked the USB. Bumping to 500 ms gives BF
+// comfortable headroom to flush EEPROM for the last in-batch commands
+// (the smix rules in particular were getting lost at the tail).
+const CLI_SETTLE_MS = 500;
 
 function sendString(str) {
     const buf = new ArrayBuffer(str.length);
