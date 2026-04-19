@@ -2219,43 +2219,55 @@ export default defineComponent({
                 FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
                 await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
 
+                // Note: the stock `mspHelper.sendServoMixRules` path used to
+                // send each rule via MSP_SET_SERVO_MIX_RULE (code 242). That
+                // MSP code is marked "Not used" in MSPCodes.js — firmware
+                // deprecated it in favor of the CLI `smix` command. We
+                // stash the rules into FC.SERVO_RULES for Vue-state
+                // consistency but skip the MSP write; the CLI batch below
+                // is the actual path that persists them.
                 FC.SERVO_RULES = padRulesToMax(mixerState.rules);
-                await new Promise((resolve, reject) => {
-                    try {
-                        mspHelper.sendServoMixRules(resolve);
-                    } catch (err) {
-                        reject(err);
-                    }
-                });
 
                 // Drop any queued MSP calls before we trigger the reboot
                 // so pending MSP_STATUS / etc don't pile up waiting for a
                 // response that'll never come until the FC is back.
                 connectionStore.clearMspQueue();
 
-                // Resource remap + motor mix + save + reboot, one CLI batch.
+                // Resource remap + motor mix + servo mix + save + reboot,
+                // one CLI batch. Handles three problems at once:
                 //
-                // BEFORE this combined batch: on quad-declared boards (4M/0S
-                // like FURYF4OSD) the smix rules we just sent via MSP would
-                // have nothing to bind to, and the unused motor slots would
-                // stay as MOTOR outputs. The batch reassigns resources first
-                // (release excess MOTOR slots, bind SERVO slots to the freed
-                // pads in discrete mode, or to free PWM pads in AIO mode) so
-                // the mmix+smix rules land on a config that can actually
-                // drive the physical pads.
+                // 1. On quad-declared boards (4M/0S like FURYF4OSD) smix
+                //    rules targeting S3/S4 would have no physical SERVO
+                //    resources to drive. Recommender's servoCount top-up
+                //    extends the pool from `pwmCapableFreePads` so the
+                //    preset's requested servo count is actually bound.
+                //
+                // 2. smix rules via the deprecated MSP code silently drop.
+                //    Emitting them as CLI `smix` commands is the BF-current
+                //    path and they actually persist.
+                //
+                // 3. Single save+reboot keeps everything atomic — no half-
+                //    applied state if the user yanks USB mid-flow.
                 //
                 // Uses the Hardware sub-tab's board-wiring choice so AIO vs
-                // discrete applies consistently across the two apply paths.
-                // LED_STRIP / UART release stay OFF here — those are opt-ins
-                // that should only happen when the user explicitly ticks them
-                // in the Hardware sub-tab.
+                // discrete applies consistently across both apply paths.
+                // LED_STRIP / UART release stay OFF here — those are
+                // opt-ins that only fire when the user ticks them in the
+                // Hardware sub-tab.
                 if (!hardwareAnalysis.value) {
                     await loadHardware();
                 }
+                // servoCount: highest target slot in preset.rules determines
+                // how many SERVO resources must be bound. Slot index N maps
+                // to SERVO resource index N-1 per BF airplane-mixer
+                // convention (slot 2=ELEVATOR=SERVO 1, slot 3=S2, etc.).
+                const maxTargetSlot = preset.rules.reduce((acc, r) => Math.max(acc, r.target ?? 0), 0);
+                const neededServoCount = Math.max(0, maxTargetSlot - 1);
                 const presetRemap = hardwareAnalysis.value
                     ? computeWingRemap(hardwareAnalysis.value, {
                         motorCount: preset.mmix.length,
                         boardWiring: remapBoardWiring.value,
+                        servoCount: neededServoCount,
                     })
                     : { cliLines: [] };
                 const resourceLines = presetRemap.cliLines.filter((l) => l !== "save");
@@ -2265,8 +2277,16 @@ export default defineComponent({
                             `mmix ${i} ${m.throttle.toFixed(3)} ${m.roll.toFixed(3)} ${m.pitch.toFixed(3)} ${m.yaw.toFixed(3)}`,
                     ),
                 );
+                // smix syntax: `smix INDEX TARGET INPUT RATE SPEED MIN MAX BOX`
+                // Signed fields (rate/min/max) — BF CLI accepts signed ints.
+                const smixLines = ["smix reset"].concat(
+                    preset.rules.map(
+                        (r, i) =>
+                            `smix ${i} ${r.target} ${r.input} ${r.rate} ${r.speed ?? 0} ${r.min ?? -100} ${r.max ?? 100} ${r.box ?? 0}`,
+                    ),
+                );
                 // applyCliLines auto-appends `save` if the batch doesn't end with it.
-                await applyCliLines([...resourceLines, ...mmixLines]);
+                await applyCliLines([...resourceLines, ...mmixLines, ...smixLines]);
 
                 // Mark current state as the new baseline so when the user
                 // reconnects post-reboot, the dirty indicator starts clean.

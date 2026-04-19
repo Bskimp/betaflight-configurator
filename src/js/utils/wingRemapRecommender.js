@@ -28,12 +28,18 @@ const DEFAULT_MOTOR_COUNT = 2;
  * @param {number[]} [options.releaseUarts=[]] - UART indices (1-based) to
  *   release. Each must be in analysis.spareUarts; their PWM-capable TX/RX
  *   pads join the servo candidate pool.
+ * @param {number} [options.servoCount=0] - desired minimum number of SERVO
+ *   resources to bind. When a preset needs more servos than released
+ *   motors can supply, the recommender keeps pulling from pwmFreePads
+ *   (declared-unclaimed PWM pads, plus any opt-in LED_STRIP / UART pads)
+ *   until servoCount is met or the pool is exhausted.
  */
 export function computeWingRemap(analysis, options = {}) {
     const motorCount = options.motorCount ?? DEFAULT_MOTOR_COUNT;
     const boardWiring = options.boardWiring === "aio" ? "aio" : "discrete";
     const releaseLedStrip = options.releaseLedStrip === true;
     const releaseUarts = Array.isArray(options.releaseUarts) ? options.releaseUarts : [];
+    const servoCount = Math.max(0, options.servoCount ?? 0);
 
     if (!analysis || !Array.isArray(analysis.motors)) {
         return noOp("analyzer returned no motor data");
@@ -48,7 +54,13 @@ export function computeWingRemap(analysis, options = {}) {
     const keep = motors.slice(0, motorCount);
     const release = motors.slice(motorCount);
 
-    if (release.length === 0) {
+    // If there are no motors to release AND no servo deficit (current
+    // servos already meet the preset's demand), this is a true no-op.
+    // Otherwise we still need to add servo resources from the free-pad
+    // pool — fall through to the assign phase with an empty release list.
+    const currentServoCount = Array.isArray(analysis.servos) ? analysis.servos.length : 0;
+    const servoDeficit = Math.max(0, servoCount - currentServoCount);
+    if (release.length === 0 && servoDeficit === 0) {
         return {
             ...noOp(
                 `Board declares ${motors.length} motor${motors.length === 1 ? "" : "s"}; ` +
@@ -129,7 +141,10 @@ export function computeWingRemap(analysis, options = {}) {
     }
 
     // Assign phase: wire servos to the appropriate pad source.
-    let nextServoSlot = 1;
+    // Start from the highest already-bound servo index so we don't collide
+    // with existing SERVO resources (e.g. preset apply on a board that
+    // already has S1+S2 from a previous remap).
+    let nextServoSlot = currentServoCount + 1;
     if (boardWiring === "aio") {
         for (const m of release) {
             const candidate = pwmFreePads.shift();
@@ -167,6 +182,29 @@ export function computeWingRemap(analysis, options = {}) {
             });
             nextServoSlot++;
         }
+    }
+
+    // Top-up phase: if the caller declared a servoCount goal (preset apply
+    // passes the preset's required servo count) and we haven't met it yet,
+    // keep pulling from the free-pad pool in both modes. This is what
+    // makes preset apply work correctly on a board already at e.g. 1M+2S
+    // but picking a 4-servo plane preset.
+    while (nextServoSlot <= servoCount && pwmFreePads.length > 0) {
+        const candidate = pwmFreePads.shift();
+        cliLines.push(`resource SERVO ${nextServoSlot} ${candidate.pad}`);
+        servosToAssign.push({
+            slot: nextServoSlot,
+            pad: candidate.pad,
+            fromMotorIndex: null,
+            fromFreePad: true,
+        });
+        nextServoSlot++;
+    }
+    if (servoCount > 0 && nextServoSlot <= servoCount) {
+        skipWarnings.push({
+            code: "servo_count_shortfall",
+            message: `Preset wants ${servoCount} servos but only ${nextServoSlot - 1} could be bound (no free PWM pads left). Rules targeting the missing slots will have no physical output.`,
+        });
     }
 
     cliLines.push("save");

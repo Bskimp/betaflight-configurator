@@ -340,6 +340,79 @@ describe("computeWingRemap UART release option", () => {
         expect(w.message).toMatch(/UART6/);
     });
 
+    it("servoCount top-up fills in extra slots from free PWM pool after motor reuse", () => {
+        // Scenario: FURYF4OSD-style board with 4 motors; user picks a
+        // 4-servo preset (standard plane). motorCount=1 releases 3 motors
+        // → 3 discrete-mode servos; preset wants 4 → recommender should
+        // pull 1 more from pwmCapableFreePads.
+        const fourMotors = [
+            { index: 1, pad: "A03", timer: 2, channel: 4, dmaStream: null, bidirBurst: false },
+            { index: 2, pad: "B00", timer: 3, channel: 3, dmaStream: null, bidirBurst: false },
+            { index: 3, pad: "B01", timer: 3, channel: 4, dmaStream: null, bidirBurst: false },
+            { index: 4, pad: "A02", timer: 2, channel: 3, dmaStream: null, bidirBurst: false },
+        ];
+        const r = computeWingRemap(
+            analysis(fourMotors, {
+                pwmCapableFreePads: [
+                    { pad: "C09", timer: 8, channel: 4 },
+                    { pad: "B09", timer: 4, channel: 4 },
+                ],
+            }),
+            { motorCount: 1, servoCount: 4 },
+        );
+        // 3 ex-motor pads + 1 top-up from free PWM = 4 servos total.
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["B00", "B01", "A02", "C09"]);
+        expect(r.cliLines).toEqual([
+            "resource MOTOR 2 NONE",
+            "resource MOTOR 3 NONE",
+            "resource MOTOR 4 NONE",
+            "resource SERVO 1 B00",
+            "resource SERVO 2 B01",
+            "resource SERVO 3 A02",
+            "resource SERVO 4 C09",
+            "save",
+        ]);
+    });
+
+    it("servoCount top-up on already-remapped board (no motors to release, but servos needed)", () => {
+        // Scenario: user already has 1M + 2S from a previous remap, then
+        // picks a preset that wants 4 servos. Recommender must NOT no-op;
+        // needs to add SERVO 3 + SERVO 4 from the free pool.
+        const oneMotor = [{ index: 1, pad: "A03", timer: 2, channel: 4, dmaStream: null, bidirBurst: false }];
+        const twoExistingServos = [
+            { index: 1, pad: "B00", timer: 3, channel: 3 },
+            { index: 2, pad: "A02", timer: 2, channel: 3 },
+        ];
+        const r = computeWingRemap(
+            analysis(oneMotor, {
+                servos: twoExistingServos,
+                pwmCapableFreePads: [
+                    { pad: "C09", timer: 8, channel: 4 },
+                    { pad: "B09", timer: 4, channel: 4 },
+                ],
+            }),
+            { motorCount: 1, servoCount: 4 },
+        );
+        expect(r.isNoOp).toBe(false);
+        // No motors to release (already have exactly 1 motor for preset).
+        expect(r.motorsToRelease).toEqual([]);
+        // Two new servos assigned starting at SERVO 3 (slots 1 + 2 already bound).
+        expect(r.servosToAssign.map((s) => s.slot)).toEqual([3, 4]);
+        expect(r.servosToAssign.map((s) => s.pad)).toEqual(["C09", "B09"]);
+        expect(r.cliLines).toEqual(["resource SERVO 3 C09", "resource SERVO 4 B09", "save"]);
+    });
+
+    it("servo_count_shortfall warning when pool can't meet servoCount", () => {
+        const oneMotor = [{ index: 1, pad: "A03", timer: 2, channel: 4, dmaStream: null, bidirBurst: false }];
+        const r = computeWingRemap(analysis(oneMotor, { servos: [], pwmCapableFreePads: [] }), {
+            motorCount: 1,
+            servoCount: 3,
+        });
+        const warn = r.warnings.find((w) => w.code === "servo_count_shortfall");
+        expect(warn).toBeDefined();
+        expect(warn.message).toMatch(/3 servos/);
+    });
+
     it("UART release combines with LED_STRIP release (both prepended in AIO)", () => {
         const r = computeWingRemap(
             analysis(aioMotors, {
