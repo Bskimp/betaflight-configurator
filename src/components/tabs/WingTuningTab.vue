@@ -1471,7 +1471,7 @@ import {
     PLANE_SLOT_MIN,
     PLANE_SLOT_MAX,
 } from "../../js/utils/planePresets.js";
-import { applyMotorMix, applyCliLines } from "../../js/utils/wingMixerCli.js";
+import { applyCliLines } from "../../js/utils/wingMixerCli.js";
 import { readCli, parseResourceShow, parseTimerShow, parseDmaShow, parseTimerDump } from "../../js/utils/cliOneShot.js";
 import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
 import { computeWingRemap } from "../../js/utils/wingRemapRecommender.js";
@@ -1828,7 +1828,14 @@ export default defineComponent({
             }
             applyingRemap.value = true;
             hardwareError.value = null;
+            // Halt MSP polling for the full CLI+reboot window. Without this
+            // the 250 ms MSP_STATUS cadence queues up during the disconnect
+            // AND can corrupt the outbound CLI byte stream mid-session —
+            // which is why the apply silently failed on some boards (FURYF4OSD
+            // in particular). Mirrors the Mixer preset-apply flow.
+            connectionStore.pauseLiveData();
             try {
+                connectionStore.clearMspQueue();
                 await applyCliLines(wingRemap.value.cliLines);
                 // FC is rebooting; give the serial layer time to drop + reconnect
                 // before we read state back. 8s is conservative; users on slower
@@ -1839,6 +1846,7 @@ export default defineComponent({
                 console.error("[WingTuning] applyRemap failed:", e);
                 hardwareError.value = e.message || String(e);
             } finally {
+                connectionStore.resumeLiveData();
                 applyingRemap.value = false;
             }
         }
@@ -2225,10 +2233,40 @@ export default defineComponent({
                 // response that'll never come until the FC is back.
                 connectionStore.clearMspQueue();
 
-                // Motor mix + save + reboot via CLI one-shot. BF has no MSP
-                // for mmix today. `save` in CLI persists AND reboots, so no
-                // explicit EEPROM_WRITE or MSP_REBOOT needed.
-                await applyMotorMix(preset.mmix);
+                // Resource remap + motor mix + save + reboot, one CLI batch.
+                //
+                // BEFORE this combined batch: on quad-declared boards (4M/0S
+                // like FURYF4OSD) the smix rules we just sent via MSP would
+                // have nothing to bind to, and the unused motor slots would
+                // stay as MOTOR outputs. The batch reassigns resources first
+                // (release excess MOTOR slots, bind SERVO slots to the freed
+                // pads in discrete mode, or to free PWM pads in AIO mode) so
+                // the mmix+smix rules land on a config that can actually
+                // drive the physical pads.
+                //
+                // Uses the Hardware sub-tab's board-wiring choice so AIO vs
+                // discrete applies consistently across the two apply paths.
+                // LED_STRIP / UART release stay OFF here — those are opt-ins
+                // that should only happen when the user explicitly ticks them
+                // in the Hardware sub-tab.
+                if (!hardwareAnalysis.value) {
+                    await loadHardware();
+                }
+                const presetRemap = hardwareAnalysis.value
+                    ? computeWingRemap(hardwareAnalysis.value, {
+                        motorCount: preset.mmix.length,
+                        boardWiring: remapBoardWiring.value,
+                    })
+                    : { cliLines: [] };
+                const resourceLines = presetRemap.cliLines.filter((l) => l !== "save");
+                const mmixLines = ["mmix reset"].concat(
+                    preset.mmix.map(
+                        (m, i) =>
+                            `mmix ${i} ${m.throttle.toFixed(3)} ${m.roll.toFixed(3)} ${m.pitch.toFixed(3)} ${m.yaw.toFixed(3)}`,
+                    ),
+                );
+                // applyCliLines auto-appends `save` if the batch doesn't end with it.
+                await applyCliLines([...resourceLines, ...mmixLines]);
 
                 // Mark current state as the new baseline so when the user
                 // reconnects post-reboot, the dirty indicator starts clean.
