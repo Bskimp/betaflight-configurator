@@ -1059,7 +1059,10 @@
                     </div>
                 </template>
 
-                <!-- ═══ GPS Rescue sub-tab (placeholder until MSP lands) ═══ -->
+                <!-- ═══ GPS Rescue sub-tab — 16 wing-specific rescue fields. ═══
+                     Identical editor shape to Launch: schema-driven rows with
+                     number input + range slider, plus help tooltips. All
+                     fields unsigned so no sign-aware handling needed. -->
                 <template v-if="activeSubTab === 'gps_rescue'">
                     <div class="grid-row">
                         <div class="grid-col col12">
@@ -1067,8 +1070,45 @@
                                 <div class="gui_box_titlebar">
                                     <div class="spacer_box_title">{{ $t("wingSubTabGpsRescueTitle") }}</div>
                                 </div>
-                                <div class="spacer subtab_placeholder">
-                                    <p>{{ $t("wingSubTabGpsRescuePlaceholder") }}</p>
+                                <div class="spacer">
+                                    <p>{{ $t("wingGpsRescueDesc") }}</p>
+                                    <table class="fields">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingParameter") }}</th>
+                                                <th>{{ $t("wingValue") }}</th>
+                                                <th>{{ $t("wingSlider") }}</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="def in GPS_RESCUE_FIELD_DEFS" :key="def.name">
+                                                <td :title="$t('wingGpsRescueHelp_' + def.name)">
+                                                    {{ $t("wingGpsRescueLabel_" + def.name) }}
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        :min="def.min"
+                                                        :max="def.max"
+                                                        v-model.number="gpsRescueFields[def.name]"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        :min="def.min"
+                                                        :max="def.max"
+                                                        v-model.number="gpsRescueFields[def.name]"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td class="launch_unit">{{ def.unit }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <p class="launch_hint">{{ $t("wingGpsRescueHint") }}</p>
                                 </div>
                             </div>
                         </div>
@@ -1181,6 +1221,39 @@ const LAUNCH_FIELD_DEFS = [
 function defaultLaunchFields() {
     const f = {};
     for (const def of LAUNCH_FIELD_DEFS) {
+        f[def.name] = def.default;
+    }
+    return f;
+}
+
+// Wing GPS rescue fields — order and types match firmware
+// pg/gps_rescue_wing.h + FC.WING_GPS_RESCUE defaults in fc.js.
+// min/max/default are UI-only bounds; wire is always unsigned int
+// (u8/u16). allowArmingWithoutFix is a u8 bool (0/1); we leave it
+// rendered as a 0/1 numeric input for consistency with the other
+// schema-driven rows — users who want the toggle can type 1.
+const GPS_RESCUE_FIELD_DEFS = [
+    { name: "allowArmingWithoutFix", min: 0, max: 1, default: 0, unit: "" },
+    { name: "minSats", min: 4, max: 15, default: 8, unit: "" },
+    { name: "maxBankAngle", min: 10, max: 60, default: 25, unit: "°" },
+    { name: "orbitRadiusM", min: 10, max: 500, default: 50, unit: "m" },
+    { name: "returnAltitudeM", min: 10, max: 500, default: 50, unit: "m" },
+    { name: "minLoiterAltM", min: 5, max: 200, default: 25, unit: "m" },
+    { name: "cruiseThrottle", min: 10, max: 100, default: 50, unit: "%" },
+    { name: "minThrottle", min: 5, max: 100, default: 30, unit: "%" },
+    { name: "abortThrottle", min: 10, max: 100, default: 45, unit: "%" },
+    { name: "navP", min: 1, max: 200, default: 30, unit: "" },
+    { name: "altP", min: 1, max: 200, default: 30, unit: "" },
+    { name: "turnCompensation", min: 0, max: 100, default: 50, unit: "%" },
+    { name: "minHeadingSpeedCmS", min: 100, max: 2000, default: 400, unit: "cm/s" },
+    { name: "stallSpeedCmS", min: 50, max: 1500, default: 200, unit: "cm/s" },
+    { name: "minStartDistM", min: 5, max: 500, default: 30, unit: "m" },
+    { name: "sanityChecks", min: 0, max: 2, default: 1, unit: "" },
+];
+
+function defaultGpsRescueFields() {
+    const f = {};
+    for (const def of GPS_RESCUE_FIELD_DEFS) {
         f[def.name] = def.default;
     }
     return f;
@@ -1344,6 +1417,9 @@ export default defineComponent({
         const launchFields = reactive(defaultLaunchFields());
         const initialLaunchFields = ref({ ...launchFields });
 
+        const gpsRescueFields = reactive(defaultGpsRescueFields());
+        const initialGpsRescueFields = ref({ ...gpsRescueFields });
+
         const mixerState = reactive(emptyMixerState());
         const initialMixerState = ref(cloneMixerState(mixerState));
 
@@ -1363,6 +1439,10 @@ export default defineComponent({
 
         const launchDirty = computed(() =>
             LAUNCH_FIELD_DEFS.some((def) => launchFields[def.name] !== initialLaunchFields.value[def.name]),
+        );
+
+        const gpsRescueDirty = computed(() =>
+            GPS_RESCUE_FIELD_DEFS.some((def) => gpsRescueFields[def.name] !== initialGpsRescueFields.value[def.name]),
         );
 
         const applyingPreset = ref(false);
@@ -1420,7 +1500,8 @@ export default defineComponent({
             () =>
                 FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]) ||
                 mixerDirty.value ||
-                launchDirty.value,
+                launchDirty.value ||
+                gpsRescueDirty.value,
         );
 
         // Capability check — tab requires a USE_WING firmware build.
@@ -1560,6 +1641,19 @@ export default defineComponent({
                 } catch (launchErr) {
                     console.warn("[WingTuning] MSP2_WING_LAUNCH unavailable (older firmware?):", launchErr);
                 }
+
+                // Wing GPS rescue — same graceful-degrade pattern.
+                try {
+                    await MSP.promise(MSPCodes.MSP2_WING_GPS_RESCUE);
+                    for (const def of GPS_RESCUE_FIELD_DEFS) {
+                        if (FC.WING_GPS_RESCUE[def.name] !== undefined) {
+                            gpsRescueFields[def.name] = FC.WING_GPS_RESCUE[def.name];
+                        }
+                    }
+                    initialGpsRescueFields.value = { ...gpsRescueFields };
+                } catch (rescueErr) {
+                    console.warn("[WingTuning] MSP2_WING_GPS_RESCUE unavailable (older firmware?):", rescueErr);
+                }
             } catch (e) {
                 console.error("[WingTuning] reload failed:", e);
                 error.value = e.message || String(e);
@@ -1613,10 +1707,26 @@ export default defineComponent({
                     }
                 }
 
+                // Wing GPS rescue — same dirty-gated, swallow-unknown pattern.
+                if (gpsRescueDirty.value) {
+                    for (const def of GPS_RESCUE_FIELD_DEFS) {
+                        FC.WING_GPS_RESCUE[def.name] = gpsRescueFields[def.name];
+                    }
+                    try {
+                        await MSP.promise(
+                            MSPCodes.MSP2_SET_WING_GPS_RESCUE,
+                            mspHelper.crunch(MSPCodes.MSP2_SET_WING_GPS_RESCUE),
+                        );
+                    } catch (rescueErr) {
+                        console.warn("[WingTuning] MSP2_SET_WING_GPS_RESCUE failed:", rescueErr);
+                    }
+                }
+
                 await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
 
                 initialFields.value = { ...fields };
                 initialLaunchFields.value = { ...launchFields };
+                initialGpsRescueFields.value = { ...gpsRescueFields };
                 initialMixerState.value = cloneMixerState(mixerState);
             } catch (e) {
                 console.error("[WingTuning] save failed:", e);
@@ -1756,8 +1866,10 @@ export default defineComponent({
             PLANE_SLOT_OPTIONS,
             CUSTOM_AIRPLANE_MIXER,
             LAUNCH_FIELD_DEFS,
+            GPS_RESCUE_FIELD_DEFS,
             fields,
             launchFields,
+            gpsRescueFields,
             loading,
             saving,
             error,

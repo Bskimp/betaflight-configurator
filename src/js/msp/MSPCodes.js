@@ -214,6 +214,10 @@ const MSPCodes = {
     // buildOption). Tab falls back to a placeholder stub on older firmware.
     MSP2_WING_LAUNCH: 0x3014,
     MSP2_SET_WING_LAUNCH: 0x3015,
+    // Firmware gates on USE_WING && USE_GPS_RESCUE. 22-byte wire format;
+    // all fields unsigned. Defaults match pg/gps_rescue_wing.c PG_RESET.
+    MSP2_WING_GPS_RESCUE: 0x3016,
+    MSP2_SET_WING_GPS_RESCUE: 0x3017,
     // MSP2_GET_TEXT and MSP2_SET_TEXT variable types
     PILOT_NAME: 1,
     CRAFT_NAME: 2,

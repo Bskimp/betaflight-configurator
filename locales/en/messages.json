@@ -534,11 +534,110 @@
     "wingLaunchHelp_wing_launch_stick_override": {
         "message": "Stick deflection percentage that aborts the launch sequence. 0 disables stick override. Useful as a manual kill switch during testing."
     },
+    "wingGpsRescueDesc": {
+        "message": "GPS Return-to-Home behavior for fixed-wing aircraft. When rescue triggers (failsafe or switch-assigned GPS RESCUE mode), firmware climbs to the configured return altitude, flies back to home, then orbits at the loiter altitude until the pilot takes over or the mode is disabled."
+    },
+    "wingGpsRescueHint": {
+        "message": "Fields save to the rescue config and take effect on the next rescue trigger. Live in-flight edits aren't supported — rescue parameters only re-read at mode entry."
+    },
+    "wingGpsRescueLabel_allowArmingWithoutFix": {
+        "message": "Allow arming without GPS fix"
+    },
+    "wingGpsRescueHelp_allowArmingWithoutFix": {
+        "message": "0 = disallow arm until GPS fix + sats threshold are met. 1 = allow arm without fix (for bench testing or intentional no-rescue flights). Default: 0 (safer)."
+    },
+    "wingGpsRescueLabel_minSats": {
+        "message": "Min satellites"
+    },
+    "wingGpsRescueHelp_minSats": {
+        "message": "Minimum satellite count required to declare GPS 'good enough' for arming and rescue. Default: 8. Below 6 is unreliable; 10+ is preferred for surveyed home points."
+    },
+    "wingGpsRescueLabel_maxBankAngle": {
+        "message": "Max bank angle (°)"
+    },
+    "wingGpsRescueHelp_maxBankAngle": {
+        "message": "Maximum roll angle during rescue turns. Default: 25°. Higher = tighter turns but more altitude loss in the roll; lower = wider turns but smoother energy retention."
+    },
+    "wingGpsRescueLabel_orbitRadiusM": {
+        "message": "Orbit radius (m)"
+    },
+    "wingGpsRescueHelp_orbitRadiusM": {
+        "message": "Radius of the orbit pattern at home once the plane arrives. Default: 50m. Too small and the plane struggles to hold altitude in the turn; too large and it may drift away from home in wind."
+    },
+    "wingGpsRescueLabel_returnAltitudeM": {
+        "message": "Return altitude (m)"
+    },
+    "wingGpsRescueHelp_returnAltitudeM": {
+        "message": "Cruise altitude (above home) the plane climbs to before heading back. Default: 50m. Set above the tallest obstacle between you and the plane's flight area."
+    },
+    "wingGpsRescueLabel_minLoiterAltM": {
+        "message": "Min loiter altitude (m)"
+    },
+    "wingGpsRescueHelp_minLoiterAltM": {
+        "message": "Minimum safe altitude for the orbit once the plane reaches home. Default: 25m. Floor for the altitude controller during loiter."
+    },
+    "wingGpsRescueLabel_cruiseThrottle": {
+        "message": "Cruise throttle (%)"
+    },
+    "wingGpsRescueHelp_cruiseThrottle": {
+        "message": "Throttle percentage during return cruise and loiter. Default: 50%. Tune to match the airframe's steady-level-flight throttle — too low and the plane sinks; too high and it zooms."
+    },
+    "wingGpsRescueLabel_minThrottle": {
+        "message": "Min throttle (%)"
+    },
+    "wingGpsRescueHelp_minThrottle": {
+        "message": "Stall-prevention throttle floor. Default: 30%. Rescue will never drop below this, even when descending or slowing, to keep the plane flying."
+    },
+    "wingGpsRescueLabel_abortThrottle": {
+        "message": "Abort throttle (%)"
+    },
+    "wingGpsRescueHelp_abortThrottle": {
+        "message": "Throttle used during abort/recovery transitions. Default: 45%. Applied briefly when switching between rescue phases to keep airspeed stable."
+    },
+    "wingGpsRescueLabel_navP": {
+        "message": "Heading P gain"
+    },
+    "wingGpsRescueHelp_navP": {
+        "message": "Heading controller proportional gain. Default: 30. Higher = sharper corrections back onto course (risks oscillation in wind); lower = smoother but slower to track."
+    },
+    "wingGpsRescueLabel_altP": {
+        "message": "Altitude P gain"
+    },
+    "wingGpsRescueHelp_altP": {
+        "message": "Altitude controller proportional gain. Default: 30. Higher = more aggressive altitude hold (risks porpoising); lower = smoother but slower to reach/hold target altitude."
+    },
+    "wingGpsRescueLabel_turnCompensation": {
+        "message": "Turn compensation (%)"
+    },
+    "wingGpsRescueHelp_turnCompensation": {
+        "message": "Nose-up pitch compensation applied during banked turns to counter altitude loss. Default: 50%. Higher = more pitch-up in turns; tune per airframe if it sinks or balloons in rescue turns."
+    },
+    "wingGpsRescueLabel_minHeadingSpeedCmS": {
+        "message": "Min heading speed (cm/s)"
+    },
+    "wingGpsRescueHelp_minHeadingSpeedCmS": {
+        "message": "Minimum groundspeed at which GPS heading is considered valid. Default: 400 cm/s (14 km/h). Below this, heading estimate is dominated by compass/IMU, not track."
+    },
+    "wingGpsRescueLabel_stallSpeedCmS": {
+        "message": "Stall speed (cm/s)"
+    },
+    "wingGpsRescueHelp_stallSpeedCmS": {
+        "message": "Groundspeed below which firmware declares a stall during cruise/orbit and takes recovery action. Default: 200 cm/s (7 km/h). Set below your plane's actual stall speed with margin."
+    },
+    "wingGpsRescueLabel_minStartDistM": {
+        "message": "Min start distance (m)"
+    },
+    "wingGpsRescueHelp_minStartDistM": {
+        "message": "Minimum distance from home required to start a rescue. Default: 30m. Prevents rescue triggers from activating when the plane is already at/near home."
+    },
+    "wingGpsRescueLabel_sanityChecks": {
+        "message": "Sanity checks"
+    },
+    "wingGpsRescueHelp_sanityChecks": {
+        "message": "Rescue sanity-check mode. 0 = off, 1 = on (abort on obvious insanity: wrong direction, no altitude gain, etc.), 2 = failsafe-only (checks only run during failsafe-triggered rescue, not switch-triggered). Default: 1."
+    },
     "wingSubTabGpsRescueTitle": {
         "message": "GPS Rescue (Wing)"
-    },
-    "wingSubTabGpsRescuePlaceholder": {
-        "message": "Wing GPS rescue configuration UI is coming in a future release. For now, configure via CLI: gps_rescue_return_alt, gps_rescue_orbit_radius, gps_rescue_cruise_throttle, etc. See WING_CLI_REFERENCE.md in the firmware repo for the full parameter list."
     },
     "wingAutotrimTitle": {
         "message": "Servo Autotrim"

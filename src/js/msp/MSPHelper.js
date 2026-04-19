@@ -11,6 +11,7 @@ import MSPCodes from "./MSPCodes";
 import { API_VERSION_1_45, API_VERSION_1_46, API_VERSION_1_47, API_VERSION_1_48 } from "../data_storage";
 import { decodeWingTuning, crunchWingTuning } from "./wingTuningSchema.js";
 import { decodeWingLaunch, crunchWingLaunch } from "./wingLaunchSchema.js";
+import { decodeWingGpsRescue, crunchWingGpsRescue } from "./wingGpsRescueSchema.js";
 import EscProtocols from "../utils/EscProtocols";
 import huffmanDecodeBuf from "../huffman";
 import { defaultHuffmanTree, defaultHuffmanLenIndex } from "../default_huffman_tree";
@@ -1235,6 +1236,21 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     }
                     break;
                 }
+                case MSPCodes.MSP2_SET_WING_GPS_RESCUE:
+                    console.log("Wing GPS rescue saved");
+                    FC.WING_GPS_RESCUE_ACTIVE = { ...FC.WING_GPS_RESCUE };
+                    break;
+                case MSPCodes.MSP2_WING_GPS_RESCUE: {
+                    // 22-byte payload, schema in wingGpsRescueSchema.js.
+                    try {
+                        const snap = decodeWingGpsRescue(data);
+                        FC.WING_GPS_RESCUE = snap;
+                        FC.WING_GPS_RESCUE_ACTIVE = { ...snap };
+                    } catch (error) {
+                        console.warn("Failed to decode wing GPS rescue payload:", error);
+                    }
+                    break;
+                }
                 case MSPCodes.MSP_PID_ADVANCED:
                     FC.ADVANCED_TUNING.rollPitchItermIgnoreRate = data.readU16();
                     FC.ADVANCED_TUNING.yawItermIgnoreRate = data.readU16();
@@ -2346,6 +2362,10 @@ MspHelper.prototype.crunch = function (code, modifierCode = undefined) {
             // 15-byte payload driven by WING_LAUNCH_SCHEMA. Same
             // append-only wire-contract discipline as MSP2_SET_WING_TUNING.
             crunchWingLaunch(buffer, FC.WING_LAUNCH);
+            break;
+        case MSPCodes.MSP2_SET_WING_GPS_RESCUE:
+            // 22-byte payload driven by WING_GPS_RESCUE_SCHEMA.
+            crunchWingGpsRescue(buffer, FC.WING_GPS_RESCUE);
             break;
         case MSPCodes.MSP_SET_SENSOR_CONFIG:
             buffer.push8(FC.SENSOR_CONFIG.acc_hardware);

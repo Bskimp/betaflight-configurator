@@ -154,6 +154,11 @@ const FC = {
     // WING_LAUNCH_ACTIVE is the post-Reload snapshot for dirty-check.
     WING_LAUNCH: null,
     WING_LAUNCH_ACTIVE: null,
+    // Wing GPS rescue config (16 fields from gpsRescueConfig_t under
+    // USE_WING && USE_GPS_RESCUE). Populated via MSP2_WING_GPS_RESCUE
+    // decode; _ACTIVE is the post-Reload snapshot for dirty-check.
+    WING_GPS_RESCUE: null,
+    WING_GPS_RESCUE_ACTIVE: null,
     ANALOG: { ...INITIAL_ANALOG },
     ARMING_CONFIG: null,
     AUX_CONFIG: null,
@@ -659,6 +664,27 @@ const FC = {
             wing_launch_stick_override: 0,
         };
         this.WING_LAUNCH_ACTIVE = { ...this.WING_LAUNCH };
+
+        // Firmware defaults from pg/gps_rescue_wing.c PG_RESET_TEMPLATE.
+        this.WING_GPS_RESCUE = {
+            allowArmingWithoutFix: 0,
+            minSats: 8,
+            maxBankAngle: 25,
+            orbitRadiusM: 50,
+            returnAltitudeM: 50,
+            minLoiterAltM: 25,
+            cruiseThrottle: 50,
+            minThrottle: 30,
+            abortThrottle: 45,
+            navP: 30,
+            altP: 30,
+            turnCompensation: 50,
+            minHeadingSpeedCmS: 400,
+            stallSpeedCmS: 200,
+            minStartDistM: 30,
+            sanityChecks: 1,
+        };
+        this.WING_GPS_RESCUE_ACTIVE = { ...this.WING_GPS_RESCUE };
 
         this.SENSOR_CONFIG = {
             acc_hardware: 0,
