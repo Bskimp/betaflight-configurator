@@ -1425,7 +1425,7 @@ import {
     PLANE_SLOT_MAX,
 } from "../../js/utils/planePresets.js";
 import { applyMotorMix, applyCliLines } from "../../js/utils/wingMixerCli.js";
-import { readCli, parseResourceShow, parseTimerShow, parseDmaShow } from "../../js/utils/cliOneShot.js";
+import { readCli, parseResourceShow, parseTimerShow, parseDmaShow, parseTimerDump } from "../../js/utils/cliOneShot.js";
 import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
 import { computeWingRemap } from "../../js/utils/wingRemapRecommender.js";
 import { useConnectionStore } from "../../stores/connection";
@@ -1705,10 +1705,16 @@ export default defineComponent({
                 const rs = await readCli("resource show");
                 const ts = await readCli("timer show");
                 const ds = await readCli("dma show");
+                // `timer` (dump form) exposes the board's full
+                // TIMER_PIN_MAP — the set of PWM-capable pads regardless
+                // of current claim state. AIO remap picks from these
+                // when motor pads can't be reused as servos.
+                const td = await readCli("timer");
                 hardwareAnalysis.value = analyzeWingResources({
                     resourceShow: parseResourceShow(rs.lines),
                     timerShow: parseTimerShow(ts.lines),
                     dmaShow: parseDmaShow(ds.lines),
+                    timerDump: parseTimerDump(td.lines),
                 });
             } catch (e) {
                 console.error("[WingTuning] Hardware load failed:", e);

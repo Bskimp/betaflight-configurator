@@ -49,16 +49,16 @@ describe("computeWingRemap", () => {
         expect(r.isNoOp).toBe(false);
         expect(r.motorsToRelease.map((m) => m.index)).toEqual([3, 4, 5, 6, 7, 8]);
         expect(r.servosToAssign).toEqual([
-            { slot: 1, pad: "B15", fromMotorIndex: 3 },
-            { slot: 2, pad: "A08", fromMotorIndex: 4 },
-            { slot: 3, pad: "B11", fromMotorIndex: 5 },
-            { slot: 4, pad: "B10", fromMotorIndex: 6 },
-            { slot: 5, pad: "C08", fromMotorIndex: 7 },
-            { slot: 6, pad: "C09", fromMotorIndex: 8 },
+            { slot: 1, pad: "B15", fromMotorIndex: 3, fromFreePad: false },
+            { slot: 2, pad: "A08", fromMotorIndex: 4, fromFreePad: false },
+            { slot: 3, pad: "B11", fromMotorIndex: 5, fromFreePad: false },
+            { slot: 4, pad: "B10", fromMotorIndex: 6, fromFreePad: false },
+            { slot: 5, pad: "C08", fromMotorIndex: 7, fromFreePad: false },
+            { slot: 6, pad: "C09", fromMotorIndex: 8, fromFreePad: false },
         ]);
     });
 
-    it("emits CLI lines that end with save", () => {
+    it("emits CLI lines that end with save (release phase first, then assign)", () => {
         const motors = [
             { index: 1, pad: "B07", timer: null, channel: null, dmaStream: null, bidirBurst: false },
             { index: 2, pad: "B06", timer: null, channel: null, dmaStream: null, bidirBurst: false },
@@ -66,10 +66,13 @@ describe("computeWingRemap", () => {
             { index: 4, pad: "A08", timer: null, channel: null, dmaStream: null, bidirBurst: false },
         ];
         const r = computeWingRemap(analysis(motors), { motorCount: 2 });
+        // Release all motors first, then emit servo assignments, then save.
+        // Order matters: BF's `resource SERVO 1 A08` would fail if A08 is
+        // still bound as MOTOR 4, so releases must come first.
         expect(r.cliLines).toEqual([
             "resource MOTOR 3 NONE",
-            "resource SERVO 1 B15",
             "resource MOTOR 4 NONE",
+            "resource SERVO 1 B15",
             "resource SERVO 2 A08",
             "save",
         ]);
@@ -93,7 +96,7 @@ describe("computeWingRemap", () => {
         ];
         const r = computeWingRemap(analysis(motors), { motorCount: 1 });
         expect(r.motorsToRelease).toEqual([{ index: 2, pad: "B06" }]);
-        expect(r.servosToAssign).toEqual([{ slot: 1, pad: "B06", fromMotorIndex: 2 }]);
+        expect(r.servosToAssign).toEqual([{ slot: 1, pad: "B06", fromMotorIndex: 2, fromFreePad: false }]);
     });
 
     it("skips pads on board-wired peripherals but still releases the motor slot", () => {
@@ -110,8 +113,8 @@ describe("computeWingRemap", () => {
         );
         expect(r.cliLines).toEqual([
             "resource MOTOR 3 NONE",
-            // SERVO 1 not assigned to A11 — that pad is board-wired.
             "resource MOTOR 4 NONE",
+            // SERVO 1 not assigned to A11 — that pad is board-wired.
             "resource SERVO 1 B15",
             "save",
         ]);
@@ -137,22 +140,62 @@ describe("computeWingRemap AIO mode", () => {
         { index: 4, pad: "A02", timer: 2, channel: 3, dmaStream: { controller: 1, stream: 1 }, bidirBurst: false },
     ];
 
-    it("AIO mode releases extra motors but does NOT reassign as servos", () => {
-        const r = computeWingRemap(analysis(aioMotors), { motorCount: 2, boardWiring: "aio" });
+    // FLYWOOF405S_AIO-ish free PWM pads: M5-M8 declared in TIMER_PIN_MAP
+    // but not claimed by the quad mixer.
+    const flywooFreePads = [
+        { pad: "B05", timer: 1, channel: 2 },
+        { pad: "B07", timer: 1, channel: 3 },
+        { pad: "C09", timer: 8, channel: 4 },
+        { pad: "C08", timer: 8, channel: 3 },
+    ];
+
+    it("AIO mode releases extra motors AND assigns servos to free PWM pads", () => {
+        const r = computeWingRemap(analysis(aioMotors, { pwmCapableFreePads: flywooFreePads }), {
+            motorCount: 2,
+            boardWiring: "aio",
+        });
         expect(r.isNoOp).toBe(false);
         expect(r.boardWiring).toBe("aio");
-        // Motors are released...
         expect(r.motorsToRelease.map((m) => m.index)).toEqual([3, 4]);
-        // ...but no servos assigned — pads are ESC-soldered.
-        expect(r.servosToAssign).toEqual([]);
-        expect(r.cliLines).toEqual(["resource MOTOR 3 NONE", "resource MOTOR 4 NONE", "save"]);
+        // Servos come from free PWM pads, not from released motor pads.
+        expect(r.servosToAssign).toEqual([
+            { slot: 1, pad: "B05", fromMotorIndex: 3, fromFreePad: true },
+            { slot: 2, pad: "B07", fromMotorIndex: 4, fromFreePad: true },
+        ]);
+        expect(r.cliLines).toEqual([
+            "resource MOTOR 3 NONE",
+            "resource MOTOR 4 NONE",
+            "resource SERVO 1 B05",
+            "resource SERVO 2 B07",
+            "save",
+        ]);
     });
 
-    it("AIO mode emits a manual-servo guidance warning", () => {
+    it("AIO mode warns when free PWM pad supply runs short", () => {
+        // 4 extra motors but only 2 free PWM pads available.
+        const extraMotors = [
+            ...aioMotors,
+            { index: 5, pad: "B05", timer: 1, channel: 2, dmaStream: null, bidirBurst: false },
+            { index: 6, pad: "B07", timer: 1, channel: 3, dmaStream: null, bidirBurst: false },
+        ];
+        const twoFreePads = [
+            { pad: "C09", timer: 8, channel: 4 },
+            { pad: "C08", timer: 8, channel: 3 },
+        ];
+        const r = computeWingRemap(analysis(extraMotors, { pwmCapableFreePads: twoFreePads }), {
+            motorCount: 2,
+            boardWiring: "aio",
+        });
+        expect(r.servosToAssign.length).toBe(2);
+        const shortage = r.warnings.find((w) => w.code === "aio_no_free_pwm_pad");
+        expect(shortage).toBeDefined();
+    });
+
+    it("AIO mode with no free PWM pads still releases motors but creates no servos", () => {
         const r = computeWingRemap(analysis(aioMotors), { motorCount: 2, boardWiring: "aio" });
-        const warn = r.warnings.find((w) => w.code === "aio_needs_manual_servos");
-        expect(warn).toBeDefined();
-        expect(warn.message).toMatch(/free PWM pad/i);
+        expect(r.servosToAssign).toEqual([]);
+        expect(r.cliLines).toEqual(["resource MOTOR 3 NONE", "resource MOTOR 4 NONE", "save"]);
+        expect(r.warnings.some((w) => w.code === "aio_no_free_pwm_pad")).toBe(true);
     });
 
     it("discrete mode (default) still reassigns ex-motor pads as servos", () => {
@@ -160,6 +203,8 @@ describe("computeWingRemap AIO mode", () => {
         expect(r.boardWiring).toBe("discrete");
         expect(r.servosToAssign.length).toBe(2);
         expect(r.cliLines).toContain("resource SERVO 1 A03");
+        // fromFreePad should be false for the discrete path
+        expect(r.servosToAssign[0].fromFreePad).toBe(false);
     });
 
     it("AIO no-op (board has exactly N motors) still reports boardWiring", () => {

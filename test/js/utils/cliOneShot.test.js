@@ -9,6 +9,7 @@ import {
     parseTimerShow,
     parseDmaShow,
     parseResourceDumpLine,
+    parseTimerDump,
 } from "../../../src/js/utils/cliOneShot.js";
 
 // Trimmed `resource show` output from bench.
@@ -124,6 +125,40 @@ describe("parseDmaShow", () => {
         // regresses, per-motor allocation is happening instead, which
         // changes the Hardware panel recommendation logic.
         expect(timup).toEqual({ controller: 1, stream: 6, peripheral: "TIMUP", index: 4 });
+    });
+});
+
+describe("parseTimerDump", () => {
+    const TIMER_DUMP_FIXTURE = `
+timer B07 AF2
+# pin B07: TIM4 CH2 (AF2)
+timer B06 AF2
+# pin B06: TIM4 CH1 (AF2)
+timer B00 AF2
+# pin B00: TIM3 CH3 (AF2)
+timer A08 AF1
+# pin A08: TIM1 CH1 (AF1)
+`;
+
+    it("extracts pad + AF + TIM/CH from dump + comment pairs", () => {
+        const parsed = parseTimerDump(TIMER_DUMP_FIXTURE);
+        expect(parsed).toEqual([
+            { pad: "B07", af: 2, timer: 4, channel: 2 },
+            { pad: "B06", af: 2, timer: 4, channel: 1 },
+            { pad: "B00", af: 2, timer: 3, channel: 3 },
+            { pad: "A08", af: 1, timer: 1, channel: 1 },
+        ]);
+    });
+
+    it("tolerates missing comment lines (timer/channel become null)", () => {
+        const parsed = parseTimerDump("timer B07 AF2\n");
+        expect(parsed).toEqual([{ pad: "B07", af: 2, timer: null, channel: null }]);
+    });
+
+    it("tolerates complementary channel suffix (CH2N)", () => {
+        const fixture = "timer B14 AF3\n# pin B14: TIM8 CH2N (AF3)\n";
+        const parsed = parseTimerDump(fixture);
+        expect(parsed).toEqual([{ pad: "B14", af: 3, timer: 8, channel: 2 }]);
     });
 });
 

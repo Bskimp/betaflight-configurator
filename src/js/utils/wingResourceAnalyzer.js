@@ -153,8 +153,13 @@ function deriveWarnings({ motors, servos, ledStrips, freeDmaStreams }) {
  * @param {Array} input.resourceShow
  * @param {Array} input.timerShow
  * @param {Array} input.dmaShow
+ * @param {Array} [input.timerDump] - optional `timer` (dump) output;
+ *   when present, the analyzer returns pwmCapableFreePads (pads that
+ *   have a PWM timer but currently show as FREE in resourceShow).
+ *   Used by the AIO remap recommender to find servo-eligible pads
+ *   without reassigning motor pads that are soldered to ESCs.
  */
-export function analyzeWingResources({ resourceShow, timerShow, dmaShow }) {
+export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDump = [] }) {
     const timerByKey = buildTimerLookup(timerShow);
     const dmaByKey = buildDmaLookup(dmaShow);
     const uartDmaByDirIndex = buildUartDmaLookup(dmaShow);
@@ -222,6 +227,14 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow }) {
     motors.sort((a, b) => a.index - b.index);
     servos.sort((a, b) => a.index - b.index);
 
+    // Cross-reference timer dump with resource show to find
+    // PWM-capable pads that are currently unclaimed — the pool the
+    // AIO remap recommender picks from when assigning servos.
+    const freePads = new Set(resourceShow.filter((e) => e.peripheral === "FREE").map((e) => e.pad));
+    const pwmCapableFreePads = Array.isArray(timerDump)
+        ? timerDump.filter((t) => freePads.has(t.pad)).map((t) => ({ pad: t.pad, timer: t.timer, channel: t.channel }))
+        : [];
+
     const warnings = deriveWarnings({ motors, servos, ledStrips, freeDmaStreams });
 
     return {
@@ -232,6 +245,7 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow }) {
         freePadsCount,
         freeDmaStreams,
         hardwareFixedPads,
+        pwmCapableFreePads,
         warnings,
     };
 }

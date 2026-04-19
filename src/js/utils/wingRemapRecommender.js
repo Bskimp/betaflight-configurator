@@ -64,60 +64,77 @@ export function computeWingRemap(analysis, options = {}) {
     // shouldn't be in a motor slot, but defensive anyway).
     const fixedPads = new Set(analysis.hardwareFixedPads.map((p) => p.pad));
 
+    // Source of servo pad assignments.
+    //   discrete: reuse the motor pads we're about to release
+    //     (motor header routes to servo header on these boards)
+    //   aio:      pick from PWM-capable pads that are currently FREE
+    //     (motor pads stay bound to their ESC solder joints)
+    // If analyzer didn't surface pwmCapableFreePads (older firmware,
+    // no timer dump available), AIO mode falls back to the previous
+    // "manual" behavior with a warning.
+    const pwmFreePads = Array.isArray(analysis.pwmCapableFreePads) ? [...analysis.pwmCapableFreePads] : [];
+
     const servosToAssign = [];
     const skipWarnings = [];
     const cliLines = [];
     const motorsToRelease = [];
 
-    let nextServoSlot = 1;
+    // Release phase: strip MOTOR slots we don't need.
     for (const m of release) {
         cliLines.push(`resource MOTOR ${m.index} NONE`);
         motorsToRelease.push({ index: m.index, pad: m.pad });
+    }
 
-        // AIO mode: released motor pads stay unassigned — they're
-        // physically routed to ESCs, not servo headers. User assigns
-        // servos to free pads manually (the UI surfaces the free-pad
-        // list for picking).
-        if (boardWiring === "aio") continue;
-
-        if (fixedPads.has(m.pad)) {
-            skipWarnings.push({
-                code: "skipped_fixed_pad",
-                message: `Pad ${m.pad} (MOTOR ${m.index}) sits on a board-wired peripheral — released but not reassigned to a servo slot.`,
+    // Assign phase: wire servos to the appropriate pad source.
+    let nextServoSlot = 1;
+    if (boardWiring === "aio") {
+        for (const m of release) {
+            const candidate = pwmFreePads.shift();
+            if (!candidate) {
+                skipWarnings.push({
+                    code: "aio_no_free_pwm_pad",
+                    message: `No free PWM-capable pad available for SERVO ${nextServoSlot} (board has only ${servosToAssign.length} slot${servosToAssign.length === 1 ? "" : "s"} of PWM headroom). Remaining MOTOR ${m.index} slot released but no servo created.`,
+                });
+                continue;
+            }
+            cliLines.push(`resource SERVO ${nextServoSlot} ${candidate.pad}`);
+            servosToAssign.push({
+                slot: nextServoSlot,
+                pad: candidate.pad,
+                fromMotorIndex: m.index,
+                fromFreePad: true,
             });
-            continue;
+            nextServoSlot++;
         }
-        cliLines.push(`resource SERVO ${nextServoSlot} ${m.pad}`);
-        servosToAssign.push({
-            slot: nextServoSlot,
-            pad: m.pad,
-            fromMotorIndex: m.index,
-        });
-        nextServoSlot++;
+    } else {
+        for (const m of release) {
+            if (fixedPads.has(m.pad)) {
+                skipWarnings.push({
+                    code: "skipped_fixed_pad",
+                    message: `Pad ${m.pad} (MOTOR ${m.index}) sits on a board-wired peripheral — released but not reassigned to a servo slot.`,
+                });
+                continue;
+            }
+            cliLines.push(`resource SERVO ${nextServoSlot} ${m.pad}`);
+            servosToAssign.push({
+                slot: nextServoSlot,
+                pad: m.pad,
+                fromMotorIndex: m.index,
+                fromFreePad: false,
+            });
+            nextServoSlot++;
+        }
     }
 
     cliLines.push("save");
 
-    if (boardWiring === "aio") {
-        skipWarnings.push({
-            code: "aio_needs_manual_servos",
-            message:
-                "AIO mode: motor slots released but NO servo pads assigned. Wire your servos to free PWM pads and run `resource SERVO <n> <pad>` via CLI before saving.",
-        });
-    }
-
     const keepStr = keep.map((m) => `M${m.index}`).join(", ") || "(none)";
+    const servoStr = servosToAssign.length > 0 ? servosToAssign.map((s) => `S${s.slot}=${s.pad}`).join(", ") : "(none)";
     let summary;
     if (boardWiring === "aio") {
-        summary =
-            `Keep ${keepStr} as motors; release ${motorsToRelease.length} unused motor slot${motorsToRelease.length === 1 ? "" : "s"}. ` +
-            `Their pads stay on the board-ESC lines — assign servos to free I/O pads manually.`;
+        summary = `Keep ${keepStr} as motors (on their ESC-soldered pads); release ${motorsToRelease.length} unused motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign servos to free PWM pads: ${servoStr}.`;
     } else {
-        const servoStr =
-            servosToAssign.length > 0
-                ? servosToAssign.map((s) => `S${s.slot}=${s.pad}`).join(", ")
-                : "(no servos created)";
-        summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and assign pads to servos: ${servoStr}.`;
+        summary = `Keep ${keepStr} as motors; release ${motorsToRelease.length} motor slot${motorsToRelease.length === 1 ? "" : "s"} and reassign pads to servos: ${servoStr}.`;
     }
 
     return {

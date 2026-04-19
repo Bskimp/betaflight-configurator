@@ -206,3 +206,44 @@ export function parseResourceDumpLine(line) {
         pad: m[3].toUpperCase(),
     };
 }
+
+/**
+ * Parse the full `timer` dump output (NOT `timer show`). Returns
+ * the set of pads that have a timer AF declared — these are the
+ * PWM-capable pads on the board, whether currently claimed or not.
+ *
+ * Example input lines:
+ *   timer B07 AF2
+ *   # pin B07: TIM4 CH2 (AF2)
+ *   timer B06 AF2
+ *   # pin B06: TIM4 CH1 (AF2)
+ *
+ * Comment lines starting with "#" carry the human-readable
+ * TIM/CH mapping; we parse them too so the caller can get timer/
+ * channel info per pad without needing a second dump.
+ *
+ * @param {string[]|string} input
+ * @returns {Array<{pad: string, af: number, timer: number|null, channel: number|null}>}
+ */
+export function parseTimerDump(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const out = [];
+    let pending = null;
+    for (const line of lines) {
+        const ti = /^\s*timer\s+(\S+)\s+AF(\d+)/i.exec(line);
+        if (ti) {
+            if (pending) out.push(pending);
+            pending = { pad: ti[1].toUpperCase(), af: Number(ti[2]), timer: null, channel: null };
+            continue;
+        }
+        if (pending) {
+            const pm = /^\s*#\s*pin\s+(\S+)\s*:\s*TIM(\d+)\s+CH(\d+)N?/i.exec(line);
+            if (pm && pm[1].toUpperCase() === pending.pad) {
+                pending.timer = Number(pm[2]);
+                pending.channel = Number(pm[3]);
+            }
+        }
+    }
+    if (pending) out.push(pending);
+    return out;
+}
