@@ -1114,6 +1114,195 @@
                         </div>
                     </div>
                 </template>
+
+                <!-- ═══ Hardware sub-tab — live view of what the firmware has claimed.
+                     Parses resource show / timer show / dma show via cliOneShot.js.
+                     Read-only; no remap buttons in Phase 1. -->
+                <template v-if="activeSubTab === 'hardware'">
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingSubTabHardwareTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingHardwareDesc") }}</p>
+                                    <p>
+                                        <a
+                                            class="update"
+                                            href="#"
+                                            :class="{ disabled: hardwareLoading }"
+                                            @click.prevent="loadHardware"
+                                            >{{ $t("wingHardwareReload") }}</a
+                                        >
+                                        <span v-if="hardwareLoading" class="hw_status">
+                                            {{ $t("wingHardwareLoading") }}
+                                        </span>
+                                    </p>
+
+                                    <p v-if="hardwareError" class="hw_error">{{ hardwareError }}</p>
+
+                                    <template v-if="hardwareAnalysis">
+                                        <!-- Motors -->
+                                        <h3>{{ $t("wingHardwareMotors") }}</h3>
+                                        <table v-if="hardwareAnalysis.motors.length > 0" class="fields">
+                                            <thead>
+                                                <tr>
+                                                    <th>Motor</th>
+                                                    <th>Pad</th>
+                                                    <th>Timer</th>
+                                                    <th>DMA / Mode</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="m in hardwareAnalysis.motors" :key="m.index">
+                                                    <td>M{{ m.index }}</td>
+                                                    <td>{{ m.pad }}</td>
+                                                    <td>
+                                                        <span v-if="m.timer != null"
+                                                            >TIM{{ m.timer }}
+                                                            <span v-if="m.channel != null"
+                                                                >CH{{ m.channel }}</span
+                                                            ></span
+                                                        >
+                                                        <span v-else class="hw_muted">—</span>
+                                                    </td>
+                                                    <td>
+                                                        <span v-if="m.bidirBurst" class="hw_ok">TIMUP burst ✓</span>
+                                                        <span v-else-if="m.dmaStream"
+                                                            >DMA{{ m.dmaStream.controller }}/S{{
+                                                                m.dmaStream.stream
+                                                            }}</span
+                                                        >
+                                                        <span v-else class="hw_warn">no DMA</span>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                        <p v-else class="hw_muted">{{ $t("wingHardwareNoMotors") }}</p>
+
+                                        <!-- Servos -->
+                                        <h3>{{ $t("wingHardwareServos") }}</h3>
+                                        <table v-if="hardwareAnalysis.servos.length > 0" class="fields">
+                                            <thead>
+                                                <tr>
+                                                    <th>Servo</th>
+                                                    <th>Pad</th>
+                                                    <th>Timer</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="s in hardwareAnalysis.servos" :key="s.index">
+                                                    <td>S{{ s.index }}</td>
+                                                    <td>{{ s.pad }}</td>
+                                                    <td>
+                                                        <span v-if="s.timer != null"
+                                                            >TIM{{ s.timer }}
+                                                            <span v-if="s.channel != null"
+                                                                >CH{{ s.channel }}</span
+                                                            ></span
+                                                        >
+                                                        <span v-else class="hw_muted">—</span>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                        <p v-else class="hw_muted">{{ $t("wingHardwareNoServos") }}</p>
+
+                                        <!-- LED strip (resource cost; not auto-remapped by default) -->
+                                        <template v-if="hardwareAnalysis.ledStrips.length > 0">
+                                            <h3>{{ $t("wingHardwareLed") }}</h3>
+                                            <table class="fields">
+                                                <tbody>
+                                                    <tr v-for="ls in hardwareAnalysis.ledStrips" :key="ls.pad">
+                                                        <td>LED_STRIP</td>
+                                                        <td>{{ ls.pad }}</td>
+                                                        <td>
+                                                            <span v-if="ls.timer != null"
+                                                                >TIM{{ ls.timer }}
+                                                                <span v-if="ls.channel != null"
+                                                                    >CH{{ ls.channel }}</span
+                                                                ></span
+                                                            >
+                                                        </td>
+                                                        <td>
+                                                            <span v-if="ls.dmaStream"
+                                                                >DMA{{ ls.dmaStream.controller }}/S{{
+                                                                    ls.dmaStream.stream
+                                                                }}</span
+                                                            >
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </template>
+
+                                        <!-- UARTs -->
+                                        <h3>{{ $t("wingHardwareSerials") }}</h3>
+                                        <table v-if="hardwareAnalysis.serials.length > 0" class="fields">
+                                            <thead>
+                                                <tr>
+                                                    <th>UART</th>
+                                                    <th>TX pad</th>
+                                                    <th>RX pad</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="u in hardwareAnalysis.serials" :key="u.index">
+                                                    <td>UART{{ u.index }}</td>
+                                                    <td>{{ u.txPad || "—" }}</td>
+                                                    <td>{{ u.rxPad || "—" }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+
+                                        <!-- Summary stats -->
+                                        <h3>{{ $t("wingHardwareSummary") }}</h3>
+                                        <ul class="hw_summary">
+                                            <li>
+                                                {{
+                                                    $t("wingHardwareFreePads", {
+                                                        n: hardwareAnalysis.freePadsCount,
+                                                    })
+                                                }}
+                                            </li>
+                                            <li>
+                                                {{
+                                                    $t("wingHardwareFreeDma", {
+                                                        n: hardwareAnalysis.freeDmaStreams.length,
+                                                    })
+                                                }}
+                                            </li>
+                                            <li>
+                                                {{
+                                                    $t("wingHardwareFixed", {
+                                                        n: hardwareAnalysis.hardwareFixedPads.length,
+                                                    })
+                                                }}
+                                            </li>
+                                        </ul>
+
+                                        <!-- Warnings / hints -->
+                                        <template v-if="hardwareAnalysis.warnings.length > 0">
+                                            <h3>{{ $t("wingHardwareNotices") }}</h3>
+                                            <ul class="hw_notices">
+                                                <li
+                                                    v-for="(w, i) in hardwareAnalysis.warnings"
+                                                    :key="i"
+                                                    :class="`hw_severity_${w.severity}`"
+                                                >
+                                                    {{ w.message }}
+                                                </li>
+                                            </ul>
+                                        </template>
+                                    </template>
+
+                                    <p class="launch_hint">{{ $t("wingHardwareHint") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
             </template>
         </div>
 
@@ -1161,6 +1350,8 @@ import {
     PLANE_SLOT_MAX,
 } from "../../js/utils/planePresets.js";
 import { applyMotorMix } from "../../js/utils/wingMixerCli.js";
+import { readCli, parseResourceShow, parseTimerShow, parseDmaShow } from "../../js/utils/cliOneShot.js";
+import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
 import { useConnectionStore } from "../../stores/connection";
 
 const PID_GAIN_MAX = 200;
@@ -1420,6 +1611,37 @@ export default defineComponent({
         const gpsRescueFields = reactive(defaultGpsRescueFields());
         const initialGpsRescueFields = ref({ ...gpsRescueFields });
 
+        // Hardware sub-tab state. Lazy-loaded on first activation
+        // via CLI one-shot (resource show / timer show / dma show).
+        // Read-only — no writes from this panel in Phase 1.
+        const hardwareAnalysis = ref(null);
+        const hardwareLoading = ref(false);
+        const hardwareError = ref(null);
+
+        async function loadHardware() {
+            if (hardwareLoading.value) return;
+            hardwareLoading.value = true;
+            hardwareError.value = null;
+            try {
+                // Sequential: MSP.cli_callback is singular; running in
+                // parallel would have the second call overwrite the first's
+                // pending callback.
+                const rs = await readCli("resource show");
+                const ts = await readCli("timer show");
+                const ds = await readCli("dma show");
+                hardwareAnalysis.value = analyzeWingResources({
+                    resourceShow: parseResourceShow(rs.lines),
+                    timerShow: parseTimerShow(ts.lines),
+                    dmaShow: parseDmaShow(ds.lines),
+                });
+            } catch (e) {
+                console.error("[WingTuning] Hardware load failed:", e);
+                hardwareError.value = e.message || String(e);
+            } finally {
+                hardwareLoading.value = false;
+            }
+        }
+
         const mixerState = reactive(emptyMixerState());
         const initialMixerState = ref(cloneMixerState(mixerState));
 
@@ -1452,7 +1674,7 @@ export default defineComponent({
         // the last-visited sub-tab across remount via localStorage so
         // returning to the tab opens where the user left off.
         const SUB_TAB_STORAGE_KEY = "wingTuningActiveSubTab";
-        const SUB_TAB_IDS = ["tuning", "mixer", "launch", "gps_rescue"];
+        const SUB_TAB_IDS = ["tuning", "mixer", "launch", "gps_rescue", "hardware"];
         const activeSubTab = ref(
             (() => {
                 try {
@@ -1468,6 +1690,11 @@ export default defineComponent({
                 globalThis.localStorage?.setItem(SUB_TAB_STORAGE_KEY, v);
             } catch {
                 /* no-op: localStorage unavailable / quota exceeded */
+            }
+            // Lazy-load the Hardware panel on first visit. Cached across
+            // sub-tab switches; explicit Reload button refetches.
+            if (v === "hardware" && hardwareAnalysis.value === null && !hardwareLoading.value) {
+                loadHardware();
             }
         });
 
@@ -1870,6 +2097,10 @@ export default defineComponent({
             fields,
             launchFields,
             gpsRescueFields,
+            hardwareAnalysis,
+            hardwareLoading,
+            hardwareError,
+            loadHardware,
             loading,
             saving,
             error,
@@ -2182,5 +2413,45 @@ button {
     color: #888;
     font-size: 0.85em;
     font-style: italic;
+}
+.hw_status {
+    margin-left: 12px;
+    color: #888;
+    font-size: 0.9em;
+    font-style: italic;
+}
+.hw_error {
+    color: #c03030;
+    margin: 6px 0;
+}
+.hw_muted {
+    color: #888;
+}
+.hw_ok {
+    color: #2a7;
+    font-weight: 500;
+}
+.hw_warn {
+    color: #c87c00;
+    font-weight: 500;
+}
+.hw_summary,
+.hw_notices {
+    margin: 6px 0 14px 18px;
+    padding: 0;
+}
+.hw_summary li,
+.hw_notices li {
+    padding: 2px 0;
+}
+.hw_severity_info {
+    color: #607090;
+}
+.hw_severity_warn {
+    color: #c87c00;
+}
+.hw_severity_error {
+    color: #c03030;
+    font-weight: 500;
 }
 </style>

@@ -462,6 +462,57 @@
     "wingSubTab_gps_rescue": {
         "message": "GPS Rescue"
     },
+    "wingSubTab_hardware": {
+        "message": "Hardware"
+    },
+    "wingSubTabHardwareTitle": {
+        "message": "Wing Hardware"
+    },
+    "wingHardwareDesc": {
+        "message": "Live view of what the firmware has claimed on this board — motors, servos, LED strip, UARTs, and the DMA streams behind them. Read-only; this panel doesn't change anything. Use Mixer to apply a preset, then reload here to see what the firmware allocated."
+    },
+    "wingHardwareReload": {
+        "message": "Reload from firmware"
+    },
+    "wingHardwareLoading": {
+        "message": "Reading resource / timer / dma from firmware…"
+    },
+    "wingHardwareMotors": {
+        "message": "Motors (claimed)"
+    },
+    "wingHardwareNoMotors": {
+        "message": "No motors currently claimed by the mixer."
+    },
+    "wingHardwareServos": {
+        "message": "Servos (claimed)"
+    },
+    "wingHardwareNoServos": {
+        "message": "No servos currently claimed by the mixer. Apply an airframe preset in Mixer to see servo assignments here."
+    },
+    "wingHardwareLed": {
+        "message": "LED strip"
+    },
+    "wingHardwareSerials": {
+        "message": "UARTs"
+    },
+    "wingHardwareSummary": {
+        "message": "Resource summary"
+    },
+    "wingHardwareFreePads": {
+        "message": "{n} free I/O pads"
+    },
+    "wingHardwareFreeDma": {
+        "message": "{n} free DMA streams"
+    },
+    "wingHardwareFixed": {
+        "message": "{n} board-wired pads (SPI, USB, ADC, gyro — not remappable)"
+    },
+    "wingHardwareNotices": {
+        "message": "Notices"
+    },
+    "wingHardwareHint": {
+        "message": "TIMUP burst means bidir DSHOT + RPM filter are running on a shared burst trigger — the correct mode for 2-motor wings on a single timer group."
+    },
     "wingSubTabLaunchTitle": {
         "message": "Wing Auto-launch"
     },
