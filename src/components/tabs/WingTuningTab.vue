@@ -2279,11 +2279,18 @@ export default defineComponent({
                 );
                 // smix syntax: `smix INDEX TARGET INPUT RATE SPEED MIN MAX BOX`
                 // Signed fields (rate/min/max) — BF CLI accepts signed ints.
-                const smixLines = ["smix reset"].concat(
-                    preset.rules.map(
-                        (r, i) =>
-                            `smix ${i} ${r.target} ${r.input} ${r.rate} ${r.speed ?? 0} ${r.min ?? -100} ${r.max ?? 100} ${r.box ?? 0}`,
-                    ),
+                //
+                // Skipping `smix reset` deliberately — on bench retest,
+                // including it caused ALL subsequent smix writes to
+                // silently drop (mmix persisted, smix didn't). Without
+                // the reset, BF overwrites indices 0..N-1 cleanly.
+                // Stale rules at indices >= preset.rules.length from a
+                // prior preset can linger, but are a minor concern
+                // (no target slot overlap with a fresh airframe) and
+                // preferable to losing the whole mix.
+                const smixLines = preset.rules.map(
+                    (r, i) =>
+                        `smix ${i} ${r.target} ${r.input} ${r.rate} ${r.speed ?? 0} ${r.min ?? -100} ${r.max ?? 100} ${r.box ?? 0}`,
                 );
                 // applyCliLines auto-appends `save` if the batch doesn't end with it.
                 await applyCliLines([...resourceLines, ...mmixLines, ...smixLines]);
