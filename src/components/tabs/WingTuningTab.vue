@@ -2298,9 +2298,21 @@ export default defineComponent({
             } finally {
                 // Keep the modal up long enough for the FC reboot +
                 // reconnect cycle to settle. Typical USB reconnect
-                // window is 2-4 s; 5 s is a safe cap.
-                setTimeout(() => {
+                // window is 2-4 s; 5 s is a safe cap. After settle,
+                // resume live data AND explicitly reload tab state —
+                // the CLI path persisted resources + mmix + smix to
+                // firmware but Vue state here is frozen at pre-reboot
+                // values. Without the reload the Mixer tab's
+                // Function→Output Mapping table shows 0 rules after
+                // apply even though `diff all` confirms firmware has
+                // the rules (observed on FURYF4OSD bench).
+                setTimeout(async () => {
                     connectionStore.resumeLiveData();
+                    try {
+                        await reload();
+                    } catch (reloadErr) {
+                        console.warn("[WingTuning] post-apply reload failed:", reloadErr);
+                    }
                     applyingPreset.value = false;
                 }, 5000);
             }
