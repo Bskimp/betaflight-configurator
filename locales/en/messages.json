@@ -513,36 +513,6 @@
     "wingHardwareHint": {
         "message": "TIMUP burst means bidir DSHOT + RPM filter are running on a shared burst trigger — the correct mode for 2-motor wings on a single timer group."
     },
-    "wingHardwareRemap": {
-        "message": "Recommended wing layout"
-    },
-    "wingHardwareOneMotor": {
-        "message": "1 motor (elevon-style)"
-    },
-    "wingHardwareTwoMotors": {
-        "message": "2 motors (diff-thrust capable)"
-    },
-    "wingHardwareWiringDiscrete": {
-        "message": "Discrete ESCs (reuse motor pads)"
-    },
-    "wingHardwareWiringAio": {
-        "message": "AIO (motor pads wired to ESCs)"
-    },
-    "wingHardwareReleaseLedStrip": {
-        "message": "Also release LED_STRIP pad for an extra servo (disables RGB)"
-    },
-    "wingHardwareReleaseUart": {
-        "message": "Also release UART{{n}} ({{pads}}) — no function assigned, pads are PWM-capable"
-    },
-    "wingHardwareAioPhysicalVerify": {
-        "message": "Candidate servo pads come from the firmware's TIMER_PIN_MAP. On tightly-integrated AIOs, not all of these are broken out to accessible headers — verify against your board's pad map before flying. If the suggested pads aren't usable, enable 'release LED_STRIP' or run CLI manually with pads your board actually exposes."
-    },
-    "wingHardwareApplyRemap": {
-        "message": "Apply remap + reboot FC"
-    },
-    "wingHardwareApplying": {
-        "message": "Applying wing remap…"
-    },
     "wingSubTabLaunchTitle": {
         "message": "Wing Auto-launch"
     },
@@ -803,6 +773,81 @@
     },
     "wingMixerWiringHint": {
         "message": "These are firmware resource labels, not silkscreen pad names. On most plane FCs they map directly to the pad with the same label; on quad FCs or non-standard boards you'll need to remap via CLI (resource SERVO N <pin>; save) to match your wiring. Timer / DMA allocation is your responsibility — check timer show and dma show in CLI before reassigning resources so you don't collide with motors or UART DMA streams."
+    },
+    "wingPinAssignTitle": {
+        "message": "Pin Assignment"
+    },
+    "wingPinAssignDesc": {
+        "message": "Which pad each resource the selected wiring preset uses will land on. Defaults are picked for you; override any dropdown below to match your board's broken-out pads. Applies when you click the matching preset button above."
+    },
+    "wingPinAssignNoHw": {
+        "message": "Hardware snapshot not loaded yet — visit the Hardware sub-tab once to populate."
+    },
+    "wingPinAssignResource": {
+        "message": "Resource"
+    },
+    "wingPinAssignCurrent": {
+        "message": "Currently"
+    },
+    "wingPinAssignPickedPad": {
+        "message": "Will bind to"
+    },
+    "wingPinAssignNone": {
+        "message": "—"
+    },
+    "wingPinAssignNoCandidate": {
+        "message": "(no candidate pad)"
+    },
+    "wingPinAssignSrcExisting": {
+        "message": "current"
+    },
+    "wingPinAssignSrcFree": {
+        "message": "free"
+    },
+    "wingPinAssignSrcMotorRelease": {
+        "message": "release motor"
+    },
+    "wingPinAssignSrcLed": {
+        "message": "LED_STRIP pad"
+    },
+    "wingPinAssignSrcUart": {
+        "message": "UART pad"
+    },
+    "wingPinAssignExtrasTitle": {
+        "message": "Will also be released (not used by this preset):"
+    },
+    "wingPinAssignAllowLed": {
+        "message": "Allow LED_STRIP pad as servo candidate (disables LED effects)"
+    },
+    "wingPinAssignLedNotice": {
+        "message": "This will release LED_STRIP — RGB effects will be disabled. Override the dropdown if you want to keep the LED."
+    },
+    "wingPinAssignAllowUart": {
+        "message": "Allow UART{{n}} pad ({{pads}}) as servo candidate — releases this UART"
+    },
+    "wingPinAssignNoop": {
+        "message": "No resource changes needed — current bindings match this preset."
+    },
+    "wingPinAssignHint": {
+        "message": "Click \"Apply Pin Changes\" below to send just the resource diff + reboot (no mixer rule changes). Clicking a preset button up top applies the full preset with these picks."
+    },
+    "wingPinAssignApply": {
+        "message": "Apply Pin Changes + Reboot"
+    },
+    "wingPinAssignApplying": {
+        "message": "Applying pin changes…"
+    },
+    "wingPinAssignMappingTitle": {
+        "message": "Pad mapping (default → currently)"
+    },
+    "wingPinAssignMappingDefault": {
+        "message": "Silkscreen / Default"
+    },
+    "wingPinAssignMappingPad": {
+        "message": "Pad"
+    },
+    "wingPinAssignMappingNow": {
+        "message": "Currently"
     },
     "wingMixerRulesTitle": {
         "message": "Function → Output Mapping"

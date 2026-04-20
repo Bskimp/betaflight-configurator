@@ -279,6 +279,202 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- ───── Pin Assignment panel ─────
+                         Surfaces the exact MOTOR/SERVO pads the selected
+                         wiring preset would bind on Apply. Dropdown per
+                         slot; picks feed into applyPreset as overrides
+                         whenever the clicked preset matches this panel. -->
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingPinAssignTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <div class="pin_assign_header">
+                                        <p class="pin_assign_desc">{{ $t("wingPinAssignDesc") }}</p>
+                                        <a
+                                            class="pin_assign_reload"
+                                            href="#"
+                                            :class="{
+                                                disabled: hardwareLoading || applyingPreset || applyingPinAssignment,
+                                            }"
+                                            @click.prevent="loadHardware"
+                                            :title="$t('wingHardwareReload')"
+                                        >
+                                            <span v-if="hardwareLoading">⟳ …</span>
+                                            <span v-else>⟳ {{ $t("wingHardwareReload") }}</span>
+                                        </a>
+                                    </div>
+                                    <p v-if="hardwareError" class="hw_error">{{ hardwareError }}</p>
+
+                                    <p v-if="!hardwareAnalysis" class="hw_muted">
+                                        {{ $t("wingPinAssignNoHw") }}
+                                    </p>
+
+                                    <!-- Pad mapping: where each default MOTOR/LED slot lives now.
+                                         Captured on first sight of this target, persists across
+                                         reboots so the silkscreen → current-role lookup stays
+                                         intact even after preset applies wipe the live map. -->
+                                    <div v-if="padMappingRows.length > 0" class="pin_assign_mapping">
+                                        <strong>{{ $t("wingPinAssignMappingTitle") }}</strong>
+                                        <table class="pin_assign_mapping_table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{{ $t("wingPinAssignMappingDefault") }}</th>
+                                                    <th>{{ $t("wingPinAssignMappingPad") }}</th>
+                                                    <th>{{ $t("wingPinAssignMappingNow") }}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr
+                                                    v-for="row in padMappingRows"
+                                                    :key="row.defaultLabel + ':' + row.pad"
+                                                >
+                                                    <td class="pin_assign_label">{{ row.defaultLabel }}</td>
+                                                    <td class="pin_assign_current">{{ row.pad }}</td>
+                                                    <td>{{ row.currentLabel }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <template v-if="hardwareAnalysis && pinAssignmentPlan">
+                                        <table class="pin_assign_table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{{ $t("wingPinAssignResource") }}</th>
+                                                    <th>{{ $t("wingPinAssignCurrent") }}</th>
+                                                    <th>{{ $t("wingPinAssignPickedPad") }}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="row in pinAssignmentRows" :key="row.kind + ':' + row.index">
+                                                    <td class="pin_assign_label">{{ row.label }}</td>
+                                                    <td class="pin_assign_current">
+                                                        {{ row.currentPad ?? $t("wingPinAssignNone") }}
+                                                    </td>
+                                                    <td>
+                                                        <select
+                                                            :value="row.pickedPad ?? ''"
+                                                            @change="
+                                                                setPadOverride(row.kind, row.index, $event.target.value)
+                                                            "
+                                                            :disabled="loading || applyingPreset"
+                                                        >
+                                                            <option v-if="!row.pickedPad" value="" disabled>
+                                                                {{ $t("wingPinAssignNoCandidate") }}
+                                                            </option>
+                                                            <option
+                                                                v-for="c in row.kind === 'motor'
+                                                                    ? candidatesForMotor(row.index)
+                                                                    : candidatesForServo(row.index)"
+                                                                :key="c.pad"
+                                                                :value="c.pad"
+                                                            >
+                                                                {{ c.pad }}
+                                                                <template v-if="c.timer">
+                                                                    — TIM{{ c.timer
+                                                                    }}<template v-if="c.channel">
+                                                                        CH{{ c.channel }}</template
+                                                                    >
+                                                                </template>
+                                                                ({{ candidateSourceLabel(c) }})
+                                                            </option>
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+
+                                        <!-- Extras: currently bound resources the preset doesn't use.
+                                             Informational; they're auto-released on apply for a clean
+                                             final state. -->
+                                        <div
+                                            v-if="
+                                                pinAssignmentExtras.motors.length + pinAssignmentExtras.servos.length >
+                                                0
+                                            "
+                                            class="pin_assign_extras"
+                                        >
+                                            <strong>{{ $t("wingPinAssignExtrasTitle") }}</strong>
+                                            <ul>
+                                                <li v-for="m in pinAssignmentExtras.motors" :key="'m' + m.index">
+                                                    MOTOR {{ m.index }} ({{ m.pad }}) → NONE
+                                                </li>
+                                                <li v-for="s in pinAssignmentExtras.servos" :key="'s' + s.index">
+                                                    SERVO {{ s.index }} ({{ s.pad }}) → NONE
+                                                </li>
+                                            </ul>
+                                        </div>
+
+                                        <!-- Notice surfaces only when a pick actually resolves to the
+                                             LED_STRIP pad — tells the user RGB will be released. The
+                                             pad is always a candidate (no opt-in checkbox); user can
+                                             override the dropdown if they want to keep the LED. -->
+                                        <p
+                                            v-for="(line, idx) in pinAssignmentPlan.cliLines.filter(
+                                                (l) => l === 'resource LED_STRIP 1 NONE',
+                                            )"
+                                            :key="'led-notice-' + idx"
+                                            class="hw_severity_warn"
+                                        >
+                                            ⚠ {{ $t("wingPinAssignLedNotice") }}
+                                        </p>
+                                        <div
+                                            v-if="hardwareAnalysis.spareUarts && hardwareAnalysis.spareUarts.length > 0"
+                                            class="pin_assign_optin"
+                                        >
+                                            <label v-for="u in hardwareAnalysis.spareUarts" :key="u.index">
+                                                <input
+                                                    type="checkbox"
+                                                    :checked="allowUartPads.has(u.index)"
+                                                    @change="toggleUartPadAllow(u.index)"
+                                                />
+                                                {{
+                                                    $t("wingPinAssignAllowUart", {
+                                                        n: u.index,
+                                                        pads: [u.txPad, u.rxPad].filter(Boolean).join(" / "),
+                                                    })
+                                                }}
+                                            </label>
+                                        </div>
+
+                                        <!-- CLI preview + warnings -->
+                                        <p
+                                            v-for="(w, i) in pinAssignmentPlan.warnings"
+                                            :key="'w' + i"
+                                            class="hw_severity_warn"
+                                        >
+                                            ⚠ {{ w.message }}
+                                        </p>
+                                        <pre v-if="pinAssignmentPlan.cliLines.length > 0" class="hw_cli_preview">{{
+                                            pinAssignmentPlan.cliLines.join("\n")
+                                        }}</pre>
+                                        <p v-else-if="pinAssignmentPlan.warnings.length === 0" class="hw_muted">
+                                            {{ $t("wingPinAssignNoop") }}
+                                        </p>
+
+                                        <div class="pin_assign_actions" v-if="pinAssignmentPlan.cliLines.length > 0">
+                                            <a
+                                                class="update"
+                                                href="#"
+                                                :class="{
+                                                    disabled:
+                                                        applyingPinAssignment || applyingPreset || loading || saving,
+                                                }"
+                                                @click.prevent="applyPinAssignment"
+                                                >{{ $t("wingPinAssignApply") }}</a
+                                            >
+                                        </div>
+
+                                        <p class="pin_assign_hint">{{ $t("wingPinAssignHint") }}</p>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </template>
                 <!-- ═══ /Mixer sub-tab ═══ -->
 
@@ -1309,117 +1505,13 @@
                                             </ul>
                                         </template>
 
-                                        <!-- Recommended wing remap -->
-                                        <h3>{{ $t("wingHardwareRemap") }}</h3>
-                                        <template v-if="wingRemap.isNoOp">
-                                            <p class="hw_muted">{{ wingRemap.summary }}</p>
-                                        </template>
-                                        <template v-else>
-                                            <p>{{ wingRemap.summary }}</p>
-
-                                            <div class="hw_motor_toggle">
-                                                <label>
-                                                    <input type="radio" :value="1" v-model.number="remapMotorCount" />
-                                                    {{ $t("wingHardwareOneMotor") }}
-                                                </label>
-                                                <label>
-                                                    <input type="radio" :value="2" v-model.number="remapMotorCount" />
-                                                    {{ $t("wingHardwareTwoMotors") }}
-                                                </label>
-                                            </div>
-
-                                            <div class="hw_motor_toggle">
-                                                <label>
-                                                    <input type="radio" value="discrete" v-model="remapBoardWiring" />
-                                                    {{ $t("wingHardwareWiringDiscrete") }}
-                                                </label>
-                                                <label>
-                                                    <input type="radio" value="aio" v-model="remapBoardWiring" />
-                                                    {{ $t("wingHardwareWiringAio") }}
-                                                </label>
-                                            </div>
-
-                                            <!-- LED_STRIP release checkbox: only useful when there's an
-                                                 LED_STRIP bound. Keeps the opt-in hidden on boards that
-                                                 don't have one so it doesn't clutter the UI. -->
-                                            <div v-if="hardwareAnalysis.ledStrips.length > 0" class="hw_motor_toggle">
-                                                <label>
-                                                    <input type="checkbox" v-model="remapReleaseLedStrip" />
-                                                    {{ $t("wingHardwareReleaseLedStrip") }}
-                                                </label>
-                                            </div>
-
-                                            <!-- Spare UART release — one checkbox per UART that's enabled
-                                                 but has no function assigned AND has at least one
-                                                 PWM-capable pad. Only renders when at least one such UART
-                                                 exists; quiet on UART-tight boards. -->
-                                            <div
-                                                v-if="
-                                                    hardwareAnalysis.spareUarts &&
-                                                    hardwareAnalysis.spareUarts.length > 0
-                                                "
-                                                class="hw_motor_toggle hw_uart_stack"
-                                            >
-                                                <label v-for="u in hardwareAnalysis.spareUarts" :key="u.index">
-                                                    <input
-                                                        type="checkbox"
-                                                        :checked="remapReleaseUarts.has(u.index)"
-                                                        @change="toggleReleaseUart(u.index)"
-                                                    />
-                                                    {{
-                                                        $t("wingHardwareReleaseUart", {
-                                                            n: u.index,
-                                                            pads: [u.txPad, u.rxPad].filter(Boolean).join(" / "),
-                                                        })
-                                                    }}
-                                                </label>
-                                            </div>
-
-                                            <!-- Physical-pad sanity warning for AIO users: candidate
-                                                 pads come from the board's TIMER_PIN_MAP but some AIOs
-                                                 don't route those to accessible headers. Firmware has
-                                                 no way to know what's broken out; this is user-verify. -->
-                                            <p
-                                                v-if="remapBoardWiring === 'aio' && wingRemap.servosToAssign.length > 0"
-                                                class="hw_severity_info"
-                                            >
-                                                {{ $t("wingHardwareAioPhysicalVerify") }}
-                                            </p>
-
-                                            <pre class="hw_cli_preview">{{ wingRemap.cliLines.join("\n") }}</pre>
-
-                                            <p v-if="wingRemap.warnings.length > 0" class="hw_notices">
-                                                <span
-                                                    v-for="(w, i) in wingRemap.warnings"
-                                                    :key="i"
-                                                    class="hw_severity_warn"
-                                                    >{{ w.message }}<br
-                                                /></span>
-                                            </p>
-
-                                            <a
-                                                class="update"
-                                                href="#"
-                                                :class="{ disabled: applyingRemap }"
-                                                @click.prevent="applyRemap"
-                                                >{{ $t("wingHardwareApplyRemap") }}</a
-                                            >
-                                        </template>
+                                        <!-- Hardware tab is read-only in Phase 2.5. Pin assignment
+                                             moved to the Mixer sub-tab where the rules live; this tab
+                                             stays as a quick-glance diagnostic of what firmware has
+                                             actually claimed. Use Mixer → Pin Assignment to change it. -->
                                     </template>
 
                                     <p class="launch_hint">{{ $t("wingHardwareHint") }}</p>
-
-                                    <!-- Apply-remap modal -->
-                                    <div v-if="applyingRemap" class="preset_modal_overlay">
-                                        <div class="preset_modal_box">
-                                            <p class="preset_modal_title">
-                                                {{ $t("wingHardwareApplying") }}
-                                            </p>
-                                            <p class="preset_modal_sub">
-                                                {{ $t("wingMixerRebooting") }}
-                                            </p>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1451,6 +1543,15 @@
                     <p class="preset_modal_sub">{{ $t("wingMixerRebooting") }}</p>
                 </div>
             </div>
+
+            <!-- Pin Assignment apply modal. Covers the tab while the
+                 resource CLI batch + reboot are in flight. -->
+            <div v-if="applyingPinAssignment" class="preset_modal_overlay">
+                <div class="preset_modal_box">
+                    <p class="preset_modal_title">{{ $t("wingPinAssignApplying") }}</p>
+                    <p class="preset_modal_sub">{{ $t("wingMixerRebooting") }}</p>
+                </div>
+            </div>
         </div>
     </BaseTab>
 </template>
@@ -1474,7 +1575,7 @@ import {
 import { applyCliLines } from "../../js/utils/wingMixerCli.js";
 import { readCli, parseResourceShow, parseTimerShow, parseDmaShow, parseTimerDump } from "../../js/utils/cliOneShot.js";
 import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
-import { computeWingRemap } from "../../js/utils/wingRemapRecommender.js";
+import { computePresetResourcePlan, candidatePadsForSlot } from "../../js/utils/wingRemapRecommender.js";
 import { useConnectionStore } from "../../stores/connection";
 
 const PID_GAIN_MAX = 200;
@@ -1767,6 +1868,12 @@ export default defineComponent({
                     // UARTs whose pads can be repurposed as servo outputs.
                     serialPorts: FC.SERIAL_CONFIG?.ports || [],
                 });
+
+                // Capture the original pad layout for this target on first
+                // sight, persist to localStorage. Lets the Pin Assignment
+                // panel render a "default pad → currently" table even after
+                // preset applies have rewritten the live resource map.
+                ensurePadDefaultsForCurrentBoard();
             } catch (e) {
                 console.error("[WingTuning] Hardware load failed:", e);
                 hardwareError.value = e.message || String(e);
@@ -1775,81 +1882,105 @@ export default defineComponent({
             }
         }
 
-        // Remap recommendation state + apply flow. Motor count toggle
-        // drives the recommender; CLI preview shows what would be sent;
-        // Apply button confirms, sends via CLI one-shot, reboots, reloads.
-        const remapMotorCount = ref(2);
-        // Board wiring mode: "discrete" = motor pads route to servo headers
-        // (safe to reassign); "aio" = motor pads soldered directly to ESCs
-        // (released but not reassigned — user picks free PWM pads manually).
-        const remapBoardWiring = ref("discrete");
-        // Opt-in: release LED_STRIP so its pad can become a servo output.
-        // Useful on tight AIOs where the declared-but-unclaimed PWM pads
-        // aren't physically broken out (common on compact 4-in-1 AIOs).
-        const remapReleaseLedStrip = ref(false);
-        // Set of UART indices the user has opted in to release. Each entry
-        // must correspond to an analysis.spareUarts entry (UART with no
-        // function assigned AND with at least one PWM-capable pad); the
-        // UI only renders checkboxes for qualifying UARTs.
-        const remapReleaseUarts = reactive(new Set());
-        const applyingRemap = ref(false);
-        const wingRemap = computed(() => {
-            if (!hardwareAnalysis.value) {
-                return {
-                    isNoOp: true,
-                    boardWiring: "discrete",
-                    cliLines: [],
-                    summary: "",
-                    motorsToRelease: [],
-                    servosToAssign: [],
-                    warnings: [],
-                };
-            }
-            return computeWingRemap(hardwareAnalysis.value, {
-                motorCount: remapMotorCount.value,
-                boardWiring: remapBoardWiring.value,
-                releaseLedStrip: remapReleaseLedStrip.value,
-                releaseUarts: [...remapReleaseUarts].sort((a, b) => a - b),
-            });
-        });
+        // Phase 2.5 Pin Assignment state — actual helpers and watcher
+        // live below wiringPresetId's declaration to avoid TDZ issues
+        // (watch() subscribes eagerly at setup-time).
+        const padOverrides = reactive({ servo: {}, motor: {} });
+        // LED_STRIP pad is always a candidate (no opt-in needed) — most users
+        // would rather lose the RGB than be unable to fit a servo. A notice
+        // appears in the panel if a pick actually resolves to the LED pad.
+        const allowLedStripPad = ref(true);
+        const allowUartPads = reactive(new Set());
 
-        function toggleReleaseUart(index) {
-            if (remapReleaseUarts.has(index)) remapReleaseUarts.delete(index);
-            else remapReleaseUarts.add(index);
+        function toggleUartPadAllow(index) {
+            if (allowUartPads.has(index)) allowUartPads.delete(index);
+            else allowUartPads.add(index);
         }
 
-        async function applyRemap() {
-            if (wingRemap.value.isNoOp || wingRemap.value.cliLines.length === 0) return;
-            const preview = wingRemap.value.cliLines.join("\n");
-            if (
-                !confirm(`The following CLI commands will be sent and the FC will reboot:\n\n${preview}\n\nContinue?`)
-            ) {
-                return;
-            }
-            applyingRemap.value = true;
-            hardwareError.value = null;
-            // Halt MSP polling for the full CLI+reboot window. Without this
-            // the 250 ms MSP_STATUS cadence queues up during the disconnect
-            // AND can corrupt the outbound CLI byte stream mid-session —
-            // which is why the apply silently failed on some boards (FURYF4OSD
-            // in particular). Mirrors the Mixer preset-apply flow.
-            connectionStore.pauseLiveData();
+        // ─── Pad-defaults snapshot (per-board) ───
+        // Persists the original MOTOR/LED_STRIP pad layout the first time we
+        // see a given board. Lets us render a "MOTOR 3 was on A03 — currently
+        // SERVO 1" table after preset applies wipe the live resource map.
+        const padDefaults = ref(null); // { motors: [{index, pad}], ledStrips: [{pad}] } | null
+
+        function padDefaultsKey(target) {
+            return target ? `wing.padDefaults.${target}` : null;
+        }
+        function loadPadDefaults(target) {
+            const key = padDefaultsKey(target);
+            if (!key || typeof window === "undefined") return null;
             try {
-                connectionStore.clearMspQueue();
-                await applyCliLines(wingRemap.value.cliLines);
-                // FC is rebooting; give the serial layer time to drop + reconnect
-                // before we read state back. 8s is conservative; users on slower
-                // USB setups can hit Reload if it's not ready yet.
-                await new Promise((resolve) => setTimeout(resolve, 8000));
-                await loadHardware();
-            } catch (e) {
-                console.error("[WingTuning] applyRemap failed:", e);
-                hardwareError.value = e.message || String(e);
-            } finally {
-                connectionStore.resumeLiveData();
-                applyingRemap.value = false;
+                const raw = window.localStorage?.getItem(key);
+                return raw ? JSON.parse(raw) : null;
+            } catch {
+                return null;
             }
         }
+        function savePadDefaults(target, snapshot) {
+            const key = padDefaultsKey(target);
+            if (!key || typeof window === "undefined") return;
+            try {
+                window.localStorage?.setItem(key, JSON.stringify(snapshot));
+            } catch {
+                /* quota / privacy mode — harmless */
+            }
+        }
+        function ensurePadDefaultsForCurrentBoard() {
+            const target = FC.CONFIG?.boardName || FC.CONFIG?.targetName || null;
+            if (!target) return;
+            let cached = loadPadDefaults(target);
+            if (!cached && hardwareAnalysis.value) {
+                // First sight of this target — capture current motors + LED_STRIP
+                // pads as the canonical default layout. If the user is on
+                // factory defaults at first connect, this matches the silkscreen.
+                cached = {
+                    target,
+                    motors: (hardwareAnalysis.value.motors ?? []).map((m) => ({
+                        index: m.index,
+                        pad: m.pad,
+                    })),
+                    ledStrips: (hardwareAnalysis.value.ledStrips ?? []).map((l) => ({
+                        pad: l.pad,
+                    })),
+                };
+                savePadDefaults(target, cached);
+            }
+            padDefaults.value = cached;
+        }
+
+        // Mapping rows: one per default MOTOR / LED_STRIP slot, showing where
+        // its pad is bound right now. Driven by the cached defaults snapshot
+        // crossed with the live analyzer state. Used by the "Pad mapping"
+        // table in the Pin Assignment panel.
+        const padMappingRows = computed(() => {
+            if (!padDefaults.value || !hardwareAnalysis.value) return [];
+            const currentByPad = new Map();
+            for (const m of hardwareAnalysis.value.motors ?? []) {
+                currentByPad.set(m.pad, `MOTOR ${m.index}`);
+            }
+            for (const s of hardwareAnalysis.value.servos ?? []) {
+                currentByPad.set(s.pad, `SERVO ${s.index}`);
+            }
+            for (const l of hardwareAnalysis.value.ledStrips ?? []) {
+                currentByPad.set(l.pad, "LED_STRIP");
+            }
+            const rows = [];
+            for (const m of padDefaults.value.motors ?? []) {
+                rows.push({
+                    defaultLabel: `MOTOR ${m.index}`,
+                    pad: m.pad,
+                    currentLabel: currentByPad.get(m.pad) || "(free)",
+                });
+            }
+            for (const l of padDefaults.value.ledStrips ?? []) {
+                rows.push({
+                    defaultLabel: "LED_STRIP",
+                    pad: l.pad,
+                    currentLabel: currentByPad.get(l.pad) || "(free)",
+                });
+            }
+            return rows;
+        });
 
         const mixerState = reactive(emptyMixerState());
         const initialMixerState = ref(cloneMixerState(mixerState));
@@ -1913,7 +2044,25 @@ export default defineComponent({
         // without committing, and the panel stays put across preset
         // applies + FC reboot + reconnect (component remount picks up
         // the same default).
-        const wiringPresetId = ref(PRESET_IDS[0] || null);
+        // Persist across remount so the Pin Assignment panel keeps
+        // tracking the last-applied preset after the FC reboot + reconnect
+        // cycle (otherwise the panel defaults to Standard Plane and
+        // misreports what the current state actually matches).
+        const WIRING_PRESET_STORAGE_KEY = "wing.wiringPresetId";
+        const _storedWiring =
+            typeof window !== "undefined" ? window.localStorage?.getItem(WIRING_PRESET_STORAGE_KEY) : null;
+        const wiringPresetId = ref(
+            _storedWiring && PRESET_IDS.includes(_storedWiring) ? _storedWiring : PRESET_IDS[0] || null,
+        );
+        watch(wiringPresetId, (id) => {
+            if (typeof window !== "undefined" && id) {
+                try {
+                    window.localStorage?.setItem(WIRING_PRESET_STORAGE_KEY, id);
+                } catch {
+                    /* quota or privacy mode — harmless */
+                }
+            }
+        });
 
         const currentWiring = computed(() => {
             if (!wiringPresetId.value) {
@@ -1921,6 +2070,165 @@ export default defineComponent({
             }
             return PLANE_PRESETS[wiringPresetId.value]?.wiring || null;
         });
+
+        // ─── Phase 2.5 Pin Assignment helpers (must be after wiringPresetId) ───
+        const pinAssignmentPreset = computed(() => PLANE_PRESETS[wiringPresetId.value] ?? null);
+
+        const pinAssignmentPlan = computed(() => {
+            if (!hardwareAnalysis.value || !pinAssignmentPreset.value) return null;
+            return computePresetResourcePlan(hardwareAnalysis.value, pinAssignmentPreset.value, {
+                picks: padOverrides.servo,
+                motorPicks: padOverrides.motor,
+                allowLedStrip: allowLedStripPad.value,
+                allowUartRelease: [...allowUartPads],
+                padDefaults: padDefaults.value,
+            });
+        });
+
+        const pinAssignmentRows = computed(() => {
+            const plan = pinAssignmentPlan.value;
+            if (!plan) return [];
+            const rows = [];
+            for (const idx of plan.usedMotorIndices) {
+                const bound = (hardwareAnalysis.value?.motors ?? []).find((m) => m.index === idx);
+                const pickedFromPlan = plan.motorPicks.get(idx);
+                rows.push({
+                    kind: "motor",
+                    index: idx,
+                    label: `MOTOR ${idx}`,
+                    currentPad: bound?.pad ?? null,
+                    pickedPad: padOverrides.motor[idx] ?? pickedFromPlan?.pad ?? bound?.pad ?? null,
+                });
+            }
+            for (const idx of plan.usedServoIndices) {
+                const bound = (hardwareAnalysis.value?.servos ?? []).find((s) => s.index === idx);
+                const pickedFromPlan = plan.picks.get(idx);
+                rows.push({
+                    kind: "servo",
+                    index: idx,
+                    label: `SERVO ${idx}`,
+                    currentPad: bound?.pad ?? null,
+                    pickedPad: padOverrides.servo[idx] ?? pickedFromPlan?.pad ?? bound?.pad ?? null,
+                });
+            }
+            return rows;
+        });
+
+        const pinAssignmentExtras = computed(() => {
+            const plan = pinAssignmentPlan.value;
+            if (!plan) return { motors: [], servos: [] };
+            return {
+                motors: plan.motorsToRelease.map((m) => ({ index: m.index, pad: m.pad })),
+                servos: plan.servosToRelease.map((s) => ({ index: s.index, pad: s.pad })),
+            };
+        });
+
+        function candidatesForServo(servoIndex) {
+            if (!hardwareAnalysis.value) return [];
+            const plan = pinAssignmentPlan.value;
+            const bound = (hardwareAnalysis.value.servos ?? []).find((s) => s.index === servoIndex);
+            return candidatePadsForSlot(hardwareAnalysis.value, servoIndex, {
+                motorIndicesInUse: plan?.usedMotorIndices ?? [],
+                currentPad: bound?.pad ?? null,
+                allowLedStrip: allowLedStripPad.value,
+                allowUartRelease: [...allowUartPads],
+            });
+        }
+
+        function candidatesForMotor(motorIndex) {
+            if (!hardwareAnalysis.value) return [];
+            const analysis = hardwareAnalysis.value;
+            const existing = (analysis.motors ?? []).find((m) => m.index === motorIndex);
+            const results = [];
+            if (existing) {
+                results.push({
+                    pad: existing.pad,
+                    timer: existing.timer,
+                    channel: existing.channel,
+                    source: "existing",
+                });
+            }
+            const claimed = new Set();
+            for (const m of analysis.motors ?? []) if (m.index !== motorIndex) claimed.add(m.pad);
+            for (const s of analysis.servos ?? []) claimed.add(s.pad);
+            for (const f of analysis.hardwareFixedPads ?? []) claimed.add(f.pad);
+            for (const p of analysis.pwmCapableFreePads ?? []) {
+                if (claimed.has(p.pad)) continue;
+                if (existing && existing.pad === p.pad) continue;
+                results.push({ pad: p.pad, timer: p.timer, channel: p.channel, source: "free-pwm" });
+            }
+            return results;
+        }
+
+        function setPadOverride(kind, index, pad) {
+            if (!pad) return;
+            if (kind === "motor") padOverrides.motor[index] = pad;
+            else if (kind === "servo") padOverrides.servo[index] = pad;
+        }
+
+        // Drop-down label for a candidate. Pulls the specific MOTOR/UART/LED
+        // index out of the candidate's requiresRelease line so users see e.g.
+        // "(releases MOTOR 3)" instead of generic "(release motor)" — that
+        // matches the silkscreen on most quad FCs and tells them where to
+        // physically plug their servo without knowing pin names.
+        function candidateSourceLabel(c) {
+            if (!c) return "";
+            if (c.source === "existing") return "current";
+            if (c.source === "free-pwm") return "free";
+            const line = Array.isArray(c.requiresRelease) ? c.requiresRelease[0] : null;
+            if (c.source === "motor-release") {
+                const m = line && /^resource MOTOR (\d+) /i.exec(line);
+                return m ? `releases MOTOR ${m[1]}` : "release motor";
+            }
+            if (c.source === "led-strip") return "releases LED_STRIP";
+            if (c.source === "uart-release") {
+                const m = line && /^resource SERIAL_(TX|RX) (\d+) /i.exec(line);
+                return m ? `releases UART${m[2]} ${m[1]}` : "UART pad";
+            }
+            return "";
+        }
+
+        function clearPadOverrides() {
+            for (const k of Object.keys(padOverrides.motor)) delete padOverrides.motor[k];
+            for (const k of Object.keys(padOverrides.servo)) delete padOverrides.servo[k];
+        }
+
+        // Changing tracked preset resets overrides so picks don't apply
+        // stale pads to a different rule set.
+        watch(wiringPresetId, () => clearPadOverrides());
+
+        // Apply the Pin Assignment plan's resource lines directly —
+        // no mmix/smix/mixer changes, just pad reassignment + save + reboot.
+        // Lets users tweak pads (e.g. move SERVO 3 to LED_STRIP pad) without
+        // re-running a full preset apply.
+        const applyingPinAssignment = ref(false);
+        async function applyPinAssignment() {
+            const plan = pinAssignmentPlan.value;
+            if (!plan || plan.cliLines.length === 0) return;
+            if (applyingPreset.value || applyingPinAssignment.value || loading.value || saving.value) return;
+            const preview = plan.cliLines.join("\n");
+            if (!confirm(`Apply these pin changes? The FC will reboot.\n\n${preview}`)) return;
+            applyingPinAssignment.value = true;
+            error.value = null;
+            connectionStore.pauseLiveData();
+            try {
+                connectionStore.clearMspQueue();
+                await applyCliLines(plan.cliLines);
+                await new Promise((r) => setTimeout(r, 5000));
+                try {
+                    await loadHardware();
+                } catch (reloadErr) {
+                    console.warn("[WingTuning] post-apply hardware reload failed:", reloadErr);
+                }
+                clearPadOverrides();
+            } catch (e) {
+                console.error("[WingTuning] applyPinAssignment failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                connectionStore.resumeLiveData();
+                applyingPinAssignment.value = false;
+            }
+        }
 
         // Loud warning when the user has picked DIFF_THRUST but still has
         // a servo rule driving yaw — the rudder and the motor differential
@@ -2263,20 +2571,33 @@ export default defineComponent({
                 if (!hardwareAnalysis.value) {
                     await loadHardware();
                 }
-                // servoCount: highest target slot in preset.rules determines
-                // how many SERVO resources must be bound. Slot index N maps
-                // to SERVO resource index N-1 per BF airplane-mixer
-                // convention (slot 2=ELEVATOR=SERVO 1, slot 3=S2, etc.).
-                const maxTargetSlot = preset.rules.reduce((acc, r) => Math.max(acc, r.target ?? 0), 0);
-                const neededServoCount = Math.max(0, maxTargetSlot - 1);
-                const presetRemap = hardwareAnalysis.value
-                    ? computeWingRemap(hardwareAnalysis.value, {
-                        motorCount: preset.mmix.length,
-                        boardWiring: remapBoardWiring.value,
-                        servoCount: neededServoCount,
-                    })
-                    : { cliLines: [] };
-                const resourceLines = presetRemap.cliLines.filter((l) => l !== "save");
+                // Phase 2.5 resource plan: surgical release/bind limited to
+                // exactly the SERVO/MOTOR indices the preset actually uses.
+                //
+                // Pin Assignment panel overrides only apply when the clicked
+                // preset matches the one the panel is tracking
+                // (wiringPresetId). Otherwise we fall back to defaults so
+                // clicking a different preset than the panel shows doesn't
+                // apply stale picks.
+                const panelMatches = wiringPresetId.value === id;
+                const planOptions = panelMatches
+                    ? {
+                        picks: { ...padOverrides.servo },
+                        motorPicks: { ...padOverrides.motor },
+                        allowLedStrip: allowLedStripPad.value,
+                        allowUartRelease: [...allowUartPads],
+                        padDefaults: padDefaults.value,
+                    }
+                    : { padDefaults: padDefaults.value };
+                const presetPlan = hardwareAnalysis.value
+                    ? computePresetResourcePlan(hardwareAnalysis.value, preset, planOptions)
+                    : { cliLines: [], warnings: [] };
+                const resourceLines = presetPlan.cliLines;
+                if (presetPlan.warnings && presetPlan.warnings.length > 0) {
+                    for (const w of presetPlan.warnings) {
+                        console.warn("[WingTuning] preset plan warning:", w.code, w.message);
+                    }
+                }
                 const mmixLines = ["mmix reset"].concat(
                     preset.mmix.map(
                         (m, i) =>
@@ -2372,14 +2693,22 @@ export default defineComponent({
             hardwareLoading,
             hardwareError,
             loadHardware,
-            remapMotorCount,
-            remapBoardWiring,
-            remapReleaseLedStrip,
-            remapReleaseUarts,
-            toggleReleaseUart,
-            applyingRemap,
-            wingRemap,
-            applyRemap,
+            padOverrides,
+            allowLedStripPad,
+            allowUartPads,
+            toggleUartPadAllow,
+            pinAssignmentRows,
+            pinAssignmentExtras,
+            pinAssignmentPlan,
+            pinAssignmentPreset,
+            candidatesForServo,
+            candidatesForMotor,
+            setPadOverride,
+            clearPadOverrides,
+            candidateSourceLabel,
+            padMappingRows,
+            applyingPinAssignment,
+            applyPinAssignment,
             loading,
             saving,
             error,
@@ -2749,6 +3078,137 @@ button {
     margin-right: 6px;
     vertical-align: middle;
 }
+/* ─── Pin Assignment panel (Mixer sub-tab) ─── */
+.pin_assign_header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+.pin_assign_desc {
+    flex: 1;
+    margin: 0;
+}
+.pin_assign_reload {
+    flex: 0 0 auto;
+    align-self: center;
+    font-size: 0.9em;
+    padding: 4px 10px;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #ccc;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.pin_assign_reload:hover:not(.disabled) {
+    background: #3a3a3a;
+    color: #fff;
+}
+.pin_assign_reload.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+.pin_assign_table {
+    width: 100%;
+    max-width: 680px;
+    border-collapse: collapse;
+    margin: 8px 0 12px 0;
+}
+.pin_assign_table th,
+.pin_assign_table td {
+    padding: 4px 14px 4px 0;
+    text-align: left;
+    font-size: 0.9em;
+    vertical-align: middle;
+}
+.pin_assign_table th {
+    color: #888;
+    font-weight: normal;
+    border-bottom: 1px solid #333;
+}
+.pin_assign_table th:nth-child(1),
+.pin_assign_table td:nth-child(1) {
+    width: 110px;
+}
+.pin_assign_table th:nth-child(2),
+.pin_assign_table td:nth-child(2) {
+    width: 90px;
+}
+.pin_assign_table td.pin_assign_label {
+    font-family: monospace;
+    font-weight: 600;
+}
+.pin_assign_table td.pin_assign_current {
+    font-family: monospace;
+    color: #aaa;
+}
+.pin_assign_table select {
+    width: 100%;
+    max-width: 380px;
+}
+.pin_assign_extras {
+    margin: 10px 0;
+    padding: 8px 12px;
+    background: rgba(255, 180, 0, 0.05);
+    border-left: 3px solid rgba(255, 180, 0, 0.4);
+    font-size: 0.9em;
+}
+.pin_assign_extras ul {
+    margin: 4px 0 0 0;
+    padding-left: 18px;
+}
+.pin_assign_extras li {
+    font-family: monospace;
+    color: #bbb;
+}
+.pin_assign_optin {
+    margin: 6px 0;
+    font-size: 0.9em;
+}
+.pin_assign_optin label {
+    display: block;
+    margin: 2px 0;
+    cursor: pointer;
+}
+.pin_assign_actions {
+    margin: 12px 0 8px 0;
+}
+.pin_assign_hint {
+    margin-top: 10px;
+    font-size: 0.85em;
+    color: #888;
+    font-style: italic;
+}
+.pin_assign_mapping {
+    margin: 8px 0 16px 0;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid rgba(120, 200, 120, 0.4);
+}
+.pin_assign_mapping strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.9em;
+    color: #aaa;
+}
+.pin_assign_mapping_table {
+    width: 100%;
+    max-width: 480px;
+    border-collapse: collapse;
+    font-size: 0.88em;
+}
+.pin_assign_mapping_table th,
+.pin_assign_mapping_table td {
+    padding: 3px 12px 3px 0;
+    text-align: left;
+}
+.pin_assign_mapping_table th {
+    color: #888;
+    font-weight: normal;
+    border-bottom: 1px solid #333;
+}
+
 .hw_cli_preview {
     background: #1a1a1a;
     color: #ddd;

@@ -79,6 +79,29 @@ describe("parseResourceShow", () => {
         const arr = RESOURCE_SHOW_FIXTURE.split("\n");
         expect(parseResourceShow(arr)).toEqual(parseResourceShow(RESOURCE_SHOW_FIXTURE));
     });
+
+    it("parses dump-style 'resource NAME N PAD' format (some BF forks emit this from resource show)", () => {
+        // Observed on FURYF4OSD and several community forks — resource show
+        // output mirrors the dump/diff layout instead of the classic PAD:BODY
+        // layout. NONE entries (released slots) must be skipped.
+        const input = [
+            "resource BEEPER 1 A08",
+            "resource MOTOR 1 A03",
+            "resource MOTOR 2 B00",
+            "resource MOTOR 5 NONE",
+            "resource LED_STRIP 1 A00",
+            "resource SERIAL_TX 3 B10",
+        ].join("\n");
+        const parsed = parseResourceShow(input);
+        expect(parsed).toEqual([
+            { pad: "A08", peripheral: "BEEPER", index: 1 },
+            { pad: "A03", peripheral: "MOTOR", index: 1 },
+            { pad: "B00", peripheral: "MOTOR", index: 2 },
+            // MOTOR 5 NONE — skipped (empty binding)
+            { pad: "A00", peripheral: "LED_STRIP", index: 1 },
+            { pad: "B10", peripheral: "SERIAL_TX", index: 3 },
+        ]);
+    });
 });
 
 describe("parseTimerShow", () => {

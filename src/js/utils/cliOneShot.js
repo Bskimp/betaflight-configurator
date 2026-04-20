@@ -18,33 +18,61 @@ const DEFAULT_TIMEOUT_MS = 3000;
 /**
  * Run a single CLI command and resolve with its output.
  *
+ * Accumulates lines across multiple cli_callback invocations and settles
+ * on a short quiescence window. Older BF firmware (4.5 and below) emits
+ * END_OF_TEXT mid-response for long commands like `resource show`, which
+ * fires the callback before the full output has arrived. The previous
+ * "settle on first callback" behavior truncated those responses — e.g.
+ * `resource show` on a stock 8-motor target showed only the first 4
+ * motors in the analyzer. Newer BF emits a single END_OF_TEXT at the
+ * end so the quiescence path collapses to the same one-shot behavior.
+ *
  * @param {string} command - CLI command (no trailing newline)
  * @param {object} [opts]
- * @param {number} [opts.timeoutMs=3000]
+ * @param {number} [opts.timeoutMs=3000]   - hard ceiling
+ * @param {number} [opts.quiescenceMs=250] - settle once no new chunks
+ *   arrive for this long. 250ms is conservative enough to span the
+ *   inter-chunk gap on slow USB links yet short enough to keep the
+ *   Hardware tab snappy.
  * @returns {Promise<{lines: string[], raw: string}>}
  */
 export function readCli(command, opts = {}) {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const quiescenceMs = opts.quiescenceMs ?? 250;
 
     return new Promise((resolve, reject) => {
         let settled = false;
+        const accumulated = [];
+        let quiescenceTimer = null;
 
-        const timer = setTimeout(() => {
+        const finish = (err) => {
             if (settled) return;
             settled = true;
+            clearTimeout(hardTimer);
+            if (quiescenceTimer) clearTimeout(quiescenceTimer);
             MSP.cli_callback = null;
-            reject(new Error(`CLI command "${command}" timed out after ${timeoutMs}ms`));
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve({
+                lines: accumulated.map((l) => l.replace(/\s+$/, "")),
+                raw: accumulated.join("\n"),
+            });
+        };
+
+        const hardTimer = setTimeout(() => {
+            finish(new Error(`CLI command "${command}" timed out after ${timeoutMs}ms`));
         }, timeoutMs);
 
         MSP.send_cli_command(command, (lines) => {
             if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            const snapshot = Array.isArray(lines) ? [...lines] : [];
-            resolve({
-                lines: snapshot.map((l) => l.replace(/\s+$/, "")),
-                raw: snapshot.join("\n"),
-            });
+            if (Array.isArray(lines)) {
+                for (const l of lines) accumulated.push(l);
+            }
+            // Reset quiescence timer — settle once nothing new arrives.
+            if (quiescenceTimer) clearTimeout(quiescenceTimer);
+            quiescenceTimer = setTimeout(() => finish(null), quiescenceMs);
         });
     });
 }
@@ -83,14 +111,25 @@ function parsePeripheralBody(body) {
 }
 
 /**
- * Parse the body of `resource show`. Input is the output lines AFTER
- * the "(reboot to update)" header; we tolerate the header being
- * present by skipping any line that doesn't look like "PAD: BODY".
+ * Parse the body of `resource show`. Handles both BF output formats:
  *
- * Example line: "B07: MOTOR 1"
- * Example line: "A08: LED_STRIP"      (no index)
- * Example line: "A00: FREE"
- * Example line: "A11: USB"             (no index)
+ *   1. "PAD: NAME INDEX"                e.g. "B07: MOTOR 1"
+ *      (classic `resource show` layout — used on older + stock BF builds)
+ *
+ *   2. "resource NAME INDEX PAD"        e.g. "resource MOTOR 1 B07"
+ *      (dump-style `resource show` output — some BF forks emit this;
+ *      also matches `diff all` / `dump` output verbatim)
+ *
+ * Lines that match neither (headers, blanks, comments) are skipped.
+ * "resource NAME INDEX NONE" is treated as a released/empty binding and
+ * filtered out (same as if the pad weren't listed at all), so downstream
+ * analysis sees only currently-bound resources.
+ *
+ * Examples:
+ *   "B07: MOTOR 1"          → { pad: "B07", peripheral: "MOTOR", index: 1 }
+ *   "A00: FREE"             → { pad: "A00", peripheral: "FREE", index: null }
+ *   "resource LED_STRIP 1 A00" → { pad: "A00", peripheral: "LED_STRIP", index: 1 }
+ *   "resource MOTOR 5 NONE" → skipped (empty binding)
  *
  * @param {string[]|string} input - lines array or raw multi-line string
  * @returns {Array<{pad: string, peripheral: string, index: number|null}>}
@@ -99,11 +138,25 @@ export function parseResourceShow(input) {
     const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
     const out = [];
     for (const line of lines) {
+        // Classic PAD:BODY format first.
         const m = /^\s*([A-Z]\d{2})\s*:\s*(.+?)\s*$/i.exec(line);
-        if (!m) continue;
-        const body = parsePeripheralBody(m[2]);
-        if (!body) continue;
-        out.push({ pad: m[1].toUpperCase(), ...body });
+        if (m) {
+            const body = parsePeripheralBody(m[2]);
+            if (!body) continue;
+            out.push({ pad: m[1].toUpperCase(), ...body });
+            continue;
+        }
+        // Dump-style `resource NAME INDEX PAD` format fallback.
+        const dm = /^\s*resource\s+([A-Z][A-Z0-9_]*)\s+(\d+)\s+([A-Z]\d{2}|NONE)\s*$/i.exec(line);
+        if (dm) {
+            const pad = dm[3].toUpperCase();
+            if (pad === "NONE") continue; // released binding — not a live claim
+            out.push({
+                pad,
+                peripheral: dm[1].toUpperCase(),
+                index: Number(dm[2]),
+            });
+        }
     }
     return out;
 }
