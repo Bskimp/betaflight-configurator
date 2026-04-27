@@ -266,6 +266,19 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
         }
     }
 
+    // padTimers: pad → {timer, channel} for EVERY pad that appears in
+    // `timer` dump output, regardless of current claim state. The joint
+    // motor+servo pad optimizer in wingRemapRecommender needs timer info
+    // for silkscreen pads that aren't currently free (e.g. MOTOR 1 bound
+    // at B00 — the optimizer still wants to know B00 is TIM3 CH3 so it
+    // can decide whether to keep MOTOR 1 there or relocate it).
+    const padTimers = new Map();
+    if (Array.isArray(timerDump)) {
+        for (const t of timerDump) {
+            padTimers.set(t.pad, { timer: t.timer, channel: t.channel });
+        }
+    }
+
     const warnings = deriveWarnings({ motors, servos, ledStrips, freeDmaStreams });
 
     return {
@@ -277,6 +290,7 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
         freeDmaStreams,
         hardwareFixedPads,
         pwmCapableFreePads,
+        padTimers,
         spareUarts,
         warnings,
     };

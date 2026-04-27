@@ -88,10 +88,10 @@ function rule(target, input, rate, overrides = {}) {
 // firmware float units (0..1 for throttle, -1..+1 for axes).
 const SINGLE_MOTOR = [{ throttle: 1.0, roll: 0, pitch: 0, yaw: 0 }];
 
-const DIFF_THRUST_MOTORS = [
-    { throttle: 1.0, roll: 0, pitch: 0, yaw: +0.4 },
-    { throttle: 1.0, roll: 0, pitch: 0, yaw: -0.4 },
-];
+// DIFF_THRUST_MOTORS removed 2026-04-20 along with the
+// `flying_wing_diff_thrust` preset. The 2-motor toggle in WingTuningTab
+// now synthesizes this mmix at apply time so every preset can opt into
+// diff-thrust without a distinct preset entry.
 
 // Per-preset wiring reference. Each entry: { pad, fn } — which
 // physical FC pad the user should plug each control surface or motor
@@ -142,27 +142,6 @@ export const PLANE_PRESETS = {
             { pad: "SERVO 2", fn: "Left Elevon" },
             { pad: "SERVO 3", fn: "Right Elevon" },
             { pad: "MOTOR 1", fn: "Motor" },
-        ],
-    },
-
-    flying_wing_diff_thrust: {
-        id: "flying_wing_diff_thrust",
-        label: "Flying Wing (diff thrust)",
-        description: "Twin motors on M1/M2 driving yaw, elevons on S2/S3. No rudder servo.",
-        mixerIndex: CUSTOM_AIRPLANE,
-        yawType: "DIFF_THRUST",
-        mmix: DIFF_THRUST_MOTORS,
-        rules: [
-            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_ROLL, +50),
-            rule(SLOT.FLAPPERON_L, INPUT_SOURCES.STABILIZED_PITCH, +50),
-            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_ROLL, -50),
-            rule(SLOT.FLAPPERON_R, INPUT_SOURCES.STABILIZED_PITCH, +50),
-        ],
-        wiring: [
-            { pad: "SERVO 2", fn: "Left Elevon" },
-            { pad: "SERVO 3", fn: "Right Elevon" },
-            { pad: "MOTOR 1", fn: "Left Motor" },
-            { pad: "MOTOR 2", fn: "Right Motor" },
         ],
     },
 

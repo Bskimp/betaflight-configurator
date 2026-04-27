@@ -14,7 +14,10 @@
 
 export const WING_ENUM_TABLES = {
     // firmware: lookupTableYawType (`cli/settings.c`, #ifdef USE_WING)
-    yaw_type: ["RUDDER", "DIFF_THRUST"],
+    // COMBINED added 2026-04-20 — airspeed-weighted crossfade between
+    // rudder servo and motor differential. See plan file for the
+    // per-actuator TPA + floor + crossover design.
+    yaw_type: ["RUDDER", "DIFF_THRUST", "COMBINED"],
 
     // firmware: lookupTableTpaMode. "PDS" is appended when USE_WING.
     // Index ordering stays stable across multirotor/wing builds.

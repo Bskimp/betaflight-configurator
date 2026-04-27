@@ -12,7 +12,11 @@ const CUSTOM_AIRPLANE = 24;
 
 describe("PLANE_PRESETS", () => {
     it("exports the expected preset set", () => {
-        expect(PRESET_IDS).toEqual(["standard", "flying_wing", "flying_wing_diff_thrust", "v_tail"]);
+        // `flying_wing_diff_thrust` was removed 2026-04-20 — the diff-thrust
+        // mmix is now synthesized by WingTuningTab when motorCount=2 is
+        // applied to any single-motor preset, so a distinct entry is
+        // redundant.
+        expect(PRESET_IDS).toEqual(["standard", "flying_wing", "v_tail"]);
     });
 
     it("every preset targets MIXER_CUSTOM_AIRPLANE", () => {
@@ -36,7 +40,7 @@ describe("PLANE_PRESETS", () => {
             expect(preset.id).toBe(id);
             expect(typeof preset.label).toBe("string");
             expect(preset.label.length).toBeGreaterThan(0);
-            expect(["RUDDER", "DIFF_THRUST"]).toContain(preset.yawType);
+            expect(["RUDDER"]).toContain(preset.yawType);
             expect(Array.isArray(preset.mmix)).toBe(true);
             expect(preset.mmix.length).toBeGreaterThan(0);
             expect(Array.isArray(preset.rules)).toBe(true);
@@ -52,12 +56,6 @@ describe("PLANE_PRESETS", () => {
             const motorEntries = preset.wiring.filter((w) => w.pad.startsWith("MOTOR "));
             expect(motorEntries.length).toBe(preset.mmix.length);
         }
-    });
-
-    it("diff-thrust wiring calls out Left Motor + Right Motor explicitly", () => {
-        const diff = PLANE_PRESETS.flying_wing_diff_thrust.wiring;
-        const motors = diff.filter((w) => w.pad.startsWith("MOTOR "));
-        expect(motors.map((m) => m.fn).sort()).toEqual(["Left Motor", "Right Motor"]);
     });
 
     it("every rule field is in firmware servoMixer_t range", () => {
@@ -117,7 +115,7 @@ describe("PLANE_PRESETS", () => {
     });
 
     it("flying wing elevons: roll opposite-sign, pitch same-sign", () => {
-        for (const id of ["flying_wing", "flying_wing_diff_thrust"]) {
+        for (const id of ["flying_wing"]) {
             const wing = PLANE_PRESETS[id];
             const leftRoll = wing.rules.find(
                 (r) => r.target === SLOT.FLAPPERON_L && r.input === INPUT_SOURCES.STABILIZED_ROLL,
@@ -161,14 +159,6 @@ describe("PLANE_PRESETS", () => {
         expect(Math.sign(leftYaw.rate)).not.toBe(Math.sign(rightYaw.rate));
     });
 
-    it("flying_wing_diff_thrust has 2 motors with opposite yaw weights", () => {
-        const mmix = PLANE_PRESETS.flying_wing_diff_thrust.mmix;
-        expect(mmix.length).toBe(2);
-        expect(Math.sign(mmix[0].yaw)).not.toBe(Math.sign(mmix[1].yaw));
-        expect(mmix[0].throttle).toBe(1.0);
-        expect(mmix[1].throttle).toBe(1.0);
-    });
-
     it("rudder-yaw presets are single-motor; only standard has a rudder servo", () => {
         for (const id of ["standard", "flying_wing", "v_tail"]) {
             const preset = PLANE_PRESETS[id];
@@ -179,12 +169,5 @@ describe("PLANE_PRESETS", () => {
         // flying_wing has no yaw surface; v_tail blends yaw via the
         // V-tail ruddervator pair.
         expect(PLANE_PRESETS.standard.rules.find((r) => r.input === INPUT_SOURCES.STABILIZED_YAW)).toBeDefined();
-    });
-
-    it("diff-thrust preset has NO STABILIZED_YAW servo rule", () => {
-        const diff = PLANE_PRESETS.flying_wing_diff_thrust;
-        expect(diff.yawType).toBe("DIFF_THRUST");
-        const yawRule = diff.rules.find((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
-        expect(yawRule).toBeUndefined();
     });
 });

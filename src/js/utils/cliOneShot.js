@@ -300,3 +300,34 @@ export function parseTimerDump(input) {
     if (pending) out.push(pending);
     return out;
 }
+
+// ─── convenience readers for the wing-fork `defaults` subcommands ─────
+//
+// The wing-fork firmware exposes `resource defaults` / `timer defaults` /
+// `dma defaults` which emit the same format as `show` but with values
+// read from the compile-time defaults (via backupAndResetConfigs +
+// existing show path in cli.c). Lets the configurator know the board's
+// silkscreen-default pin assignments regardless of what's currently
+// applied — essential for the Mixer-tab Pin Assignment panel's
+// "MOTOR 3 default → currently SERVO 2" mapping to stay accurate on
+// first-visit after any preset apply.
+//
+// If the firmware is stock BF (no `defaults` subcommand), the command
+// will print an error and the parser returns []. Callers should treat
+// an empty result as "defaults unavailable, fall back to first-current
+// snapshot".
+
+export async function readResourceDefaults(opts = {}) {
+    const { lines } = await readCli("resource defaults", opts);
+    return parseResourceShow(lines);
+}
+
+export async function readTimerDefaults(opts = {}) {
+    const { lines } = await readCli("timer defaults", opts);
+    return parseTimerShow(lines);
+}
+
+export async function readDmaDefaults(opts = {}) {
+    const { lines } = await readCli("dma defaults", opts);
+    return parseDmaShow(lines);
+}
