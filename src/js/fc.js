@@ -159,6 +159,11 @@ const FC = {
     // decode; _ACTIVE is the post-Reload snapshot for dirty-check.
     WING_GPS_RESCUE: null,
     WING_GPS_RESCUE_ACTIVE: null,
+    // Wing autoland config (22 fields from wingAutolandConfig_t under
+    // USE_WING). Populated via MSP2_WING_AUTOLAND decode; _ACTIVE is
+    // the post-Reload snapshot for dirty-check. Master gate defaults off.
+    WING_AUTOLAND: null,
+    WING_AUTOLAND_ACTIVE: null,
     ANALOG: { ...INITIAL_ANALOG },
     ARMING_CONFIG: null,
     AUX_CONFIG: null,
@@ -685,6 +690,34 @@ const FC = {
             sanityChecks: 1,
         };
         this.WING_GPS_RESCUE_ACTIVE = { ...this.WING_GPS_RESCUE };
+
+        // Firmware defaults from pg/autoland.c PG_RESET_TEMPLATE.
+        // Master (enabled) defaults OFF so autoland never engages
+        // without the pilot explicitly turning it on in configurator.
+        this.WING_AUTOLAND = {
+            enabled: 0,
+            triggerManual: 1,
+            triggerRthTimeout: 1,
+            triggerLowBatt: 0,
+            triggerFailsafe: 1,
+            loiterTimeoutS: 60,
+            orbitsBeforeDescent: 2,
+            approachAltitudeM: 60,
+            downwindDistanceM: 150,
+            baseRadiusM: 40,
+            finalDistanceM: 80,
+            commitAltitudeCm: 600,
+            glidePitchDeg: 5,
+            throttleCutAltCm: 0,
+            cruiseThrottlePct: 40,
+            flareStartAltCm: 150,
+            flarePitchDeg: 8,
+            touchdownAccelThreshold: 30,
+            touchdownAltThresholdCm: 30,
+            touchdownQuiescenceMs: 2000,
+            minPatternSats: 8,
+        };
+        this.WING_AUTOLAND_ACTIVE = { ...this.WING_AUTOLAND };
 
         this.SENSOR_CONFIG = {
             acc_hardware: 0,

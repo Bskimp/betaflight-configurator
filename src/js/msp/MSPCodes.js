@@ -218,6 +218,12 @@ const MSPCodes = {
     // all fields unsigned. Defaults match pg/gps_rescue_wing.c PG_RESET.
     MSP2_WING_GPS_RESCUE: 0x3016,
     MSP2_SET_WING_GPS_RESCUE: 0x3017,
+    // Firmware gates on USE_WING. 31-byte wire format; all fields unsigned.
+    // Defaults match pg/autoland.c PG_RESET. 0x301A reserved for live state
+    // telemetry polled ~2 Hz -- handler not wired in Phase 0.
+    MSP2_WING_AUTOLAND: 0x3018,
+    MSP2_SET_WING_AUTOLAND: 0x3019,
+    MSP2_WING_AUTOLAND_STATE: 0x301a,
     // MSP2_GET_TEXT and MSP2_SET_TEXT variable types
     PILOT_NAME: 1,
     CRAFT_NAME: 2,
