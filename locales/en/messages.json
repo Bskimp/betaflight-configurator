@@ -462,6 +462,9 @@
     "wingSubTab_gps_rescue": {
         "message": "GPS Rescue"
     },
+    "wingSubTab_autoland": {
+        "message": "Autoland"
+    },
     "wingSubTab_hardware": {
         "message": "Hardware"
     },
@@ -690,6 +693,60 @@
     "wingSubTabGpsRescueTitle": {
         "message": "GPS Rescue (Wing)"
     },
+    "wingSubTabAutolandTitle": {
+        "message": "Autoland (Wing)"
+    },
+    "wingAutolandDesc": {
+        "message": "Wind-aware autonomous landing for wings. Four trigger paths: manual AUX switch, RTH loiter timeout, low battery, failsafe stage 3. All gated by the master `enabled` flag (default 0)."
+    },
+    "wingAutolandWarning": {
+        "message": "EXPERIMENTAL. Requires motor brake enabled on your ESC, or disarm-only prop stop at touchdown. Bench-test before flying. Pilot retains full authority above commit_altitude."
+    },
+    "wingAutolandHint": {
+        "message": "Pattern uses right-hand turn from downwind to final. Pitch/roll/bank-angle tuning piggybacks on GPS Rescue fields (maxBankAngle, navP, orbitRadiusM)."
+    },
+    "wingAutolandLabel_enabled": { "message": "Master enable" },
+    "wingAutolandHelp_enabled": { "message": "Master gate for the entire feature. 0 = inert; 1 = triggers can fire. Default: 0." },
+    "wingAutolandLabel_triggerManual": { "message": "Trigger: manual" },
+    "wingAutolandHelp_triggerManual": { "message": "Allow BOXAUTOLAND AUX switch to trigger autoland. 0 = off, 1 = on. Default: 1." },
+    "wingAutolandLabel_triggerRthTimeout": { "message": "Trigger: RTH timeout" },
+    "wingAutolandHelp_triggerRthTimeout": { "message": "Hand off from GPS Rescue orbit to autoland after loiter_timeout_s. 0 = off, 1 = on. Default: 1." },
+    "wingAutolandLabel_triggerLowBatt": { "message": "Trigger: low battery" },
+    "wingAutolandHelp_triggerLowBatt": { "message": "Auto-trigger when battery reaches LVC. 0 = off, 1 = on. Default: 0 (conservative)." },
+    "wingAutolandLabel_triggerFailsafe": { "message": "Trigger: failsafe" },
+    "wingAutolandHelp_triggerFailsafe": { "message": "Fire autoland on failsafe stage 3. 0 = off, 1 = on. Default: 1." },
+    "wingAutolandLabel_loiterTimeoutS": { "message": "Loiter timeout" },
+    "wingAutolandHelp_loiterTimeoutS": { "message": "Seconds of rescue orbit before handing off to autoland. Wind estimator must also have converged by this time, else falls back to straight-in approach. Default: 60 s." },
+    "wingAutolandLabel_orbitsBeforeDescent": { "message": "Orbits before descent" },
+    "wingAutolandHelp_orbitsBeforeDescent": { "message": "Orbits to complete during AL_ORBIT_DESCENT before entering downwind leg. Gives wind estimator time to converge. Default: 2." },
+    "wingAutolandLabel_approachAltitudeM": { "message": "Approach altitude" },
+    "wingAutolandHelp_approachAltitudeM": { "message": "AL_ENTRY altitude above home in metres. Sets the top of the glide. Default: 60 m." },
+    "wingAutolandLabel_downwindDistanceM": { "message": "Downwind distance" },
+    "wingAutolandHelp_downwindDistanceM": { "message": "Distance flown on downwind leg before base turn, in metres. Default: 150 m." },
+    "wingAutolandLabel_baseRadiusM": { "message": "Base radius" },
+    "wingAutolandHelp_baseRadiusM": { "message": "Base-turn radius in metres. Default: 40 m." },
+    "wingAutolandLabel_finalDistanceM": { "message": "Final distance" },
+    "wingAutolandHelp_finalDistanceM": { "message": "Final-approach distance from home in metres. Default: 80 m." },
+    "wingAutolandLabel_commitAltitudeCm": { "message": "Commit altitude" },
+    "wingAutolandHelp_commitAltitudeCm": { "message": "Below this AGL (cm) the sequence is commit-latched: external aborts are refused. Internal safety aborts (GPS / baro loss / watchdog) still work. Default: 600 cm (~20 ft)." },
+    "wingAutolandLabel_glidePitchDeg": { "message": "Glide pitch" },
+    "wingAutolandHelp_glidePitchDeg": { "message": "Target pitch angle during cruise / descent, degrees nose-down. Default: 5°." },
+    "wingAutolandLabel_throttleCutAltCm": { "message": "Throttle cut altitude" },
+    "wingAutolandHelp_throttleCutAltCm": { "message": "Cut throttle below this AGL (cm). 0 = cut at AL_ENTRY (whole sequence is glide). >0 holds cruise_throttle_pct until crossing. Default: 0." },
+    "wingAutolandLabel_cruiseThrottlePct": { "message": "Cruise throttle" },
+    "wingAutolandHelp_cruiseThrottlePct": { "message": "Throttle percentage held while above throttle_cut_alt. Only used if throttle_cut_alt > 0. Default: 40%." },
+    "wingAutolandLabel_flareStartAltCm": { "message": "Flare start altitude" },
+    "wingAutolandHelp_flareStartAltCm": { "message": "AGL (cm) where pitch target swings from glide_pitch to flare_pitch. Default: 150 cm (~5 ft)." },
+    "wingAutolandLabel_flarePitchDeg": { "message": "Flare pitch" },
+    "wingAutolandHelp_flarePitchDeg": { "message": "Nose-up pitch angle during flare, degrees. Default: 8°." },
+    "wingAutolandLabel_touchdownAccelThreshold": { "message": "Touchdown accel threshold" },
+    "wingAutolandHelp_touchdownAccelThreshold": { "message": "Accel spike (in 0.1 g units) that triggers touchdown. 30 = 3.0 g. Default: 30." },
+    "wingAutolandLabel_touchdownAltThresholdCm": { "message": "Touchdown alt threshold" },
+    "wingAutolandHelp_touchdownAltThresholdCm": { "message": "Baro AGL (cm) below which touchdown is declared. Default: 30 cm." },
+    "wingAutolandLabel_touchdownQuiescenceMs": { "message": "Touchdown quiescence" },
+    "wingAutolandHelp_touchdownQuiescenceMs": { "message": "Continuous quiet (accel < 1.2 g, gyro < 30°/s) required before auto-disarm, in milliseconds. Default: 2000." },
+    "wingAutolandLabel_minPatternSats": { "message": "Min pattern sats" },
+    "wingAutolandHelp_minPatternSats": { "message": "Minimum GPS satellite count required during pattern legs. Phase 7B will use this for the RTH-timeout trigger gate. Default: 8." },
     "wingAutotrimTitle": {
         "message": "Servo Autotrim"
     },
@@ -751,13 +808,19 @@
         "message": "Writing motor mix and rebooting the flight controller. The tab will reconnect automatically."
     },
     "wingMixerYawConflict": {
-        "message": "Conflict: yaw_type is DIFF_THRUST, but a servo rule uses STABILIZED_YAW. Differential thrust (motors) and a rudder servo will both drive yaw and fight each other on every yaw input. Remove the rudder rule, or change yaw_type to RUDDER."
+        "message": "Mismatch: yaw_type is DIFF_THRUST, but a servo rule uses STABILIZED_YAW. Pure diff-thrust + rudder is sub-optimal (motor TPA posture applied to the servo). Did you mean COMBINED? It runs both actuators with an airspeed-weighted crossfade (rudder at high speed, motors at low). Otherwise: remove the rudder rule, or change yaw_type to RUDDER."
     },
     "wingMixerPresets": {
         "message": "Apply preset:"
     },
     "wingMixerPresetHint": {
         "message": "Presets fill airframe + function mapping. You can edit individual rules below before saving."
+    },
+    "wingMixerDiffThrustToggle": {
+        "message": "Use 2 motors (differential thrust)"
+    },
+    "wingMixerDiffThrustHint": {
+        "message": "When on, the next preset apply adds MOTOR 2 to the mixer with ±0.4 yaw and switches yaw_type to DIFF_THRUST. Turn off for a single-motor wing."
     },
     "wingMixerWiringTitle": {
         "message": "Wiring reference"
@@ -816,6 +879,12 @@
     "wingPinAssignExtrasTitle": {
         "message": "Will also be released (not used by this preset):"
     },
+    "wingPinAssignRemoveTip": {
+        "message": "Remove this pin assignment (also removes any rules targeting it)"
+    },
+    "wingPinAssignAddServo": {
+        "message": "Add SERVO pin"
+    },
     "wingPinAssignAllowLed": {
         "message": "Allow LED_STRIP pad as servo candidate (disables LED effects)"
     },
@@ -828,17 +897,26 @@
     "wingPinAssignNoop": {
         "message": "No resource changes needed — current bindings match this preset."
     },
-    "wingPinAssignHint": {
-        "message": "Click \"Apply Pin Changes\" below to send just the resource diff + reboot (no mixer rule changes). Clicking a preset button up top applies the full preset with these picks."
-    },
-    "wingPinAssignApply": {
-        "message": "Apply Pin Changes + Reboot"
+    "wingPinAssignSaveHint": {
+        "message": "Hit Save (bottom right) to apply these pad moves along with your other changes. The resource diff + reboot runs at the end of the save sequence, so tuning / mixer / launch / GPS Rescue writes persist through the reboot."
     },
     "wingPinAssignApplying": {
         "message": "Applying pin changes…"
     },
     "wingPinAssignMappingTitle": {
         "message": "Pad mapping (default → currently)"
+    },
+    "wingPinAssignSrcFirmware": {
+        "message": "from firmware"
+    },
+    "wingPinAssignSrcFirmwareTip": {
+        "message": "Default layout read from the flight controller's compile-time config via the wing-fork `resource defaults` CLI. Authoritative — matches the board's silkscreen regardless of what's currently applied."
+    },
+    "wingPinAssignSrcSnapshot": {
+        "message": "snapshot"
+    },
+    "wingPinAssignSrcSnapshotTip": {
+        "message": "Firmware doesn't expose `resource defaults` (likely stock Betaflight). Defaults were captured from the current resource map on first visit. Accurate only if the board was on factory defaults at that moment."
     },
     "wingPinAssignMappingDefault": {
         "message": "Silkscreen / Default"
@@ -922,7 +1000,19 @@
         "message": "Yaw Type"
     },
     "wingYawTypeDesc": {
-        "message": "Select how the aircraft yaws. RUDDER uses a rudder servo. DIFF_THRUST uses differential motor thrust; s_yaw is forced to 0 in this mode."
+        "message": "Select how the aircraft yaws. RUDDER = rudder servo only (airspeed-based TPA). DIFF_THRUST = motor differential only (throttle-based TPA; s_yaw forced to 0). COMBINED = both actuators with an airspeed-weighted crossfade — rudder takes over at cruise, motor at slow flight. Auto-picked by the preset buttons when motorCount=2 and a yaw rule is present."
+    },
+    "wingYawBlendDesc": {
+        "message": "COMBINED mode: airspeed-weighted crossfade between rudder and motor differential."
+    },
+    "wingYawBlendFloor": {
+        "message": "Minimum authority"
+    },
+    "wingYawBlendCrossover": {
+        "message": "50/50 crossover speed"
+    },
+    "wingYawBlendHint": {
+        "message": "Floor: how much authority each actuator always keeps regardless of airspeed (0 = pure crossfade, 100 = both always full). Crossover: airspeed % where rudder and motor share authority equally — lower shifts the handoff earlier (rudder dominates sooner), higher delays it."
     },
     "wingAxis": {
         "message": "Axis"
@@ -8724,6 +8814,27 @@
     },
     "osdDescElementBatteryProfileName": {
         "message": "Shows the active battery profile name or index"
+    },
+    "osdTextElementWingLaunchStatus": {
+        "message": "Wing: Launch status",
+        "description": "Wing-fork OSD element. Shows the auto-launch state machine phase: LNCH RDY, THR UP, THROW!, LNCH GO, CLM 2.5s, RECOVER, ABORT."
+    },
+    "osdDescElementWingLaunchStatus": {
+        "message": "Live status of the wing auto-launch state machine. Hidden when launch is idle and BOXAUTOLAUNCH is off."
+    },
+    "osdTextElementGpsRescuePhase": {
+        "message": "Wing: GPS rescue phase",
+        "description": "Wing-fork OSD element. Shows the current rescue phase (CLIMB, CRUISE, ORBIT, etc.)."
+    },
+    "osdDescElementGpsRescuePhase": {
+        "message": "Live phase indicator for wing GPS rescue. Hidden when rescue is not active."
+    },
+    "osdTextElementAutolandPhase": {
+        "message": "Wing: Autoland phase",
+        "description": "Wing-fork OSD element. Shows the autoland state machine phase: AL:ENTRY, AL:DOWNWIND, AL:FINAL, AL:FLARE, AL:TOUCHDOWN, AL:ABORT-<cause>."
+    },
+    "osdDescElementAutolandPhase": {
+        "message": "Live phase indicator for wing autoland. Hidden when autoland is idle. Shows abort cause appended (PILOT, GPS, BARO, WDOG, CFG) when bailed."
     },
     "osdSetupPreviewCheckRulers": {
         "message": "Rulers",

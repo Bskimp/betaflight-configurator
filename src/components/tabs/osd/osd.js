@@ -1338,6 +1338,37 @@ OSD.loadDisplayFields = function () {
             positionable: true,
             preview: "BAT1",
         },
+        // ----- Wing-fork additions. Order MUST match firmware
+        // src/main/osd/osd.h enum (USE_WING_LAUNCH gated, then
+        // GPS_RESCUE_PHASE always-present, then USE_WING gated).
+        // Without these, configurator labels them "Unknown N".
+        WING_LAUNCH_STATUS: {
+            name: "WING_LAUNCH_STATUS",
+            text: "osdTextElementWingLaunchStatus",
+            desc: "osdDescElementWingLaunchStatus",
+            defaultPosition: -1,
+            draw_order: 630,
+            positionable: true,
+            preview: "LNCH RDY",
+        },
+        GPS_RESCUE_PHASE: {
+            name: "GPS_RESCUE_PHASE",
+            text: "osdTextElementGpsRescuePhase",
+            desc: "osdDescElementGpsRescuePhase",
+            defaultPosition: -1,
+            draw_order: 640,
+            positionable: true,
+            preview: "RTH",
+        },
+        AUTOLAND_PHASE: {
+            name: "AUTOLAND_PHASE",
+            text: "osdTextElementAutolandPhase",
+            desc: "osdDescElementAutolandPhase",
+            defaultPosition: -1,
+            draw_order: 650,
+            positionable: true,
+            preview: "AL:GLIDE",
+        },
     };
 
     if (semver.gte(FC.CONFIG.apiVersion, API_VERSION_1_47)) {
@@ -1473,6 +1504,15 @@ OSD.chooseFields = function () {
         OSD.constants.DISPLAY_FIELDS = OSD.constants.DISPLAY_FIELDS.concat([
             F.OSD_CUSTOM_SERIAL_TEXT,
             F.BATTERY_PROFILE_NAME,
+            // Wing-fork enum tail. Order MUST match firmware
+            // src/main/osd/osd.h (USE_WING_LAUNCH gated, then
+            // GPS_RESCUE_PHASE always-present, then USE_WING gated).
+            // Stock firmware without these will report fewer displayItems
+            // in MSP -- the < length check at the iteration site handles
+            // that gracefully so this is forward-only safe.
+            F.WING_LAUNCH_STATUS,
+            F.GPS_RESCUE_PHASE,
+            F.AUTOLAND_PHASE,
         ]);
     }
     // Choose statistic fields

@@ -87,36 +87,17 @@
                                             {{ presets[id].label }}
                                         </button>
                                     </div>
+                                    <label class="diff_thrust_toggle">
+                                        <input
+                                            type="checkbox"
+                                            :checked="motorCount === 2"
+                                            :disabled="loading || applyingPreset"
+                                            @change="motorCount = $event.target.checked ? 2 : 1"
+                                        />
+                                        {{ $t("wingMixerDiffThrustToggle") }}
+                                        <span class="diff_thrust_hint">{{ $t("wingMixerDiffThrustHint") }}</span>
+                                    </label>
                                     <p class="preset_hint">{{ $t("wingMixerPresetHint") }}</p>
-
-                                    <div class="wiring_panel">
-                                        <div class="wiring_header">
-                                            <strong>{{ $t("wingMixerWiringTitle") }}</strong>
-                                            <label class="wiring_selector_label">
-                                                {{ $t("wingMixerWiringSelectLabel") }}
-                                                <select v-model="wiringPresetId" class="wiring_selector">
-                                                    <option v-for="id in presetIds" :key="id" :value="id">
-                                                        {{ presets[id].label }}
-                                                    </option>
-                                                </select>
-                                            </label>
-                                        </div>
-                                        <table v-if="currentWiring" class="wiring_table">
-                                            <thead>
-                                                <tr>
-                                                    <th>{{ $t("wingMixerWiringPad") }}</th>
-                                                    <th>{{ $t("wingMixerWiringSignal") }}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr v-for="w in currentWiring" :key="w.pad">
-                                                    <td class="wiring_pad">{{ w.pad }}</td>
-                                                    <td>{{ w.fn }}</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                        <p class="wiring_hint">{{ $t("wingMixerWiringHint") }}</p>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -134,7 +115,36 @@
                                     <select v-model="fields.yaw_type" :disabled="loading">
                                         <option value="RUDDER">RUDDER</option>
                                         <option value="DIFF_THRUST">DIFF_THRUST</option>
+                                        <option value="COMBINED">COMBINED</option>
                                     </select>
+                                    <div v-if="fields.yaw_type === 'COMBINED'" class="yaw_blend_panel">
+                                        <p class="yaw_blend_desc">{{ $t("wingYawBlendDesc") }}</p>
+                                        <label class="yaw_blend_row">
+                                            <span class="yaw_blend_label">{{ $t("wingYawBlendFloor") }}</span>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="100"
+                                                step="1"
+                                                v-model.number="fields.yaw_blend_floor"
+                                                :disabled="loading"
+                                            />
+                                            <span class="yaw_blend_value">{{ fields.yaw_blend_floor }}%</span>
+                                        </label>
+                                        <label class="yaw_blend_row">
+                                            <span class="yaw_blend_label">{{ $t("wingYawBlendCrossover") }}</span>
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="99"
+                                                step="1"
+                                                v-model.number="fields.yaw_blend_crossover"
+                                                :disabled="loading"
+                                            />
+                                            <span class="yaw_blend_value">{{ fields.yaw_blend_crossover }}%</span>
+                                        </label>
+                                        <p class="yaw_blend_hint">{{ $t("wingYawBlendHint") }}</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -292,21 +302,7 @@
                                     <div class="spacer_box_title">{{ $t("wingPinAssignTitle") }}</div>
                                 </div>
                                 <div class="spacer">
-                                    <div class="pin_assign_header">
-                                        <p class="pin_assign_desc">{{ $t("wingPinAssignDesc") }}</p>
-                                        <a
-                                            class="pin_assign_reload"
-                                            href="#"
-                                            :class="{
-                                                disabled: hardwareLoading || applyingPreset || applyingPinAssignment,
-                                            }"
-                                            @click.prevent="loadHardware"
-                                            :title="$t('wingHardwareReload')"
-                                        >
-                                            <span v-if="hardwareLoading">⟳ …</span>
-                                            <span v-else>⟳ {{ $t("wingHardwareReload") }}</span>
-                                        </a>
-                                    </div>
+                                    <p class="pin_assign_desc">{{ $t("wingPinAssignDesc") }}</p>
                                     <p v-if="hardwareError" class="hw_error">{{ hardwareError }}</p>
 
                                     <p v-if="!hardwareAnalysis" class="hw_muted">
@@ -319,6 +315,22 @@
                                          intact even after preset applies wipe the live map. -->
                                     <div v-if="padMappingRows.length > 0" class="pin_assign_mapping">
                                         <strong>{{ $t("wingPinAssignMappingTitle") }}</strong>
+                                        <span
+                                            v-if="padDefaults?.source"
+                                            class="pin_assign_source"
+                                            :class="'pin_assign_source_' + padDefaults.source"
+                                            :title="
+                                                padDefaults.source === 'firmware'
+                                                    ? $t('wingPinAssignSrcFirmwareTip')
+                                                    : $t('wingPinAssignSrcSnapshotTip')
+                                            "
+                                        >
+                                            {{
+                                                padDefaults.source === "firmware"
+                                                    ? $t("wingPinAssignSrcFirmware")
+                                                    : $t("wingPinAssignSrcSnapshot")
+                                            }}
+                                        </span>
                                         <table class="pin_assign_mapping_table">
                                             <thead>
                                                 <tr>
@@ -333,7 +345,12 @@
                                                     :key="row.defaultLabel + ':' + row.pad"
                                                 >
                                                     <td class="pin_assign_label">{{ row.defaultLabel }}</td>
-                                                    <td class="pin_assign_current">{{ row.pad }}</td>
+                                                    <td class="pin_assign_current">
+                                                        {{ row.pad }}
+                                                        <span v-if="row.timer !== null" class="hw_muted">
+                                                            — TIM{{ row.timer }} CH{{ row.channel }}
+                                                        </span>
+                                                    </td>
                                                     <td>{{ row.currentLabel }}</td>
                                                 </tr>
                                             </tbody>
@@ -347,6 +364,7 @@
                                                     <th>{{ $t("wingPinAssignResource") }}</th>
                                                     <th>{{ $t("wingPinAssignCurrent") }}</th>
                                                     <th>{{ $t("wingPinAssignPickedPad") }}</th>
+                                                    <th></th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -384,9 +402,34 @@
                                                             </option>
                                                         </select>
                                                     </td>
+                                                    <td class="pin_assign_remove_cell">
+                                                        <button
+                                                            v-if="
+                                                                row.kind === 'servo' ||
+                                                                (row.kind === 'motor' && row.index > 1)
+                                                            "
+                                                            type="button"
+                                                            class="pin_assign_remove"
+                                                            :title="$t('wingPinAssignRemoveTip')"
+                                                            :disabled="loading || applyingPreset"
+                                                            @click="removeAssignment(row.kind, row.index)"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             </tbody>
                                         </table>
+                                        <div class="pin_assign_add_row">
+                                            <button
+                                                type="button"
+                                                class="pin_assign_add"
+                                                :disabled="loading || applyingPreset"
+                                                @click="addServoPin"
+                                            >
+                                                + {{ $t("wingPinAssignAddServo") }}
+                                            </button>
+                                        </div>
 
                                         <!-- Extras: currently bound resources the preset doesn't use.
                                              Informational; they're auto-released on apply for a clean
@@ -456,20 +499,7 @@
                                             {{ $t("wingPinAssignNoop") }}
                                         </p>
 
-                                        <div class="pin_assign_actions" v-if="pinAssignmentPlan.cliLines.length > 0">
-                                            <a
-                                                class="update"
-                                                href="#"
-                                                :class="{
-                                                    disabled:
-                                                        applyingPinAssignment || applyingPreset || loading || saving,
-                                                }"
-                                                @click.prevent="applyPinAssignment"
-                                                >{{ $t("wingPinAssignApply") }}</a
-                                            >
-                                        </div>
-
-                                        <p class="pin_assign_hint">{{ $t("wingPinAssignHint") }}</p>
+                                        <p class="pin_assign_hint">{{ $t("wingPinAssignSaveHint") }}</p>
                                     </template>
                                 </div>
                             </div>
@@ -1311,6 +1341,67 @@
                     </div>
                 </template>
 
+                <!-- ═══ Autoland sub-tab — 22 wing autoland config fields. ═══
+                     Same schema-driven row pattern as Launch / GPS Rescue.
+                     Master `enabled` defaults OFF; autoland never engages
+                     until the pilot flips it to 1. Four trigger flags
+                     (manual / rth-timeout / low-batt / failsafe) gate
+                     individual entry paths. Live-state visibility is
+                     deferred to OSD + blackbox rather than a poll panel
+                     here. -->
+                <template v-if="activeSubTab === 'autoland'">
+                    <div class="grid-row">
+                        <div class="grid-col col12">
+                            <div class="gui_box">
+                                <div class="gui_box_titlebar">
+                                    <div class="spacer_box_title">{{ $t("wingSubTabAutolandTitle") }}</div>
+                                </div>
+                                <div class="spacer">
+                                    <p>{{ $t("wingAutolandDesc") }}</p>
+                                    <p class="autoland_warning">{{ $t("wingAutolandWarning") }}</p>
+                                    <table class="fields">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ $t("wingParameter") }}</th>
+                                                <th>{{ $t("wingValue") }}</th>
+                                                <th>{{ $t("wingSlider") }}</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="def in AUTOLAND_FIELD_DEFS" :key="def.name">
+                                                <td :title="$t('wingAutolandHelp_' + def.name)">
+                                                    {{ $t("wingAutolandLabel_" + def.name) }}
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        :min="def.min"
+                                                        :max="def.max"
+                                                        v-model.number="autolandFields[def.name]"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="range"
+                                                        :min="def.min"
+                                                        :max="def.max"
+                                                        v-model.number="autolandFields[def.name]"
+                                                        :disabled="loading"
+                                                    />
+                                                </td>
+                                                <td class="launch_unit">{{ def.unit }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <p class="launch_hint">{{ $t("wingAutolandHint") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
                 <!-- ═══ Hardware sub-tab — live view of what the firmware has claimed.
                      Parses resource show / timer show / dma show via cliOneShot.js.
                      Read-only; no remap buttons in Phase 1. -->
@@ -1323,19 +1414,9 @@
                                 </div>
                                 <div class="spacer">
                                     <p>{{ $t("wingHardwareDesc") }}</p>
-                                    <p>
-                                        <a
-                                            class="update"
-                                            href="#"
-                                            :class="{ disabled: hardwareLoading }"
-                                            @click.prevent="loadHardware"
-                                            >{{ $t("wingHardwareReload") }}</a
-                                        >
-                                        <span v-if="hardwareLoading" class="hw_status">
-                                            {{ $t("wingHardwareLoading") }}
-                                        </span>
+                                    <p v-if="hardwareLoading" class="hw_status">
+                                        {{ $t("wingHardwareLoading") }}
                                     </p>
-
                                     <p v-if="hardwareError" class="hw_error">{{ hardwareError }}</p>
 
                                     <template v-if="hardwareAnalysis">
@@ -1573,7 +1654,14 @@ import {
     PLANE_SLOT_MAX,
 } from "../../js/utils/planePresets.js";
 import { applyCliLines } from "../../js/utils/wingMixerCli.js";
-import { readCli, parseResourceShow, parseTimerShow, parseDmaShow, parseTimerDump } from "../../js/utils/cliOneShot.js";
+import {
+    readCli,
+    parseResourceShow,
+    parseTimerShow,
+    parseDmaShow,
+    parseTimerDump,
+    readResourceDefaults,
+} from "../../js/utils/cliOneShot.js";
 import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
 import { computePresetResourcePlan, candidatePadsForSlot } from "../../js/utils/wingRemapRecommender.js";
 import { useConnectionStore } from "../../stores/connection";
@@ -1587,8 +1675,12 @@ const FIELD_DEFS = [
     { name: "s_pitch", type: "int" },
     { name: "s_roll", type: "int" },
     { name: "s_yaw", type: "int" },
-    // Yaw type
+    // Yaw type + COMBINED-mode blend tuning (airspeed-weighted crossfade
+    // between rudder servo and motor differential; ignored for RUDDER /
+    // DIFF_THRUST modes but still round-tripped).
     { name: "yaw_type", type: "string" },
+    { name: "yaw_blend_floor", type: "int" },
+    { name: "yaw_blend_crossover", type: "int" },
     // Angle mode
     { name: "angle_pitch_offset", type: "int" },
     { name: "angle_earth_ref", type: "int" },
@@ -1669,6 +1761,44 @@ const GPS_RESCUE_FIELD_DEFS = [
 function defaultGpsRescueFields() {
     const f = {};
     for (const def of GPS_RESCUE_FIELD_DEFS) {
+        f[def.name] = def.default;
+    }
+    return f;
+}
+
+// Wing autoland fields — order + types match wingAutolandSchema.js
+// and pg/autoland.h PG_RESET defaults. The five 0/1 flags (enabled +
+// four triggers) are rendered as numeric inputs for consistency with
+// other schema-driven rows (same pattern as gps_rescue's
+// allowArmingWithoutFix). Master `enabled` defaults OFF so autoland
+// never engages until the pilot flips it to 1.
+const AUTOLAND_FIELD_DEFS = [
+    { name: "enabled", min: 0, max: 1, default: 0, unit: "0/1" },
+    { name: "triggerManual", min: 0, max: 1, default: 1, unit: "0/1" },
+    { name: "triggerRthTimeout", min: 0, max: 1, default: 1, unit: "0/1" },
+    { name: "triggerLowBatt", min: 0, max: 1, default: 0, unit: "0/1" },
+    { name: "triggerFailsafe", min: 0, max: 1, default: 1, unit: "0/1" },
+    { name: "loiterTimeoutS", min: 10, max: 600, default: 60, unit: "s" },
+    { name: "orbitsBeforeDescent", min: 1, max: 5, default: 2, unit: "" },
+    { name: "approachAltitudeM", min: 20, max: 300, default: 60, unit: "m" },
+    { name: "downwindDistanceM", min: 30, max: 500, default: 150, unit: "m" },
+    { name: "baseRadiusM", min: 10, max: 200, default: 40, unit: "m" },
+    { name: "finalDistanceM", min: 20, max: 300, default: 80, unit: "m" },
+    { name: "commitAltitudeCm", min: 100, max: 2000, default: 600, unit: "cm" },
+    { name: "glidePitchDeg", min: 0, max: 20, default: 5, unit: "°" },
+    { name: "throttleCutAltCm", min: 0, max: 5000, default: 0, unit: "cm" },
+    { name: "cruiseThrottlePct", min: 0, max: 100, default: 40, unit: "%" },
+    { name: "flareStartAltCm", min: 30, max: 1000, default: 150, unit: "cm" },
+    { name: "flarePitchDeg", min: 0, max: 30, default: 8, unit: "°" },
+    { name: "touchdownAccelThreshold", min: 10, max: 100, default: 30, unit: "0.1G" },
+    { name: "touchdownAltThresholdCm", min: 0, max: 300, default: 30, unit: "cm" },
+    { name: "touchdownQuiescenceMs", min: 500, max: 10000, default: 2000, unit: "ms" },
+    { name: "minPatternSats", min: 5, max: 50, default: 8, unit: "" },
+];
+
+function defaultAutolandFields() {
+    const f = {};
+    for (const def of AUTOLAND_FIELD_DEFS) {
         f[def.name] = def.default;
     }
     return f;
@@ -1835,6 +1965,9 @@ export default defineComponent({
         const gpsRescueFields = reactive(defaultGpsRescueFields());
         const initialGpsRescueFields = ref({ ...gpsRescueFields });
 
+        const autolandFields = reactive(defaultAutolandFields());
+        const initialAutolandFields = ref({ ...autolandFields });
+
         // Hardware sub-tab state. Lazy-loaded on first activation
         // via CLI one-shot (resource show / timer show / dma show).
         // Read-only — no writes from this panel in Phase 1.
@@ -1873,7 +2006,9 @@ export default defineComponent({
                 // sight, persist to localStorage. Lets the Pin Assignment
                 // panel render a "default pad → currently" table even after
                 // preset applies have rewritten the live resource map.
-                ensurePadDefaultsForCurrentBoard();
+                // Prefers firmware `resource defaults` (wing-fork CLI) when
+                // available; falls back to a current-state snapshot on stock.
+                await ensurePadDefaultsForCurrentBoard();
             } catch (e) {
                 console.error("[WingTuning] Hardware load failed:", e);
                 hardwareError.value = e.message || String(e);
@@ -1925,16 +2060,50 @@ export default defineComponent({
                 /* quota / privacy mode — harmless */
             }
         }
-        function ensurePadDefaultsForCurrentBoard() {
+        async function ensurePadDefaultsForCurrentBoard() {
             const target = FC.CONFIG?.boardName || FC.CONFIG?.targetName || null;
             if (!target) return;
-            let cached = loadPadDefaults(target);
-            if (!cached && hardwareAnalysis.value) {
-                // First sight of this target — capture current motors + LED_STRIP
-                // pads as the canonical default layout. If the user is on
-                // factory defaults at first connect, this matches the silkscreen.
-                cached = {
+
+            // ALWAYS try firmware `resource defaults` first — it's
+            // authoritative. Cached snapshots from earlier sessions (maybe
+            // captured on stock BF before the wing-fork CLI shipped, or
+            // from a different physical board sharing this target name)
+            // can be incomplete; overwrite them with live firmware data
+            // whenever the CLI succeeds. Cache is only a fallback for
+            // the stock-BF / CLI-glitch case below.
+            let snapshot = null;
+            try {
+                const bindings = await readResourceDefaults();
+                if (bindings && bindings.length > 0) {
+                    snapshot = {
+                        target,
+                        source: "firmware",
+                        motors: bindings
+                            .filter((b) => b.peripheral === "MOTOR" && b.index != null)
+                            .map((b) => ({ index: b.index, pad: b.pad })),
+                        ledStrips: bindings.filter((b) => b.peripheral === "LED_STRIP").map((b) => ({ pad: b.pad })),
+                    };
+                }
+            } catch {
+                // Stock BF or CLI glitch — fall through.
+            }
+
+            // Firmware didn't respond: prefer a previously-cached snapshot
+            // over re-capturing current state (the cache at least reflects
+            // a fresh-flash moment if we ever had one).
+            if (!snapshot) {
+                const cached = loadPadDefaults(target);
+                if (cached) snapshot = cached;
+            }
+
+            // Last resort: snapshot current state as the defaults. Right
+            // on a fresh stock-BF flash, wrong if the user already applied
+            // a preset before connecting — the failure mode firmware-
+            // defaults path fixes.
+            if (!snapshot && hardwareAnalysis.value) {
+                snapshot = {
                     target,
+                    source: "snapshot",
                     motors: (hardwareAnalysis.value.motors ?? []).map((m) => ({
                         index: m.index,
                         pad: m.pad,
@@ -1943,15 +2112,51 @@ export default defineComponent({
                         pad: l.pad,
                     })),
                 };
-                savePadDefaults(target, cached);
             }
-            padDefaults.value = cached;
+
+            // LED_STRIP always-union supplement. Runs regardless of which
+            // source produced the snapshot. Merges LED_STRIP pads from:
+            //   - the snapshot we just built (firmware or current-state),
+            //   - any previously-cached snapshot (LEDs we saw on this
+            //     target in prior sessions),
+            //   - the live analysis.ledStrips (whatever claims LED now).
+            //
+            // Rationale: (1) stock BF doesn't emit our custom `resource
+            // defaults` CLI so the firmware path returns nothing; (2) on
+            // targets like TMOTORF7 the user may have moved a motor onto
+            // the LED silkscreen pad before we ever captured it, so
+            // current analysis has no LED_STRIP entry. By persisting the
+            // union across sessions we "sticky"-remember the LED silkscreen
+            // pad once we've EVER seen it — subsequent pad mapping tables
+            // show the LED_STRIP row even if the pad is currently taken by
+            // a relocated motor.
+            if (snapshot) {
+                const ledUnion = new Map();
+                for (const l of snapshot.ledStrips ?? []) ledUnion.set(l.pad, true);
+                const cachedSnapshot = loadPadDefaults(target);
+                for (const l of cachedSnapshot?.ledStrips ?? []) ledUnion.set(l.pad, true);
+                for (const l of hardwareAnalysis.value?.ledStrips ?? []) ledUnion.set(l.pad, true);
+                snapshot.ledStrips = [...ledUnion.keys()].map((pad) => ({ pad }));
+            }
+
+            if (snapshot) {
+                savePadDefaults(target, snapshot);
+                padDefaults.value = snapshot;
+            }
         }
 
         // Mapping rows: one per default MOTOR / LED_STRIP slot, showing where
         // its pad is bound right now. Driven by the cached defaults snapshot
         // crossed with the live analyzer state. Used by the "Pad mapping"
         // table in the Pin Assignment panel.
+        //
+        // Timer/channel lookup via analysis.padTimers (Map<pad, {timer,
+        // channel}>) — same source the joint optimizer uses. Lets the
+        // table surface "— TIM3 CH4" next to each pad label so pilots
+        // can eyeball timer groupings without scrolling down to the
+        // "Will bind to" dropdowns. Falls to null when a pad isn't in
+        // the timer dump (rare — hardware-fixed pads outside the PWM
+        // pool).
         const padMappingRows = computed(() => {
             if (!padDefaults.value || !hardwareAnalysis.value) return [];
             const currentByPad = new Map();
@@ -1964,19 +2169,44 @@ export default defineComponent({
             for (const l of hardwareAnalysis.value.ledStrips ?? []) {
                 currentByPad.set(l.pad, "LED_STRIP");
             }
+            const padTimers = hardwareAnalysis.value.padTimers;
+            const lookupTimer = (pad) => {
+                const t = padTimers instanceof Map ? padTimers.get(pad) : null;
+                return t ?? { timer: null, channel: null };
+            };
             const rows = [];
             for (const m of padDefaults.value.motors ?? []) {
+                const t = lookupTimer(m.pad);
                 rows.push({
                     defaultLabel: `MOTOR ${m.index}`,
                     pad: m.pad,
+                    timer: t.timer,
+                    channel: t.channel,
                     currentLabel: currentByPad.get(m.pad) || "(free)",
                 });
             }
+            // LED_STRIP row: union of padDefaults (firmware silkscreen
+            // default — authoritative but some targets don't list it in
+            // `resource defaults` output, e.g. TMOTORF7X2) and the live
+            // analysis.ledStrips (whatever LED_STRIP currently claims).
+            // Without the union, moving a MOTOR onto the LED silkscreen
+            // pad leaves no row in the mapping table to show where the
+            // MOTOR went.
+            const ledPads = new Map();
             for (const l of padDefaults.value.ledStrips ?? []) {
+                ledPads.set(l.pad, "default");
+            }
+            for (const l of hardwareAnalysis.value.ledStrips ?? []) {
+                if (!ledPads.has(l.pad)) ledPads.set(l.pad, "current");
+            }
+            for (const [pad] of ledPads) {
+                const t = lookupTimer(pad);
                 rows.push({
                     defaultLabel: "LED_STRIP",
-                    pad: l.pad,
-                    currentLabel: currentByPad.get(l.pad) || "(free)",
+                    pad,
+                    timer: t.timer,
+                    channel: t.channel,
+                    currentLabel: currentByPad.get(pad) || "(free)",
                 });
             }
             return rows;
@@ -1998,9 +2228,16 @@ export default defineComponent({
         });
 
         const mixerDirty = computed(() => !mixerStatesEqual(mixerState, initialMixerState.value));
+        // motorCount has its own baseline — rule-out when mmix CLI needs
+        // to be rewritten, independent of whether any resource pads moved.
+        const motorCountDirty = computed(() => motorCount.value !== initialMotorCount.value);
 
         const launchDirty = computed(() =>
             LAUNCH_FIELD_DEFS.some((def) => launchFields[def.name] !== initialLaunchFields.value[def.name]),
+        );
+
+        const autolandDirty = computed(() =>
+            AUTOLAND_FIELD_DEFS.some((def) => autolandFields[def.name] !== initialAutolandFields.value[def.name]),
         );
 
         const gpsRescueDirty = computed(() =>
@@ -2014,7 +2251,7 @@ export default defineComponent({
         // the last-visited sub-tab across remount via localStorage so
         // returning to the tab opens where the user left off.
         const SUB_TAB_STORAGE_KEY = "wingTuningActiveSubTab";
-        const SUB_TAB_IDS = ["tuning", "mixer", "launch", "gps_rescue", "hardware"];
+        const SUB_TAB_IDS = ["tuning", "mixer", "launch", "gps_rescue", "autoland", "hardware"];
         const activeSubTab = ref(
             (() => {
                 try {
@@ -2049,8 +2286,13 @@ export default defineComponent({
         // cycle (otherwise the panel defaults to Standard Plane and
         // misreports what the current state actually matches).
         const WIRING_PRESET_STORAGE_KEY = "wing.wiringPresetId";
-        const _storedWiring =
+        const _rawStoredWiring =
             typeof window !== "undefined" ? window.localStorage?.getItem(WIRING_PRESET_STORAGE_KEY) : null;
+        // Legacy migration: the standalone `flying_wing_diff_thrust` preset
+        // was removed 2026-04-20; users who had it selected roll over to
+        // `flying_wing` + motorCount=2 (see the motorCount seed below).
+        const _diffThrustLegacy = _rawStoredWiring === "flying_wing_diff_thrust";
+        const _storedWiring = _diffThrustLegacy ? "flying_wing" : _rawStoredWiring;
         const wiringPresetId = ref(
             _storedWiring && PRESET_IDS.includes(_storedWiring) ? _storedWiring : PRESET_IDS[0] || null,
         );
@@ -2064,11 +2306,46 @@ export default defineComponent({
             }
         });
 
-        const currentWiring = computed(() => {
-            if (!wiringPresetId.value) {
-                return null;
+        // ─── motorCount: 1 = single motor, 2 = diff-thrust ───
+        // Toggle surfaced near the preset buttons so every preset can opt
+        // into 2-motor diff-thrust without needing a distinct preset entry.
+        // Persisted per-connection so a reboot-reconnect cycle doesn't
+        // silently flip the plane back to 1-motor state.
+        const MOTOR_COUNT_STORAGE_KEY = "wing.motorCount";
+        const _storedMotorCount =
+            typeof window !== "undefined" ? Number(window.localStorage?.getItem(MOTOR_COUNT_STORAGE_KEY)) : NaN;
+        const motorCount = ref(
+            // Legacy migration: users on `flying_wing_diff_thrust` get
+            // motorCount=2 implicitly so their loadout is preserved.
+            _diffThrustLegacy
+                ? 2
+                : _storedMotorCount === 1 || _storedMotorCount === 2
+                    ? _storedMotorCount
+                    : (PLANE_PRESETS[wiringPresetId.value]?.mmix?.length ?? 1),
+        );
+        // Baseline for dirty detection — snapshots motorCount at tab mount
+        // (or the last successful save). `motorCountDirty` drives save()'s
+        // decision to emit the mmix CLI batch: the FC has no MSP for mmix,
+        // and the configurator can't read live mmix back, so we can't
+        // diff-compare against firmware. The only reliable signal that
+        // mmix needs to be rewritten is "user touched motorCount or the
+        // mixer rules since last commit."
+        const initialMotorCount = ref(motorCount.value);
+        watch(motorCount, (n) => {
+            if (typeof window !== "undefined" && (n === 1 || n === 2)) {
+                try {
+                    window.localStorage?.setItem(MOTOR_COUNT_STORAGE_KEY, String(n));
+                } catch {
+                    /* quota or privacy mode — harmless */
+                }
             }
-            return PLANE_PRESETS[wiringPresetId.value]?.wiring || null;
+        });
+        // Preset-switch → re-seed motorCount from the new preset's default
+        // mmix length. User can still override by toggling the checkbox
+        // afterward.
+        watch(wiringPresetId, (id) => {
+            const base = PLANE_PRESETS[id]?.mmix?.length ?? 1;
+            motorCount.value = base;
         });
 
         // ─── Phase 2.5 Pin Assignment helpers (must be after wiringPresetId) ───
@@ -2082,6 +2359,15 @@ export default defineComponent({
                 allowLedStrip: allowLedStripPad.value,
                 allowUartRelease: [...allowUartPads],
                 padDefaults: padDefaults.value,
+                // effectiveRules reflects the user's live Function→Output
+                // Mapping edits — adding a rule expands usedServoIndices,
+                // removing one shrinks it. Pin Assignment picker stays in
+                // sync without the user having to re-click the preset.
+                effectiveRules: mixerState.rules,
+                // motorCount from the diff-thrust toggle lets usedMotorIndices
+                // reflect the user's 1-vs-2-motor choice without needing a
+                // separate preset entry.
+                motorCount: motorCount.value,
             });
         });
 
@@ -2126,38 +2412,180 @@ export default defineComponent({
         function candidatesForServo(servoIndex) {
             if (!hardwareAnalysis.value) return [];
             const plan = pinAssignmentPlan.value;
-            const bound = (hardwareAnalysis.value.servos ?? []).find((s) => s.index === servoIndex);
-            return candidatePadsForSlot(hardwareAnalysis.value, servoIndex, {
+            const analysis = hardwareAnalysis.value;
+            const bound = (analysis.servos ?? []).find((s) => s.index === servoIndex);
+            // Convert plan.motorPicks (motorIndex → {pad}) to motorIndex →
+            // pad, then thread into candidatePadsForSlot so currently-bound
+            // motor pads that are moving show up as motor-release candidates
+            // (and their target pads are properly claimed). Plan + UI both
+            // see the same candidate list this way.
+            const motorRebinds = new Map();
+            if (plan?.motorPicks instanceof Map) {
+                for (const [idx, pick] of plan.motorPicks) {
+                    if (pick?.pad) motorRebinds.set(idx, pick.pad);
+                }
+            }
+            return candidatePadsForSlot(analysis, servoIndex, {
                 motorIndicesInUse: plan?.usedMotorIndices ?? [],
                 currentPad: bound?.pad ?? null,
                 allowLedStrip: allowLedStripPad.value,
                 allowUartRelease: [...allowUartPads],
+                motorRebinds,
             });
         }
 
         function candidatesForMotor(motorIndex) {
             if (!hardwareAnalysis.value) return [];
             const analysis = hardwareAnalysis.value;
+            const plan = pinAssignmentPlan.value;
+            const usedServos = new Set(plan?.usedServoIndices ?? []);
+            const usedMotors = new Set(plan?.usedMotorIndices ?? []);
             const existing = (analysis.motors ?? []).find((m) => m.index === motorIndex);
+            // Timer/channel fallback source — `timer show` parser sometimes
+            // leaves `m.timer` / `s.timer` null (observed TMOTORF7X2); the
+            // padTimers map (from timer_dump) is authoritative for every
+            // PWM-capable pad regardless of current binding state.
+            const padTimers = analysis.padTimers instanceof Map ? analysis.padTimers : null;
+            const withTimer = (pad, baseTimer, baseChannel) => {
+                const fb = padTimers?.get(pad);
+                return {
+                    timer: baseTimer ?? fb?.timer ?? null,
+                    channel: baseChannel ?? fb?.channel ?? null,
+                };
+            };
             const results = [];
             if (existing) {
+                const t = withTimer(existing.pad, existing.timer, existing.channel);
                 results.push({
                     pad: existing.pad,
-                    timer: existing.timer,
-                    channel: existing.channel,
+                    timer: t.timer,
+                    channel: t.channel,
                     source: "existing",
                 });
             }
+            // Pads of SERVOs being released by the pending plan (the user X'd
+            // out the row, or the rule was removed upstream). These become
+            // candidates for motor binding once the release line fires. Each
+            // one carries a requiresRelease hint so the CLI batch emits
+            // `resource SERVO N NONE` before the motor rebind.
+            const releasableServos = (analysis.servos ?? []).filter((s) => !usedServos.has(s.index));
+            for (const s of releasableServos) {
+                const t = withTimer(s.pad, s.timer, s.channel);
+                results.push({
+                    pad: s.pad,
+                    timer: t.timer,
+                    channel: t.channel,
+                    source: "servo-release",
+                    requiresRelease: [`resource SERVO ${s.index} NONE`],
+                });
+            }
+            // Pads of other MOTORs being released (motorCount dropped below
+            // their index). Mirror of servo-release above.
+            const releasableMotors = (analysis.motors ?? []).filter(
+                (m) => m.index !== motorIndex && !usedMotors.has(m.index),
+            );
+            for (const m of releasableMotors) {
+                const t = withTimer(m.pad, m.timer, m.channel);
+                results.push({
+                    pad: m.pad,
+                    timer: t.timer,
+                    channel: t.channel,
+                    source: "motor-release",
+                    requiresRelease: [`resource MOTOR ${m.index} NONE`],
+                });
+            }
+            // LED_STRIP pad — mirrors the servo-dropdown behavior. When
+            // allowLedStripPad is on, the LED pad becomes a motor candidate
+            // with a `"(releases LED_STRIP)"` hint so the CLI batch frees
+            // the LED before binding the motor.
+            if (allowLedStripPad.value) {
+                for (const ls of analysis.ledStrips ?? []) {
+                    const t = withTimer(ls.pad, ls.timer, ls.channel);
+                    results.push({
+                        pad: ls.pad,
+                        timer: t.timer,
+                        channel: t.channel,
+                        source: "led-strip",
+                        requiresRelease: ["resource LED_STRIP 1 NONE"],
+                    });
+                }
+            }
             const claimed = new Set();
-            for (const m of analysis.motors ?? []) if (m.index !== motorIndex) claimed.add(m.pad);
-            for (const s of analysis.servos ?? []) claimed.add(s.pad);
+            for (const m of analysis.motors ?? []) {
+                if (m.index !== motorIndex && usedMotors.has(m.index)) claimed.add(m.pad);
+            }
+            for (const s of analysis.servos ?? []) {
+                if (usedServos.has(s.index)) claimed.add(s.pad);
+            }
             for (const f of analysis.hardwareFixedPads ?? []) claimed.add(f.pad);
             for (const p of analysis.pwmCapableFreePads ?? []) {
                 if (claimed.has(p.pad)) continue;
                 if (existing && existing.pad === p.pad) continue;
+                // Skip pads already surfaced via existing / release tiers.
+                if (results.some((r) => r.pad === p.pad)) continue;
                 results.push({ pad: p.pad, timer: p.timer, channel: p.channel, source: "free-pwm" });
             }
             return results;
+        }
+
+        // Remove a pin assignment row — red X button in the table. For SERVO
+        // rows, prunes the rule(s) targeting that servo from mixerState.rules
+        // so the reactive chain (effectiveRules → usedServoIndices → plan)
+        // drops the row AND emits `resource SERVO N NONE` in the save batch.
+        // For MOTOR rows, decrements motorCount (MOTOR 1 always stays — can't
+        // fly with zero motors). Both paths leave initialMixerState /
+        // initialMotorCount untouched so the dirty indicator fires.
+        function removeAssignment(kind, index) {
+            if (kind === "motor") {
+                if (index <= 1 || motorCount.value <= 1) return;
+                motorCount.value = motorCount.value - 1;
+                return;
+            }
+            if (kind === "servo") {
+                // mixer rule's `target` is 1-based: target = servoIndex + 1.
+                const ruleTarget = index + 1;
+                mixerState.rules = mixerState.rules.filter((r) => r.target !== ruleTarget);
+                // Also clear any stale pad override for this servo so it
+                // doesn't leak into future applyPreset / save cycles.
+                if (padOverrides.servo[index] != null) {
+                    delete padOverrides.servo[index];
+                }
+            }
+        }
+
+        // Pick the next unused SERVO index (within 1..MAX_SERVO_SLOTS) and
+        // append a placeholder rule so a new pin-assignment row appears.
+        // Placeholder rule: STABILIZED_ROLL input, rate 100, full travel —
+        // user then tunes via the Mixer tab's rule editor. Mirrors the
+        // existing "Add function" buttons' pattern of switching to CUSTOM
+        // AIRPLANE + appending rules; keeps the add here identical to a
+        // manual rule-editor add but tied to a free SERVO slot.
+        const MAX_SERVO_SLOTS_FOR_ADD = 8;
+        function addServoPin() {
+            const plan = pinAssignmentPlan.value;
+            const used = new Set(plan?.usedServoIndices ?? []);
+            let nextIdx = null;
+            for (let i = 1; i <= MAX_SERVO_SLOTS_FOR_ADD; i++) {
+                if (!used.has(i)) {
+                    nextIdx = i;
+                    break;
+                }
+            }
+            if (nextIdx === null) return;
+            // Switch to CUSTOMAIRPLANE so the rule actually drives the servo.
+            mixerState.airframe = 24;
+            mixerState.rules = [
+                ...mixerState.rules,
+                {
+                    target: nextIdx + 1,
+                    input: 0,
+                    rate: 100,
+                    speed: 0,
+                    min: -100,
+                    max: 100,
+                    box: 0,
+                },
+            ];
         }
 
         function setPadOverride(kind, index, pad) {
@@ -2179,6 +2607,10 @@ export default defineComponent({
             if (c.source === "motor-release") {
                 const m = line && /^resource MOTOR (\d+) /i.exec(line);
                 return m ? `releases MOTOR ${m[1]}` : "release motor";
+            }
+            if (c.source === "servo-release") {
+                const m = line && /^resource SERVO (\d+) /i.exec(line);
+                return m ? `releases SERVO ${m[1]}` : "release servo";
             }
             if (c.source === "led-strip") return "releases LED_STRIP";
             if (c.source === "uart-release") {
@@ -2202,18 +2634,54 @@ export default defineComponent({
         // Lets users tweak pads (e.g. move SERVO 3 to LED_STRIP pad) without
         // re-running a full preset apply.
         const applyingPinAssignment = ref(false);
-        async function applyPinAssignment() {
+        // Builds the effective mmix for a preset under the current
+        // motorCount toggle. Mirrors the effectiveMmix logic in
+        // applyPreset so save-initiated pin apply can also persist the
+        // correct motor count — otherwise flipping motorCount without
+        // re-clicking a preset leaves mmix stale and extra-motor pin
+        // bindings become silent no-ops (firmware lazy-inits only pins
+        // the current mmix actually uses).
+        function buildEffectiveMmix(preset, n) {
+            if (!preset?.mmix) return [];
+            if (n === 2 && preset.mmix.length === 1) {
+                return [
+                    { ...preset.mmix[0], yaw: 0.4 },
+                    { ...preset.mmix[0], yaw: -0.4 },
+                ];
+            }
+            if (n === 1 && preset.mmix.length >= 2) {
+                return [{ ...preset.mmix[0], yaw: 0 }];
+            }
+            return preset.mmix;
+        }
+
+        function buildMmixCliLines(mmix) {
+            return ["mmix reset"].concat(
+                mmix.map(
+                    (m, i) =>
+                        `mmix ${i} ${m.throttle.toFixed(3)} ${m.roll.toFixed(3)} ${m.pitch.toFixed(3)} ${m.yaw.toFixed(3)}`,
+                ),
+            );
+        }
+
+        // Called from save() at the end of the sequence — never standalone
+        // since the Apply button was removed in button-consolidation. Drops
+        // the `saving.value` guard (that WAS blocking the save-initiated
+        // path from running) and the confirm() dialog (user already chose
+        // to Save — the CLI preview panel showed what would happen).
+        // Accepts an optional override batch so save() can prepend mmix
+        // lines when motorCount has diverged from the live FC mixer.
+        async function applyPinAssignment(overrideCliLines = null) {
             const plan = pinAssignmentPlan.value;
-            if (!plan || plan.cliLines.length === 0) return;
-            if (applyingPreset.value || applyingPinAssignment.value || loading.value || saving.value) return;
-            const preview = plan.cliLines.join("\n");
-            if (!confirm(`Apply these pin changes? The FC will reboot.\n\n${preview}`)) return;
+            const cliLines = overrideCliLines ?? plan?.cliLines;
+            if (!cliLines || cliLines.length === 0) return;
+            if (applyingPreset.value || applyingPinAssignment.value || loading.value) return;
             applyingPinAssignment.value = true;
             error.value = null;
             connectionStore.pauseLiveData();
             try {
                 connectionStore.clearMspQueue();
-                await applyCliLines(plan.cliLines);
+                await applyCliLines(cliLines);
                 await new Promise((r) => setTimeout(r, 5000));
                 try {
                     await loadHardware();
@@ -2240,12 +2708,22 @@ export default defineComponent({
             return mixerState.rules.some((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
         });
 
+        // Pin Assignment has pending pad moves when the computed plan
+        // surfaces any `resource` lines. Folded into main `dirty` so the
+        // bottom-right Save button drives both MSP + pin-apply.
+        // Null-safe because pinAssignmentPlan returns null until hardware
+        // analysis has loaded + a preset id is set.
+        const pinAssignmentDirty = computed(() => (pinAssignmentPlan.value?.cliLines?.length ?? 0) > 0);
+
         const dirty = computed(
             () =>
                 FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]) ||
                 mixerDirty.value ||
+                motorCountDirty.value ||
                 launchDirty.value ||
-                gpsRescueDirty.value,
+                gpsRescueDirty.value ||
+                autolandDirty.value ||
+                pinAssignmentDirty.value,
         );
 
         // Capability check — tab requires a USE_WING firmware build.
@@ -2398,6 +2876,32 @@ export default defineComponent({
                 } catch (rescueErr) {
                     console.warn("[WingTuning] MSP2_WING_GPS_RESCUE unavailable (older firmware?):", rescueErr);
                 }
+
+                // Wing autoland — same graceful-degrade pattern. Older
+                // firmware without 0x3018 will leave autolandFields at
+                // their defaults, which is also what a stock wing with
+                // master = 0 behaves like anyway.
+                try {
+                    await MSP.promise(MSPCodes.MSP2_WING_AUTOLAND);
+                    for (const def of AUTOLAND_FIELD_DEFS) {
+                        if (FC.WING_AUTOLAND[def.name] !== undefined) {
+                            autolandFields[def.name] = FC.WING_AUTOLAND[def.name];
+                        }
+                    }
+                    initialAutolandFields.value = { ...autolandFields };
+                } catch (autolandErr) {
+                    console.warn("[WingTuning] MSP2_WING_AUTOLAND unavailable (older firmware?):", autolandErr);
+                }
+
+                // Hardware analysis (resource/timer/dma + pad defaults) —
+                // folded into the main Reload button so Hardware + Mixer
+                // sub-tabs don't need their own per-panel reload controls.
+                // Best-effort: a CLI stall shouldn't block the rest of reload().
+                try {
+                    await loadHardware();
+                } catch (hwErr) {
+                    console.warn("[WingTuning] hardware reload failed:", hwErr);
+                }
             } catch (e) {
                 console.error("[WingTuning] reload failed:", e);
                 error.value = e.message || String(e);
@@ -2409,6 +2913,16 @@ export default defineComponent({
         async function save() {
             saving.value = true;
             error.value = null;
+            // Pause the 250 ms update_live_status polling for the full save
+            // window. Without this, MSP_ARMING_CONFIG (id 110) polls queue
+            // behind our save writes, and when applyPinAssignment triggers
+            // the CLI reboot those pending polls time out noisily in the
+            // console ("MSP: data request timed-out: 110 ... QUEUE: 5"). The
+            // save itself still succeeds — the timeouts are just cleanup
+            // noise — but the user-visible errors spook pilots. resumeLiveData
+            // fires in the finally below so normal polling restarts after
+            // the save (or error) path completes.
+            connectionStore.pauseLiveData();
             try {
                 // Wing tuning fields first (atomic, via the MSP2 pair).
                 for (const def of FIELD_DEFS) {
@@ -2466,16 +2980,63 @@ export default defineComponent({
                     }
                 }
 
+                // Wing autoland — same dirty-gated, swallow-unknown pattern.
+                if (autolandDirty.value) {
+                    for (const def of AUTOLAND_FIELD_DEFS) {
+                        FC.WING_AUTOLAND[def.name] = autolandFields[def.name];
+                    }
+                    try {
+                        await MSP.promise(
+                            MSPCodes.MSP2_SET_WING_AUTOLAND,
+                            mspHelper.crunch(MSPCodes.MSP2_SET_WING_AUTOLAND),
+                        );
+                    } catch (autolandErr) {
+                        console.warn("[WingTuning] MSP2_SET_WING_AUTOLAND failed:", autolandErr);
+                    }
+                }
+
                 await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
 
                 initialFields.value = { ...fields };
                 initialLaunchFields.value = { ...launchFields };
                 initialGpsRescueFields.value = { ...gpsRescueFields };
+                initialAutolandFields.value = { ...autolandFields };
                 initialMixerState.value = cloneMixerState(mixerState);
+                initialMotorCount.value = motorCount.value;
+
+                // Pin Assignment — runs LAST because the CLI batch includes
+                // `save` + reboot. MSP writes above are already in EEPROM, so
+                // they persist through the reboot.
+                //
+                // Gate: fire the CLI batch whenever ANY preset-scoped state
+                // changed — resource plan has real work, OR the mixer state
+                // (rules, airframe) drifted, OR motorCount toggled. The
+                // configurator can't read live mmix back from the FC via
+                // MSP, so `mixerDirty || motorCountDirty` is our only
+                // signal that mmix needs rewriting. If we gated solely on
+                // pinAssignmentDirty, a preset click that happened to land
+                // on the board's existing pad layout would skip mmix and
+                // leave the FC running stale motor mix (observed on bench:
+                // Flying Wing + diff-thrust saved smix/yaw_type but NOT
+                // mmix because resource plan was a no-op).
+                const fireCliBatch = pinAssignmentDirty.value || mixerDirty.value || motorCountDirty.value;
+                if (fireCliBatch) {
+                    try {
+                        const preset = pinAssignmentPreset.value;
+                        const baseCli = pinAssignmentPlan.value?.cliLines ?? [];
+                        const mmixCli = preset ? buildMmixCliLines(buildEffectiveMmix(preset, motorCount.value)) : [];
+                        if (baseCli.length > 0 || mmixCli.length > 0) {
+                            await applyPinAssignment([...baseCli, ...mmixCli]);
+                        }
+                    } catch (pinErr) {
+                        console.warn("[WingTuning] pin assignment apply failed:", pinErr);
+                    }
+                }
             } catch (e) {
                 console.error("[WingTuning] save failed:", e);
                 error.value = e.message || String(e);
             } finally {
+                connectionStore.resumeLiveData();
                 saving.value = false;
             }
         }
@@ -2488,155 +3049,51 @@ export default defineComponent({
             return padded;
         }
 
-        // Apply a full preset: yaw_type, airframe, servo rules, motor mix.
-        // All of MSP gets written first (atomic), then the CLI one-shot
-        // applies mmix + triggers a save+reboot. User interaction is
-        // blocked behind a modal during the whole flow.
-        async function applyPreset(id) {
+        // Apply a preset — STAGING-ONLY. Mutates reactive Vue state so
+        // the Pin Assignment plan recomputes + the dirty indicator lights
+        // up, but does NOT write MSP / CLI / save / reboot. The main Save
+        // button is the single commit point: it writes MSP, emits the
+        // resource + mmix CLI batch (derived at save time from the same
+        // motorCount / rules we stage here), then `save` + reboot.
+        //
+        // Preset click is now synchronous — no modal, no reconnect, no
+        // live-data pause. User sees picks update instantly in the Pin
+        // Assignment panel, can override any pad, then hits Save to
+        // commit everything in one shot.
+        function applyPreset(id) {
             const preset = PLANE_PRESETS[id];
-            if (!preset || applyingPreset.value || loading.value || saving.value) {
+            if (!preset || loading.value || saving.value) {
                 return;
             }
-            applyingPreset.value = true;
-            // Move the wiring reference panel to the preset being
-            // applied. Stays set across the reboot because the ref
-            // defaults to something on remount anyway, and the user
-            // can still pick a different one after.
+            // Steer the wiring reference panel at the staged preset.
+            // Triggers pinAssignmentPreset → pinAssignmentPlan → dirty
+            // chain so the Pin Assignment panel + its CLI preview
+            // recompute against the new preset.
             wiringPresetId.value = id;
             error.value = null;
-            // Halt update_live_status polling for the full MSP+CLI+reboot
-            // window. Otherwise the 250 ms MSP_STATUS cadence queues up
-            // dozens of calls that all time out during the disconnect,
-            // spamming the console and slowing the reconnect.
-            connectionStore.pauseLiveData();
-            try {
-                // Stage reactive state. The existing diffThrustMode watcher
-                // zeroes s_yaw when yaw_type flips to DIFF_THRUST.
-                fields.yaw_type = preset.yawType;
-                mixerState.airframe = preset.mixerIndex;
-                mixerState.reverseMotorDir = 0;
-                mixerState.rules = preset.rules.map((r) => ({ ...r }));
 
-                // MSP writes (wing tuning fields, mixer type, servo rules).
-                for (const def of FIELD_DEFS) {
-                    FC.WING_TUNING[def.name] = fields[def.name];
-                }
-                await MSP.promise(MSPCodes.MSP2_SET_WING_TUNING, mspHelper.crunch(MSPCodes.MSP2_SET_WING_TUNING));
+            // yaw_type auto-select:
+            //   motorCount=1 → preset.yawType (always RUDDER today)
+            //   motorCount=2 + preset has a STABILIZED_YAW rule →
+            //     COMBINED (standard_plane, v_tail — rudder + motor diff)
+            //   motorCount=2 + no STABILIZED_YAW rule → DIFF_THRUST
+            //     (flying_wing — motor-only yaw)
+            const presetHasYawRule = preset.rules.some((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
+            const effectiveYawType =
+                motorCount.value === 2 ? (presetHasYawRule ? "COMBINED" : "DIFF_THRUST") : preset.yawType;
 
-                FC.MIXER_CONFIG.mixer = mixerState.airframe;
-                FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
-                await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
-
-                // Servo mix rules via MSP_SET_SERVO_MIX_RULE. The "Not used"
-                // comment in MSPCodes.js is STALE — modern BF firmware
-                // accepts this MSP code; the Save button in this same tab
-                // has always used it and bench-confirmed it persists smix
-                // rules correctly. Previous attempts to replace it with
-                // CLI `smix` emissions failed on bench (smix rules dropped
-                // at save time); the MSP path is the tested-working route.
-                FC.SERVO_RULES = padRulesToMax(mixerState.rules);
-                await new Promise((resolve, reject) => {
-                    try {
-                        mspHelper.sendServoMixRules(resolve);
-                    } catch (err) {
-                        reject(err);
-                    }
-                });
-
-                // Drop any queued MSP calls before we trigger the reboot
-                // so pending MSP_STATUS / etc don't pile up waiting for a
-                // response that'll never come until the FC is back.
-                connectionStore.clearMspQueue();
-
-                // Resource remap + motor mix + save + reboot, one CLI batch.
-                //
-                // smix rules already went via MSP above (see block a few
-                // lines up). That path is what the Save button has
-                // always used and what the user's bench-confirmed manual
-                // flow relies on; its "Not used" comment in MSPCodes.js
-                // is stale. The CLI batch here handles the two things
-                // MSP can't do cleanly from the configurator side: pin
-                // resource remap (no MSP for this) and motor mix (no MSP
-                // for mmix).
-                //
-                // Servo count still matters for the remap — on quad-
-                // declared boards (4M/0S) we need to bind enough SERVO
-                // resources to back the preset's smix rules, otherwise
-                // smix rules targeting S3/S4 have no physical pad.
-                //
-                // Board wiring (discrete vs AIO) comes from the Hardware
-                // sub-tab so both apply paths stay consistent. LED_STRIP
-                // / UART release stay OFF here — opt-ins via Hardware
-                // sub-tab only.
-                if (!hardwareAnalysis.value) {
-                    await loadHardware();
-                }
-                // Phase 2.5 resource plan: surgical release/bind limited to
-                // exactly the SERVO/MOTOR indices the preset actually uses.
-                //
-                // Pin Assignment panel overrides only apply when the clicked
-                // preset matches the one the panel is tracking
-                // (wiringPresetId). Otherwise we fall back to defaults so
-                // clicking a different preset than the panel shows doesn't
-                // apply stale picks.
-                const panelMatches = wiringPresetId.value === id;
-                const planOptions = panelMatches
-                    ? {
-                        picks: { ...padOverrides.servo },
-                        motorPicks: { ...padOverrides.motor },
-                        allowLedStrip: allowLedStripPad.value,
-                        allowUartRelease: [...allowUartPads],
-                        padDefaults: padDefaults.value,
-                    }
-                    : { padDefaults: padDefaults.value };
-                const presetPlan = hardwareAnalysis.value
-                    ? computePresetResourcePlan(hardwareAnalysis.value, preset, planOptions)
-                    : { cliLines: [], warnings: [] };
-                const resourceLines = presetPlan.cliLines;
-                if (presetPlan.warnings && presetPlan.warnings.length > 0) {
-                    for (const w of presetPlan.warnings) {
-                        console.warn("[WingTuning] preset plan warning:", w.code, w.message);
-                    }
-                }
-                const mmixLines = ["mmix reset"].concat(
-                    preset.mmix.map(
-                        (m, i) =>
-                            `mmix ${i} ${m.throttle.toFixed(3)} ${m.roll.toFixed(3)} ${m.pitch.toFixed(3)} ${m.yaw.toFixed(3)}`,
-                    ),
-                );
-                // applyCliLines auto-appends `save` if the batch doesn't end with it.
-                // The save commits BOTH the MSP-written smix rules AND the
-                // CLI-written resource/mmix changes to EEPROM, then reboots.
-                await applyCliLines([...resourceLines, ...mmixLines]);
-
-                // Mark current state as the new baseline so when the user
-                // reconnects post-reboot, the dirty indicator starts clean.
-                initialFields.value = { ...fields };
-                initialMixerState.value = cloneMixerState(mixerState);
-            } catch (e) {
-                console.error("[WingTuning] preset apply failed:", e);
-                error.value = e.message || String(e);
-            } finally {
-                // Keep the modal up long enough for the FC reboot +
-                // reconnect cycle to settle. Typical USB reconnect
-                // window is 2-4 s; 5 s is a safe cap. After settle,
-                // resume live data AND explicitly reload tab state —
-                // the CLI path persisted resources + mmix + smix to
-                // firmware but Vue state here is frozen at pre-reboot
-                // values. Without the reload the Mixer tab's
-                // Function→Output Mapping table shows 0 rules after
-                // apply even though `diff all` confirms firmware has
-                // the rules (observed on FURYF4OSD bench).
-                setTimeout(async () => {
-                    connectionStore.resumeLiveData();
-                    try {
-                        await reload();
-                    } catch (reloadErr) {
-                        console.warn("[WingTuning] post-apply reload failed:", reloadErr);
-                    }
-                    applyingPreset.value = false;
-                }, 5000);
-            }
+            // Stage reactive state. The existing diffThrustMode watcher
+            // zeroes s_yaw when yaw_type flips to DIFF_THRUST. mmix lines
+            // get re-derived at Save time via buildEffectiveMmix(preset,
+            // motorCount), so no mmix staging needed here.
+            //
+            // initialFields / initialMixerState are deliberately NOT
+            // touched — leaving them at pre-click values is what lights
+            // up the dirty indicator and prompts the user to Save.
+            fields.yaw_type = effectiveYawType;
+            mixerState.airframe = preset.mixerIndex;
+            mixerState.reverseMotorDir = 0;
+            mixerState.rules = preset.rules.map((r) => ({ ...r }));
         }
 
         // Append rules from a quick-add template (or a single "raw" rule).
@@ -2686,9 +3143,11 @@ export default defineComponent({
             CUSTOM_AIRPLANE_MIXER,
             LAUNCH_FIELD_DEFS,
             GPS_RESCUE_FIELD_DEFS,
+            AUTOLAND_FIELD_DEFS,
             fields,
             launchFields,
             gpsRescueFields,
+            autolandFields,
             hardwareAnalysis,
             hardwareLoading,
             hardwareError,
@@ -2704,9 +3163,12 @@ export default defineComponent({
             candidatesForServo,
             candidatesForMotor,
             setPadOverride,
+            removeAssignment,
+            addServoPin,
             clearPadOverrides,
             candidateSourceLabel,
             padMappingRows,
+            padDefaults,
             applyingPinAssignment,
             applyPinAssignment,
             loading,
@@ -2727,7 +3189,7 @@ export default defineComponent({
             activeSubTab,
             SUB_TAB_IDS,
             wiringPresetId,
-            currentWiring,
+            motorCount,
             applyPreset,
             QUICK_ADD_TEMPLATES,
             addTemplate,
@@ -2807,56 +3269,26 @@ button {
     font-size: 0.9em;
     font-style: italic;
 }
-.wiring_panel {
-    margin-top: 14px;
-    padding: 10px 14px;
-    background: var(--surface-100, rgba(255, 255, 255, 0.03));
-    border-left: 3px solid var(--primary-500, #ffb800);
+.diff_thrust_toggle {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid rgba(120, 200, 120, 0.4);
     border-radius: 3px;
-}
-.wiring_header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 6px;
-    font-size: 0.95em;
-}
-.wiring_selector_label {
-    color: #888;
-    font-weight: normal;
     font-size: 0.9em;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    cursor: pointer;
 }
-.wiring_selector {
-    min-width: 180px;
+.diff_thrust_toggle input[type="checkbox"] {
+    margin: 0;
 }
-.wiring_table {
-    width: auto;
-    margin-top: 4px;
-    border-collapse: collapse;
-}
-.wiring_table th,
-.wiring_table td {
-    padding: 3px 14px 3px 0;
-    text-align: left;
-    font-size: 0.9em;
-}
-.wiring_table th {
+.diff_thrust_hint {
     color: #888;
-    font-weight: normal;
-}
-.wiring_pad {
-    font-family: monospace;
-    font-weight: 600;
-}
-.wiring_hint {
-    margin: 8px 0 0 0;
-    color: #888;
-    font-size: 0.85em;
     font-style: italic;
+    font-size: 0.88em;
+    margin-left: 4px;
 }
 .rule_actions {
     margin-top: 10px;
@@ -2928,6 +3360,40 @@ button {
     border-radius: 4px;
     color: var(--error-500, #c33);
     font-weight: 500;
+}
+.yaw_blend_panel {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid rgba(120, 200, 120, 0.4);
+    border-radius: 3px;
+}
+.yaw_blend_desc {
+    margin: 0 0 8px 0;
+    font-size: 0.88em;
+    color: #aaa;
+}
+.yaw_blend_row {
+    display: grid;
+    grid-template-columns: 150px 1fr 48px;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0;
+    font-size: 0.9em;
+}
+.yaw_blend_label {
+    color: #ccc;
+}
+.yaw_blend_value {
+    text-align: right;
+    color: #9c9;
+    font-variant-numeric: tabular-nums;
+}
+.yaw_blend_hint {
+    margin: 8px 0 0 0;
+    font-size: 0.82em;
+    color: #888;
+    font-style: italic;
 }
 .preset_modal_overlay {
     position: fixed;
@@ -3147,6 +3613,51 @@ button {
     width: 100%;
     max-width: 380px;
 }
+.pin_assign_table td.pin_assign_remove_cell {
+    width: 30px;
+    text-align: right;
+    padding-right: 2px;
+}
+.pin_assign_remove {
+    background: transparent;
+    border: 1px solid #5a2a2a;
+    color: #e87070;
+    width: 24px;
+    height: 24px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+}
+.pin_assign_remove:hover:not(:disabled) {
+    background: #4a1e1e;
+    color: #ff9090;
+}
+.pin_assign_remove:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.pin_assign_add_row {
+    margin: 4px 0 12px 0;
+}
+.pin_assign_add {
+    background: transparent;
+    border: 1px dashed #555;
+    color: #aaa;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+.pin_assign_add:hover:not(:disabled) {
+    border-color: #888;
+    color: #ddd;
+}
+.pin_assign_add:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 .pin_assign_extras {
     margin: 10px 0;
     padding: 8px 12px;
@@ -3187,10 +3698,31 @@ button {
     border-left: 3px solid rgba(120, 200, 120, 0.4);
 }
 .pin_assign_mapping strong {
-    display: block;
+    display: inline;
     margin-bottom: 6px;
     font-size: 0.9em;
     color: #aaa;
+}
+.pin_assign_source {
+    display: inline-block;
+    margin-left: 8px;
+    margin-bottom: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.72em;
+    font-weight: normal;
+    vertical-align: middle;
+    cursor: help;
+}
+.pin_assign_source_firmware {
+    background: rgba(120, 200, 120, 0.18);
+    color: #9c9;
+    border: 1px solid rgba(120, 200, 120, 0.35);
+}
+.pin_assign_source_snapshot {
+    background: rgba(220, 180, 80, 0.15);
+    color: #c9a865;
+    border: 1px solid rgba(220, 180, 80, 0.32);
 }
 .pin_assign_mapping_table {
     width: 100%;
