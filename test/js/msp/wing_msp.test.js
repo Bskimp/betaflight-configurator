@@ -16,10 +16,12 @@ import { decodeWingTuning, crunchWingTuning } from "../../../src/js/msp/wingTuni
 // Golden vector — MUST match firmware `.plan/GOLDEN_VECTOR.md` byte-for-byte
 // ---------------------------------------------------------------------------
 
+// V2 (wing-fork 2026-04-20): 41 bytes. V1 was 39 (pre-COMBINED).
+// Last two bytes appended: yaw_blend_floor (0x14 = 20), yaw_blend_crossover (0x32 = 50).
 const WING_TUNING_GOLDEN = new Uint8Array([
     0x1e, 0x28, 0x00, 0x01, 0x88, 0xff, 0x64, 0x00, 0x01, 0x20, 0x03, 0x96, 0x00, 0x60, 0x09, 0xce, 0xff, 0x01, 0x23,
     0x96, 0x00, 0x50, 0x00, 0xfb, 0x90, 0x01, 0xfa, 0x00, 0x02, 0x5e, 0x01, 0xc8, 0x00, 0x01, 0x2c, 0x01, 0x96, 0x00,
-    0x00,
+    0x00, 0x14, 0x32,
 ]);
 
 // Canonical values corresponding to WING_TUNING_GOLDEN. Field order follows
@@ -51,6 +53,8 @@ const WING_TUNING_CANONICAL = {
     spa_yaw_center: 300,
     spa_yaw_width: 150,
     spa_yaw_mode: "OFF", // index 0
+    yaw_blend_floor: 20, // V2 append
+    yaw_blend_crossover: 50, // V2 append
 };
 
 // ---------------------------------------------------------------------------
@@ -133,9 +137,9 @@ describe("MSP2_WING_TUNING — golden vector round-trip", () => {
         expect(new Uint8Array(crunched)).toEqual(WING_TUNING_GOLDEN);
     });
 
-    it("payload is exactly 39 bytes", () => {
-        expect(WING_TUNING_GOLDEN.byteLength).toBe(39);
-        expect(crunchToUnsignedBytes(WING_TUNING_CANONICAL).length).toBe(39);
+    it("payload is exactly 41 bytes", () => {
+        expect(WING_TUNING_GOLDEN.byteLength).toBe(41);
+        expect(crunchToUnsignedBytes(WING_TUNING_CANONICAL).length).toBe(41);
     });
 
     it("preserves negative int16 values (angle_pitch_offset = -120)", () => {

@@ -32,11 +32,32 @@ export const WING_TUNING_SCHEMA = [
     { name: "spa_yaw_center", type: "u16" },
     { name: "spa_yaw_width", type: "u16" },
     { name: "spa_yaw_mode", type: "enum", table: "spa_mode" },
+    // V2 append (yaw_type COMBINED): blend floor + crossover for the
+    // airspeed-weighted yaw crossfade. `optional: true` tells decode to
+    // treat a V1 (pre-COMBINED) 39-byte payload as having default values
+    // rather than crashing on short read.
+    { name: "yaw_blend_floor", type: "u8", optional: true, default: 20 },
+    { name: "yaw_blend_crossover", type: "u8", optional: true, default: 50 },
 ];
+
+// Returns true when `data` still has at least `n` bytes unread. Used
+// to skip optional (V2-appended) fields if the firmware is V1.
+function hasBytes(data, n) {
+    // dataview helper exposes buffer + offset; fall back to length-offset
+    // arithmetic since the API varies across codebases.
+    if (typeof data.remaining === "function") return data.remaining() >= n;
+    const len = data.buffer?.byteLength ?? data.data?.length ?? data.length ?? 0;
+    const off = data.offset ?? data._offset ?? 0;
+    return len - off >= n;
+}
 
 export function decodeWingTuning(data) {
     const out = {};
     for (const f of WING_TUNING_SCHEMA) {
+        if (f.optional && !hasBytes(data, f.type === "u16" || f.type === "i16" ? 2 : 1)) {
+            out[f.name] = f.default;
+            continue;
+        }
         switch (f.type) {
             case "u8":
                 out[f.name] = data.readU8();
