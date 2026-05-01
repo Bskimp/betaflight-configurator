@@ -2,9 +2,10 @@
 // MSP2_SET_WING_AUTOLAND wire format. Mirrors firmware
 // msp_wing_autoland.c byte layout exactly.
 //
-// 31 bytes total, little-endian. All fields unsigned — no signed
-// variants. Field order MUST match the firmware — schema doubles
-// as the wire contract.
+// 32 bytes total (V2; V1 was 31 bytes, V2 appended stickCancelThreshold
+// after the disengage redesign). Little-endian. All fields unsigned.
+// Field order MUST match the firmware — schema doubles as the wire
+// contract. Append-only: never reorder existing entries.
 
 export const WING_AUTOLAND_SCHEMA = [
     // Master + per-trigger gating
@@ -37,6 +38,9 @@ export const WING_AUTOLAND_SCHEMA = [
     { name: "touchdownAltThresholdCm", type: "u16" },
     { name: "touchdownQuiescenceMs", type: "u16" },
     { name: "minPatternSats", type: "u8" },
+
+    // Pilot override (V2 append after first-flight disengage redesign)
+    { name: "stickCancelThreshold", type: "u8" },
 ];
 
 export function decodeWingAutoland(data) {

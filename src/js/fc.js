@@ -56,6 +56,17 @@ const INITIAL_CONFIG = {
     batteryProfile: 0,
     numberOfBatteryProfiles: 0,
     batteryProfileNames: Array(MAX_BATTERY_PROFILES).fill(""),
+    // Wing-fork capability bitfield. Populated on connect via
+    // MSP2_GET_WING_CAPABILITIES. Defaults to all-false so mainline
+    // FCs (which don't advertise) get the safe-by-default gating —
+    // wing-only sub-tabs hide and COMBINED yaw stays out of the picker.
+    wingCapabilities: {
+        tuning: false,
+        launch: false,
+        gpsRescue: false,
+        autoland: false,
+        combinedYaw: false,
+    },
 };
 
 const INITIAL_ANALOG = {
@@ -621,7 +632,7 @@ const FC = {
         this.ADVANCED_TUNING_ACTIVE = { ...this.ADVANCED_TUNING };
 
         // Wing tuning — field order matches firmware .plan/WIRE_FORMAT.md
-        // (MSP2_WING_TUNING payload, 39 bytes). Enum fields store string
+        // (MSP2_WING_TUNING payload, 41 bytes V2 / 39 bytes V1). Enum fields store string
         // labels; MSPHelper crunch maps to int indices via wingEnumLookups.
         this.WING_TUNING = {
             s_pitch: 0,
@@ -716,6 +727,7 @@ const FC = {
             touchdownAltThresholdCm: 30,
             touchdownQuiescenceMs: 2000,
             minPatternSats: 8,
+            stickCancelThreshold: 35,
         };
         this.WING_AUTOLAND_ACTIVE = { ...this.WING_AUTOLAND };
 

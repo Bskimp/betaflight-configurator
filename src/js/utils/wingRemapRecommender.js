@@ -294,6 +294,55 @@ function enumerateCombinations(arr, k) {
     return result;
 }
 
+// ─── Deterministic silkscreen-order layout ────────────────────────
+//
+// "Servo bank first" allocator used by `computePresetResourcePlan`.
+// Servos take the lowest silkscreen-MOTOR pad indices, motors take
+// the next ones up. Matches the wizard's final state (servos on
+// silkscreen 1..N, motors on N+1..N+M) and is what most wing pilots
+// expect: servos use the wider timer block, motors fall on whatever's
+// left.
+//
+// Replaces the joint optimizer (`pickOptimalPadLayout`) for the
+// preset path because the optimizer's scoring spreads motors across
+// timers in ways that surprise users — bench-validated on TMOTORF7
+// where the optimizer was placing M2 on C09 (different timer) instead
+// of B08 (same timer as M1, ideal for bidir DSHOT TIMUP burst).
+//
+// Returns the same shape as `pickOptimalPadLayout` so it's a drop-in
+// replacement at the call site.
+//
+// @returns {{motors: Map<number,string>, servos: Map<number,string>, score: number} | null}
+export function pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices, options = {}) {
+    const padDefaults = options.padDefaults;
+    if (!padDefaults || !Array.isArray(padDefaults.motors) || padDefaults.motors.length === 0) return null;
+    const allowLedStrip = options.allowLedStrip === true;
+
+    // Pool: silkscreen-MOTOR pads in silkscreen order, then LED if allowed.
+    // No timer or scoring math — pure deterministic order.
+    const pool = [...padDefaults.motors].sort((a, b) => a.index - b.index).map((m) => m.pad);
+    if (allowLedStrip && Array.isArray(padDefaults.ledStrips)) {
+        for (const ls of padDefaults.ledStrips) {
+            if (ls?.pad) pool.push(ls.pad);
+        }
+    }
+
+    const servoCount = usedServoIndices.length;
+    if (pool.length < servoCount + motorCount) return null;
+
+    const servos = new Map();
+    const motors = new Map();
+    // Servos take the first servoCount pads in silkscreen order.
+    for (let i = 0; i < servoCount; i += 1) {
+        servos.set(usedServoIndices[i], pool[i]);
+    }
+    // Motors take the next motorCount pads.
+    for (let i = 0; i < motorCount; i += 1) {
+        motors.set(i + 1, pool[servoCount + i]);
+    }
+    return { motors, servos, score: 0 };
+}
+
 /**
  * @param {object} analysis - analyzer output. Requires `padTimers` Map.
  * @param {number} motorCount - motor slots to place (1..n).
@@ -341,8 +390,16 @@ export function pickOptimalPadLayout(analysis, motorCount, usedServoIndices, opt
     // (A03/A02) working with zero timer conflicts — observed on bench
     // 2026-04-22: user had configured TIM2 motors + TIM3/TIM8 servos,
     // optimizer kept offering to move everything to silkscreen-first.
-    const currentMotorPads = new Set((analysis.motors ?? []).map((m) => m.pad));
-    const currentServoPads = new Set((analysis.servos ?? []).map((s) => s.pad));
+    //
+    // freshStart=true (set by the Plane Setup Wizard) treats the FC as
+    // unconfigured: factory-default bindings DON'T count as zero-churn
+    // anchors. Lets the wizard pick the cleanest layout for a brand-new
+    // wing without being trapped by quad-default motor allocations
+    // (Brian, 2026-04-29 — TMOTORF7 was sticking motors on M1/M2 even
+    // for a wing because the factory defaults bound them there).
+    const freshStart = options.freshStart === true;
+    const currentMotorPads = freshStart ? new Set() : new Set((analysis.motors ?? []).map((m) => m.pad));
+    const currentServoPads = freshStart ? new Set() : new Set((analysis.servos ?? []).map((s) => s.pad));
 
     const motorCombos = enumerateCombinations(pool, motorCount);
     let best = null;
@@ -378,6 +435,44 @@ export function pickOptimalPadLayout(analysis, motorCount, usedServoIndices, opt
         for (const s of servoSet) {
             if (currentServoPads.has(s.pad)) score += 15;
         }
+        // Servo bank quality: wings have more servos than motors, so
+        // prefer motor placements that leave servos on as few distinct
+        // timer groups as possible. Servo-first prioritization without
+        // flipping the enumerator (Brian, 2026-04-29 — chose this over a
+        // full algorithm rewrite to preserve existing zero-churn behavior
+        // and avoid bench re-validation across all wing targets).
+        //
+        // Bumped to +35 (was +25) so the 1-timer servo bank can edge out
+        // silkscreen-motor (+20) once freshStart removes the zero-churn
+        // anchor. Without freshStart, zero-churn (+15 per kept pad) still
+        // dominates, so existing-user-setup behavior is unchanged.
+        const servoTimerCount = new Set(servoSet.map((s) => s.timer)).size;
+        if (servoSet.length > 0) {
+            if (servoTimerCount === 1) score += 35;
+            else if (servoTimerCount === 2) score += 10;
+            // 3+ distinct timers: no bonus (fragmented servo bank)
+        }
+        // Motor grouping bonus when essentially free. Bidir DShot wants
+        // motors on a shared timer; not a wing blocker, just cleaner
+        // when it happens. Capped low so zero-churn still dominates.
+        // Reuses the motorTimers Set already computed above (line ~350)
+        // for servoCandidates filtering.
+        if (motorSet.length > 1 && motorTimers.size === 1) score += 8;
+        // Wasted-channel penalty: motor pads on a timer reserved for
+        // motors block ALL other channels of that timer from being
+        // servos (timer isolation). If the motor placement leaves
+        // unused channels on its timer, those channels are dead weight
+        // — penalize so the optimizer prefers placing motors on smaller
+        // timer groups when feasible, freeing the bigger timers for
+        // servos. Critical for 2-motor wings on quad-default boards
+        // where motors silkscreen on TIM3's full 4-channel block.
+        let wastedChannels = 0;
+        for (const p of pool) {
+            if (motorTimers.has(p.timer) && !motorSet.includes(p)) {
+                wastedChannels += 1;
+            }
+        }
+        score -= wastedChannels * 1;
         // Deterministic tiebreaker among equally-scored layouts: prefer
         // low avg motor silkscreen index.
         const avgMotorIdx = motorSet.reduce((s, m) => s + m.silkscreenIndex, 0) / motorSet.length;
@@ -550,7 +645,12 @@ export function computePresetResourcePlan(analysis, preset, options = {}) {
     // already respects — that way the motor + servo binding passes below
     // stay untouched. Optimizer output is merged beneath any real user
     // override so a hand-tweaked dropdown still wins.
-    const optimized = pickOptimalPadLayout(analysis, motorCount, usedServoIndices, {
+    // Servo-bank-first allocator (silkscreen order). Servos take the
+    // lowest silkscreen-MOTOR indices, motors take the next ones. Matches
+    // the wizard's final state. The joint optimizer (`pickOptimalPadLayout`)
+    // is still exported for paths that want global timer scoring, but
+    // preset application uses the deterministic order.
+    const optimized = pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices, {
         padDefaults: options.padDefaults,
         allowLedStrip,
     });
@@ -585,11 +685,22 @@ export function computePresetResourcePlan(analysis, preset, options = {}) {
     // Pads off-limits for motor binding. Computed per-motor below so we can
     // exclude the current motor's own pad from its own claim set (that's
     // zero-churn territory, not a collision).
+    //
+    // User motor overrides win over "currently bound to a kept servo": if
+    // the user explicitly picked a pad for a motor, the recommender must
+    // NOT count it as claimed by a servo. The servo will get reassigned
+    // to a different pad in the servo binding pass. Without this, picking
+    // a servo's pad for MOTOR 1 then adding a SERVO pin (which expands
+    // usedServoIndices) caused the motor's pick to fail padIsAvailable —
+    // observed on bench TMTR/TMOTORF7 (Brian, 2026-04-29).
+    const userClaimedMotorPads = new Set(Object.values(motorUserPicks).filter((p) => p));
     function buildMotorClaimedPads(forMotorIndex) {
         const claimed = new Set();
         for (const f of analysis.hardwareFixedPads ?? []) claimed.add(f.pad);
         for (const s of analysis.servos ?? []) {
-            if (usedServoIndices.includes(s.index)) claimed.add(s.pad);
+            if (!usedServoIndices.includes(s.index)) continue;
+            if (userClaimedMotorPads.has(s.pad)) continue;
+            claimed.add(s.pad);
         }
         for (const m of analysis.motors ?? []) {
             if (m.index !== forMotorIndex && usedMotorIndices.includes(m.index)) {

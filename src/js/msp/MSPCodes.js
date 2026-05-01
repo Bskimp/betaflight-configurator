@@ -224,6 +224,20 @@ const MSPCodes = {
     MSP2_WING_AUTOLAND: 0x3018,
     MSP2_SET_WING_AUTOLAND: 0x3019,
     MSP2_WING_AUTOLAND_STATE: 0x301a,
+    // Plane Setup Wizard servo pulse primitive. Write-only. 5-byte
+    // payload: u8 servoIdx, u16 pwm, u16 durationMs. Firmware refuses
+    // when armed; auto-clears after durationMs; force-clears if armed
+    // mid-override. See firmware src/main/flight/servo_override.c.
+    MSP2_SET_SERVO_OVERRIDE: 0x301b,
+    // Wing-fork capability bitfield. Read on connect to gate
+    // sub-tabs and yaw_type options that mainline (post-#13719)
+    // FCs don't support. Wire format: u16 LE bitfield.
+    //   bit 0: WING_TUNING (always set when MSP2_WING_TUNING is supported)
+    //   bit 1: WING_LAUNCH
+    //   bit 2: WING_GPS_RESCUE
+    //   bit 3: WING_AUTOLAND
+    //   bit 4: COMBINED_YAW
+    MSP2_GET_WING_CAPABILITIES: 0x301c,
     // MSP2_GET_TEXT and MSP2_SET_TEXT variable types
     PILOT_NAME: 1,
     CRAFT_NAME: 2,

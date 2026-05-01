@@ -450,6 +450,33 @@
     "wingTuningApiRequired": {
         "message": "Wing Tuning requires firmware built with USE_WING enabled. Please update or rebuild your flight controller firmware."
     },
+    "wingLauncherStartWizard": {
+        "message": "Start Plane Setup Wizard"
+    },
+    "wingLauncherResetConfig": {
+        "message": "Reset wing config"
+    },
+    "wingResetDialogTitle": {
+        "message": "Reset wing config?"
+    },
+    "wingResetDialogBody": {
+        "message": "This wipes all wing-specific configuration on the FC and reboots. UART, RX, modes, battery, OSD, VTX, LED, and failsafe settings are preserved."
+    },
+    "wingResetWipesLabel": {
+        "message": "Resets"
+    },
+    "wingResetWipesItems": {
+        "message": "Servo mixer rules, motor mix, SERVO/MOTOR pad bindings, servo endpoints"
+    },
+    "wingResetPreservesLabel": {
+        "message": "Preserves"
+    },
+    "wingResetPreservesItems": {
+        "message": "UART/serial config, RX/receiver, modes/aux, battery calibration, OSD layout, VTX, LED colors, failsafe"
+    },
+    "wingResetDialogConfirm": {
+        "message": "Reset"
+    },
     "wingSubTab_tuning": {
         "message": "Tuning"
     },
@@ -473,6 +500,726 @@
     },
     "wingHardwareDesc": {
         "message": "Live view of what the firmware has claimed on this board — motors, servos, LED strip, UARTs, and the DMA streams behind them. Read-only; this panel doesn't change anything. Use Mixer to apply a preset, then reload here to see what the firmware allocated."
+    },
+    "planeWizardLaunchButton": {
+        "message": "Launch Plane Setup Wizard"
+    },
+    "planeWizardLaunchHelp": {
+        "message": "Walks you through airframe selection, servo identity, direction, endpoints, and motor setup. Safe to run any time the craft is disarmed and props are off."
+    },
+    "planeWizardTitle": {
+        "message": "Plane Setup Wizard"
+    },
+    "planeWizardStepSafety": {
+        "message": "Safety"
+    },
+    "planeWizardStepAirframe": {
+        "message": "Airframe"
+    },
+    "planeWizardStepApply": {
+        "message": "Apply"
+    },
+    "planeWizardStepIdentity": {
+        "message": "Identity"
+    },
+    "planeWizardStepDiscovery": {
+        "message": "Discovery"
+    },
+    "planeWizardStepDirection": {
+        "message": "Direction"
+    },
+    "planeWizardDirectionHeading": {
+        "message": "Verify deflection direction"
+    },
+    "planeWizardDirectionIntro": {
+        "message": "For each surface and axis, confirm the surface deflects the right WAY when you apply input. Wrong direction is the most common cause of new-wing crashes — verifying here lets the wizard auto-flip smix rule signs before flight."
+    },
+    "planeWizardDirectionModePilot": {
+        "message": "Pilot Stick (use TX)"
+    },
+    "planeWizardDirectionModeWizard": {
+        "message": "Wizard Drives (no TX needed)"
+    },
+    "planeWizardDirectionProgress": {
+        "message": "Axis test"
+    },
+    "planeWizardDirectionStickPos_roll": {
+        "message": "Roll right"
+    },
+    "planeWizardDirectionStickPos_pitch": {
+        "message": "Pitch back"
+    },
+    "planeWizardDirectionStickPos_yaw": {
+        "message": "Yaw right"
+    },
+    "planeWizardDirectionMotion_standard_roll": {
+        "message": "L AIL DOWN, R AIL UP"
+    },
+    "planeWizardDirectionMotion_standard_pitch": {
+        "message": "ELEVATOR UP"
+    },
+    "planeWizardDirectionMotion_standard_yaw": {
+        "message": "RUDDER deflects RIGHT"
+    },
+    "planeWizardDirectionMotion_flying_wing_roll": {
+        "message": "L ELEVON DOWN, R ELEVON UP"
+    },
+    "planeWizardDirectionMotion_flying_wing_pitch": {
+        "message": "BOTH ELEVONS UP"
+    },
+    "planeWizardDirectionMotion_v_tail_roll": {
+        "message": "L AIL DOWN, R AIL UP"
+    },
+    "planeWizardDirectionMotion_v_tail_pitch": {
+        "message": "BOTH V-TAILS UP"
+    },
+    "planeWizardDirectionMotion_v_tail_yaw": {
+        "message": "V-TAILS split (one UP, one DOWN)"
+    },
+    "planeWizardDirectionHintPilotPrompt": {
+        "message": "Move your TX stick to test"
+    },
+    "planeWizardDirectionHintWizardLabel": {
+        "message": "Stick command"
+    },
+    "planeWizardAirframeMotorCountTitle": {
+        "message": "Motor count"
+    },
+    "planeWizardAirframeTwoMotorsCheck": {
+        "message": "Use 2 motors (differential thrust)"
+    },
+    "planeWizardAirframeTwoMotorsHelp": {
+        "message": "When on, the preset adds MOTOR 2 to the mixer with ±0.4 yaw and switches yaw_type to DIFF_THRUST. Leave off for single-motor wings."
+    },
+    "planeWizardAirframeCellsLabel": {
+        "message": "Battery cells"
+    },
+    "planeWizardAirframeCellsHelp": {
+        "message": "Sets tpa_speed_max_voltage (cells × 4.20V) so airspeed-based PID attenuation scales correctly for your battery. Pick the highest cell count you'll fly on this plane."
+    },
+    "planeWizardLauncherTitle": {
+        "message": "Plane Setup Wizard"
+    },
+    "planeWizardLauncherDesc": {
+        "message": "Step-by-step setup for your fixed-wing build — picks pads, walks servo identity / direction / endpoints, and verifies motors. Safe to re-run any time."
+    },
+    "planeWizardLauncherStartButton": {
+        "message": "Start Wizard"
+    },
+    "planeWizardResetButton": {
+        "message": "Reset wing config"
+    },
+    "planeWizardResetButtonRunning": {
+        "message": "Resetting…"
+    },
+    "planeWizardResetConfirmTitle": {
+        "message": "Reset wing config?"
+    },
+    "planeWizardResetConfirmIntro": {
+        "message": "This will:"
+    },
+    "planeWizardResetConfirmItem1": {
+        "message": "Clear all servo mixer rules (smix)"
+    },
+    "planeWizardResetConfirmItem2": {
+        "message": "Clear all motor mixer entries (mmix)"
+    },
+    "planeWizardResetConfirmItem3": {
+        "message": "Release all SERVO and MOTOR resource pad bindings"
+    },
+    "planeWizardResetConfirmItem4": {
+        "message": "Default all servo endpoints (min/max/middle/rate)"
+    },
+    "planeWizardResetConfirmKeeps": {
+        "message": "Untouched: UART/serial, RX/receiver setup, modes, battery cal, OSD, VTX, LED colors, failsafe."
+    },
+    "planeWizardResetConfirmReboot": {
+        "message": "FC will reboot."
+    },
+    "planeWizardResetConfirmCancel": {
+        "message": "Cancel"
+    },
+    "planeWizardResetConfirmConfirm": {
+        "message": "Reset and reboot"
+    },
+    "planeWizardYawHintLabel": {
+        "message": "Diff-thrust pulse"
+    },
+    "planeWizardYawHintStick": {
+        "message": "Yaw right (M2 high, M1 low)"
+    },
+    "planeWizardYawHintMotion": {
+        "message": "PLANE should rotate ↻ (clockwise from above)"
+    },
+    "planeWizardDirectionAxisLabel_roll": {
+        "message": "Axis: Roll"
+    },
+    "planeWizardDirectionAxisLabel_pitch": {
+        "message": "Axis: Pitch"
+    },
+    "planeWizardDirectionAxisLabel_yaw": {
+        "message": "Axis: Yaw"
+    },
+    "planeWizardDirectionPilotInstr_roll": {
+        "message": "Push your right stick to the RIGHT. Watch the surface — it should deflect the way a right-roll command should."
+    },
+    "planeWizardDirectionPilotInstr_pitch": {
+        "message": "Pull your right stick BACK (nose up). Watch the surface — it should deflect the way a pitch-up command should."
+    },
+    "planeWizardDirectionPilotInstr_yaw": {
+        "message": "Push your left stick (rudder) to the RIGHT. Watch the surface — it should deflect the way a right-yaw command should."
+    },
+    "planeWizardDirectionWizardInstr": {
+        "message": "Click Pulse to deflect this surface in the direction the current smix rule says corresponds to a positive-axis input. Watch the plane."
+    },
+    "planeWizardDirectionPulseButton": {
+        "message": "Pulse this axis"
+    },
+    "planeWizardDirectionMatchTitle": {
+        "message": "✓ Correct direction"
+    },
+    "planeWizardDirectionMatchHelp": {
+        "message": "Surface deflected the way I expected for this input."
+    },
+    "planeWizardDirectionWrongTitle": {
+        "message": "✗ Wrong direction"
+    },
+    "planeWizardDirectionWrongHelp": {
+        "message": "Surface deflected the OPPOSITE way. Wizard will flip the rate sign on this axis."
+    },
+    "planeWizardDirectionReviewIntro": {
+        "message": "Found these direction-flip fixes. Confirm to apply — runtime MSP commit, no reboot."
+    },
+    "planeWizardDirectionFixSurfaceCol": {
+        "message": "Surface"
+    },
+    "planeWizardDirectionFixAxisCol": {
+        "message": "Axis"
+    },
+    "planeWizardDirectionFixActionCol": {
+        "message": "Rate change"
+    },
+    "planeWizardDirectionAllMatchTitle": {
+        "message": "All directions correct"
+    },
+    "planeWizardDirectionAllMatchHelp": {
+        "message": "No fixes needed. Continuing to the summary."
+    },
+    "planeWizardDirectionApply": {
+        "message": "Apply Direction Fixes"
+    },
+    "planeWizardDirectionApplyInProgress": {
+        "message": "Committing — do not disconnect"
+    },
+    "planeWizardDirectionApplyDoNotDisconnect": {
+        "message": "Writing smix rule changes + EEPROM. No reboot needed."
+    },
+    "planeWizardDirectionApplyFailedTitle": {
+        "message": "Direction commit failed"
+    },
+    "planeWizardDirectionNoCallback": {
+        "message": "Direction commit path unavailable in this build."
+    },
+    "planeWizardStepEndpoints": {
+        "message": "Endpoints"
+    },
+    "planeWizardEndpointsHeading": {
+        "message": "Set servo endpoints"
+    },
+    "planeWizardEndpointsIntro": {
+        "message": "Optional: tune each surface's MIN and MAX hold position so the throw matches your intended deflection. Defaults work for most pilots."
+    },
+    "planeWizardEndpointsSkipTitle": {
+        "message": "Skip if defaults are fine"
+    },
+    "planeWizardEndpointsSkipHelp": {
+        "message": "Skip unless you've measured surface throw and need to clamp it tighter."
+    },
+    "planeWizardEndpointsSkipButton": {
+        "message": "Skip endpoints"
+    },
+    "planeWizardEndpointsProgress": {
+        "message": "Endpoint"
+    },
+    "planeWizardEndpointsEndMin": {
+        "message": "MIN"
+    },
+    "planeWizardEndpointsEndMax": {
+        "message": "MAX"
+    },
+    "planeWizardEndpointsHoldButton": {
+        "message": "Hold this position"
+    },
+    "planeWizardEndpointsHolding": {
+        "message": "Holding…"
+    },
+    "planeWizardEndpointsCapture": {
+        "message": "Capture & next"
+    },
+    "planeWizardEndpointsApply": {
+        "message": "Apply endpoints"
+    },
+    "planeWizardEndpointsReviewIntro": {
+        "message": "Review the endpoint changes the wizard will commit."
+    },
+    "planeWizardEndpointsReviewSurface": {
+        "message": "Surface"
+    },
+    "planeWizardEndpointsReviewMin": {
+        "message": "MIN (µs)"
+    },
+    "planeWizardEndpointsReviewMax": {
+        "message": "MAX (µs)"
+    },
+    "planeWizardEndpointsNoChangesTitle": {
+        "message": "No endpoint changes"
+    },
+    "planeWizardEndpointsNoChangesHelp": {
+        "message": "You didn't change any min or max values. Continue without committing."
+    },
+    "planeWizardEndpointsApplyInProgress": {
+        "message": "Saving endpoints…"
+    },
+    "planeWizardEndpointsApplyFailedTitle": {
+        "message": "Endpoint commit failed"
+    },
+    "planeWizardEndpointsNoCallback": {
+        "message": "Endpoint commit path unavailable in this build."
+    },
+    "planeWizardStepMotors": {
+        "message": "Motors"
+    },
+    "planeWizardMotorsHeading": {
+        "message": "Verify motor identity"
+    },
+    "planeWizardMotorsIntro": {
+        "message": "We'll pulse each motor briefly. Watch which physical motor spins and confirm it matches the expected position. Catches swapped or miswired motors before flight."
+    },
+    "planeWizardMotorsSafetyTitle": {
+        "message": "Props OFF — confirm before pulsing"
+    },
+    "planeWizardMotorsSafetyHelp": {
+        "message": "Each pulse spins one motor at low throttle for ~1 second. ANY key on your keyboard stops motors immediately."
+    },
+    "planeWizardMotorsSkipButton": {
+        "message": "Skip motors"
+    },
+    "planeWizardMotorsProgress": {
+        "message": "Motor"
+    },
+    "planeWizardMotorsPulseButton": {
+        "message": "Pulse this motor"
+    },
+    "planeWizardMotorsPulsing": {
+        "message": "Pulsing…"
+    },
+    "planeWizardMotorsObsPrompt": {
+        "message": "Which motor actually spun?"
+    },
+    "planeWizardMotorsMatchTitle": {
+        "message": "Expected motor"
+    },
+    "planeWizardMotorsMatchHelp": {
+        "message": "spun (correct)"
+    },
+    "planeWizardMotorsSwapHelp": {
+        "message": "spun instead"
+    },
+    "planeWizardMotorsNoneTitle": {
+        "message": "Nothing moved"
+    },
+    "planeWizardMotorsNoneHelp": {
+        "message": "No motor spun on this pad."
+    },
+    "planeWizardMotorsNextMotor": {
+        "message": "Next motor"
+    },
+    "planeWizardMotorsApply": {
+        "message": "Apply motor swap"
+    },
+    "planeWizardMotorsReviewIntro": {
+        "message": "Review the motor pad swap the wizard will commit."
+    },
+    "planeWizardMotorsReviewMotor": {
+        "message": "Swap"
+    },
+    "planeWizardMotorsReviewWas": {
+        "message": "Currently"
+    },
+    "planeWizardMotorsReviewBecomes": {
+        "message": "After"
+    },
+    "planeWizardMotorsAllMatchTitle": {
+        "message": "All motors verified"
+    },
+    "planeWizardMotorsAllMatchHelp": {
+        "message": "Every motor spun where expected. Continue."
+    },
+    "planeWizardMotorsMissingTitle": {
+        "message": "Some motors didn't spin"
+    },
+    "planeWizardMotorsMissingHelp": {
+        "message": "One or more motors reported no movement. Check wiring and ESC power before continuing."
+    },
+    "planeWizardMotorsApplyInProgress": {
+        "message": "Applying motor swap…"
+    },
+    "planeWizardMotorsApplyFailedTitle": {
+        "message": "Motor commit failed"
+    },
+    "planeWizardMotorsNoCallback": {
+        "message": "Motor commit path unavailable in this build."
+    },
+    "planeWizardMotorsScanButton": {
+        "message": "Scan free pads"
+    },
+    "planeWizardMotorsScanWalkIntro": {
+        "message": "Pulse each free pad and tell us which motor spins. We'll bind that motor to this pad."
+    },
+    "planeWizardMotorsScanScratchLabel": {
+        "message": "scratch slot"
+    },
+    "planeWizardMotorsScanIdentifiedHelp": {
+        "message": "spun on this pad"
+    },
+    "planeWizardMotorsScanFinalIntro": {
+        "message": "Review the motor pad bindings the wizard will commit."
+    },
+    "planeWizardMotorsScanNothingTitle": {
+        "message": "No motors identified"
+    },
+    "planeWizardMotorsScanNothingHelp": {
+        "message": "No motor was found on any of the scanned free pads. Check ESC power and motor wiring before continuing."
+    },
+    "planeWizardMotorsNoFreePads": {
+        "message": "No free pads available to scan."
+    },
+    "planeWizardYawIntro": {
+        "message": "We'll pulse both motors with differential thrust simulating a yaw-right command. Watch the plane and confirm the rotation direction matches what the stick commanded."
+    },
+    "planeWizardYawPulseButton": {
+        "message": "Pulse yaw test"
+    },
+    "planeWizardYawObsPrompt": {
+        "message": "Did the plane try to yaw the way the stick commanded?"
+    },
+    "planeWizardYawMatchTitle": {
+        "message": "Correct direction"
+    },
+    "planeWizardYawMatchHelp": {
+        "message": "The plane attempted to rotate the way I'd expect for a yaw-right stick input."
+    },
+    "planeWizardYawWrongTitle": {
+        "message": "Wrong direction"
+    },
+    "planeWizardYawWrongHelp": {
+        "message": "The plane attempted to rotate the OPPOSITE way. Wizard will flip the yaw signs in your motor mix."
+    },
+    "planeWizardYawReviewIntro": {
+        "message": "Wizard will write these CLI lines to invert the yaw column on each motor."
+    },
+    "planeWizardYawAllGoodTitle": {
+        "message": "Yaw direction is correct"
+    },
+    "planeWizardYawAllGoodHelp": {
+        "message": "No yaw fix needed. Continue."
+    },
+    "planeWizardYawApply": {
+        "message": "Apply yaw flip"
+    },
+    "planeWizardYawApplyInProgress": {
+        "message": "Applying yaw flip…"
+    },
+    "planeWizardYawApplyFailedTitle": {
+        "message": "Yaw commit failed"
+    },
+    "planeWizardStepDone": {
+        "message": "Done"
+    },
+    "planeWizardIdentityHeading": {
+        "message": "Identify each surface"
+    },
+    "planeWizardIdentityIntro": {
+        "message": "We'll pulse one servo at a time. Watch the plane and confirm the right surface moved. This catches reversed servos and swapped pad assignments before flight."
+    },
+    "planeWizardIdentityNoSurfaces": {
+        "message": "This airframe has no servo surfaces to verify (single-motor only)."
+    },
+    "planeWizardIdentityProgress": {
+        "message": "Surface"
+    },
+    "planeWizardIdentityPulseButton": {
+        "message": "Pulse this surface"
+    },
+    "planeWizardIdentityPulsing": {
+        "message": "Pulsing…"
+    },
+    "planeWizardIdentityObserveHint": {
+        "message": "Pick the card that matches what you saw. The servo holds for 1.5 seconds then auto-recenters."
+    },
+    "planeWizardIdentityMultipleWarn": {
+        "message": "Multiple surfaces moved on at least one pulse"
+    },
+    "planeWizardIdentityMultipleHelp": {
+        "message": "This usually means two slots are mapped to the same SERVO N pad, or the resource layout doesn't match what the preset expects. Continue to Done, then re-check the Pin Assignment panel on the Hardware sub-tab."
+    },
+    "planeWizardIdentitySwapWarn": {
+        "message": "Surface swap detected"
+    },
+    "planeWizardIdentitySwapHelp": {
+        "message": "At least one pulse moved a different surface than the wizard expected (e.g. asking for elevator and getting an aileron). Pad assignment is wired wrong. Fix path: open Pin Assignment after the wizard, drag the swapped SERVO N pads to the right surfaces, save, reboot. Or rewire the servo connectors physically."
+    },
+    "planeWizardObsSelectedTitle": {
+        "message": "✓ The right surface moved"
+    },
+    "planeWizardObsSelectedHelp": {
+        "message": "Only the surface I expected deflected."
+    },
+    "planeWizardObsNothingTitle": {
+        "message": "∅ Nothing moved"
+    },
+    "planeWizardObsNothingHelp": {
+        "message": "No servo deflected at all on this pulse."
+    },
+    "planeWizardObsMultipleTitle": {
+        "message": "⇄ Multiple moved"
+    },
+    "planeWizardObsMultipleHelp": {
+        "message": "Two or more surfaces moved together — they're probably wired to the same pad."
+    },
+    "planeWizardObsWrongSurfaceTitle": {
+        "message": "Wrong surface moved"
+    },
+    "planeWizardObsWrongSurfaceHelp": {
+        "message": "A surface deflected, but it wasn't the one this card asked about. Pad assignment is swapped — fix in Pin Assignment after the wizard, or rewire physically."
+    },
+    "planeWizardObsNoServoTitle": {
+        "message": "Not on this plane"
+    },
+    "planeWizardObsNoServoHelp": {
+        "message": "This airframe slot has no physical servo on my build (e.g. no rudder). Skip and continue."
+    },
+    "planeWizardSafetyHeading": {
+        "message": "Before we start"
+    },
+    "planeWizardSafetyIntro": {
+        "message": "This wizard will pulse servos and motors briefly to verify your setup. Do not skip the safety checks."
+    },
+    "planeWizardSafetyArmedTitle": {
+        "message": "Disarm before continuing"
+    },
+    "planeWizardSafetyArmedHelp": {
+        "message": "The flight controller is currently armed. The wizard cannot run while armed. Disarm via your transmitter, then return here."
+    },
+    "planeWizardSafetyPropsLabel": {
+        "message": "Propellers are removed and the craft is on a stable surface"
+    },
+    "planeWizardSafetyPropsHelp": {
+        "message": "Required even though motor pulses are brief. The motor-test path bypasses RC arming and can spin a prop instantly."
+    },
+    "planeWizardAirframeHeading": {
+        "message": "Pick your airframe"
+    },
+    "planeWizardAirframeIntro": {
+        "message": "This determines the mixer, servo rules, and pad layout the wizard will apply. You can change details after the wizard finishes."
+    },
+    "planeWizardApplyHeading": {
+        "message": "Apply preset to flight controller"
+    },
+    "planeWizardApplyReady": {
+        "message": "Click Apply to write the full airframe preset (mixer rules, resource map, motor mix) and reboot the FC. The configurator will disconnect briefly. After it reconnects, navigate back to Wing Tuning — the wizard will resume at Identity automatically."
+    },
+    "planeWizardApplyInProgress": {
+        "message": "Applying — do not disconnect"
+    },
+    "planeWizardApplyDoNotDisconnect": {
+        "message": "Writing config + rebooting. The configurator will reconnect shortly. Don't power-cycle the FC during this window."
+    },
+    "planeWizardApplyAlreadyDoneTitle": {
+        "message": "Preset already applied"
+    },
+    "planeWizardApplyAlreadyDoneHelp": {
+        "message": "The airframe was committed before the reboot. Continue to Identity to verify each surface, or go Back to switch airframes (which will require another reboot)."
+    },
+    "planeWizardResumedTitle": {
+        "message": "Resumed after reboot"
+    },
+    "planeWizardResumedHelp": {
+        "message": "Apply committed and the FC has rebooted. Continue to Discovery — pulse each SERVO output and pick what physically moved. The wizard will derive any pad swaps automatically."
+    },
+    "planeWizardApplyPadsHeading": {
+        "message": "Pad assignments to be committed"
+    },
+    "planeWizardApplyTypeCol": {
+        "message": "Output"
+    },
+    "planeWizardApplyPadCol": {
+        "message": "Pad"
+    },
+    "planeWizardApplyExpectedCol": {
+        "message": "Expected / role"
+    },
+    "planeWizardApplyMotorRowNote": {
+        "message": "Motor — verified later in motor setup"
+    },
+    "planeWizardApplyLedRowNote": {
+        "message": "LED strip"
+    },
+    "planeWizardApplyPadsHint": {
+        "message": "Read-only here. To customize pad assignments before commit, exit the wizard and use Wing Tuning → Mixer sub-tab. Motors and LED rows are shown for visibility — Discovery walks servos only."
+    },
+    "planeWizardDiscoveryHeading": {
+        "message": "Discover servo wiring"
+    },
+    "planeWizardDiscoveryIntro": {
+        "message": "We'll pulse each SERVO output. Watch the plane and pick which physical surface moved. The wizard will figure out any pad swaps automatically."
+    },
+    "planeWizardDiscoveryGateTitle": {
+        "message": "About to pulse outputs"
+    },
+    "planeWizardDiscoveryGateHelp": {
+        "message": "If anything other than a servo is wired to a SERVO N pad (e.g. an ESC), it will respond to the pulse too. Throttle blip on a propless motor is harmless. Confirm props are off before continuing."
+    },
+    "planeWizardDiscoveryGateCheck": {
+        "message": "Confirmed: props are off and motor outputs are safe to pulse"
+    },
+    "planeWizardDiscoveryStart": {
+        "message": "Start Discovery"
+    },
+    "planeWizardDiscoveryNextSurface": {
+        "message": "Next surface"
+    },
+    "planeWizardDiscoveryExpectedPrefix": {
+        "message": "Expected:"
+    },
+    "planeWizardDiscoveryDropdownLabel": {
+        "message": "What moved?"
+    },
+    "planeWizardDiscoveryGroupSurfaces": {
+        "message": "Airframe surfaces"
+    },
+    "planeWizardDiscoveryGroupOutcomes": {
+        "message": "Other"
+    },
+    "planeWizardExpectedSuffix": {
+        "message": " (expected)"
+    },
+    "planeWizardDiscoveryAllGoodTitle": {
+        "message": "Wiring matches your airframe"
+    },
+    "planeWizardDiscoveryAllGoodHelp": {
+        "message": "Every servo we tested moved the surface we expected — no pad swaps needed. Click Continue to move on to direction checks."
+    },
+    "planeWizardRemapIntro": {
+        "message": "Pad swap detected. We'll rewrite the resource map so each SERVO N drives the right physical surface. Confirm to apply, then the FC will reboot."
+    },
+    "planeWizardRemapFromCol": {
+        "message": "Currently"
+    },
+    "planeWizardRemapToCol": {
+        "message": "Will become"
+    },
+    "planeWizardRemapSurfaceCol": {
+        "message": "Surface"
+    },
+    "planeWizardRemapApply": {
+        "message": "Apply Remap"
+    },
+    "planeWizardRemapInProgress": {
+        "message": "Remapping — do not disconnect"
+    },
+    "planeWizardRemapFailedTitle": {
+        "message": "Remap failed"
+    },
+    "planeWizardRemapNoCallback": {
+        "message": "Remap path unavailable in this build. Exit the wizard and use Pin Assignment manually."
+    },
+    "planeWizardRemapUnresolvedTitle": {
+        "message": "Some slots couldn't be auto-fixed"
+    },
+    "planeWizardRemapUnresolvedHelp": {
+        "message": "These slots reported \"Multiple moved\" — the wizard can't resolve them automatically. Fix manually via Pin Assignment after Done."
+    },
+    "planeWizardScanOfferTitle": {
+        "message": "Looking for missing servos?"
+    },
+    "planeWizardScanOfferHelp": {
+        "message": "Some surfaces didn't deflect on any pulse. They might be wired to motor pads instead of servo pads — common on FCs without dedicated SERVO silkscreen."
+    },
+    "planeWizardScanOfferAction": {
+        "message": "We can release the unused motor pads on the FC and assign them as new SERVO slots, then walk each one to find your missing surfaces. The FC will reboot once for setup, then once more after the final remap commits."
+    },
+    "planeWizardScanOfferButton": {
+        "message": "Scan unused motor pads"
+    },
+    "planeWizardScanInProgress": {
+        "message": "Setting up scan…"
+    },
+    "planeWizardScanFailedTitle": {
+        "message": "Scan setup failed"
+    },
+    "planeWizardScanNoCallback": {
+        "message": "Scan path unavailable in this build."
+    },
+    "planeWizardScanResumedTitle": {
+        "message": "Scan ready"
+    },
+    "planeWizardScanResumedHelp": {
+        "message": "Unused motor pads have been reassigned as temporary SERVO slots. Pulse each one and pick which physical surface (if any) deflected. After the walk, the wizard will rewrite the resource map to put each surface on the right pad."
+    },
+    "planeWizardScanWalkIntro": {
+        "message": "Walk each scanned slot like the first Discovery pass. Most slots will report Nothing — only the ones with your missing servos will deflect. Defaults to Nothing."
+    },
+    "planeWizardScanNoSlots": {
+        "message": "No scan slots available — nothing to walk."
+    },
+    "planeWizardScanProgress": {
+        "message": "Scan slot"
+    },
+    "planeWizardScanWasMotor": {
+        "message": "was"
+    },
+    "planeWizardFinalRemapIntro": {
+        "message": "Combined remap — original walk + scan results. Confirm to apply, then the FC reboots one last time."
+    },
+    "planeWizardFinalStillMissingTitle": {
+        "message": "Some surfaces still couldn't be found"
+    },
+    "planeWizardFinalStillMissingHelp": {
+        "message": "These surfaces didn't deflect on any pulse during either walk. Check physical wiring or fix manually via Pin Assignment after Done."
+    },
+    "planeWizardApplyFailedTitle": {
+        "message": "Apply failed"
+    },
+    "planeWizardDoneHeading": {
+        "message": "Setup complete"
+    },
+    "planeWizardDoneIntro": {
+        "message": "Wizard finished. Mixer rules, resource map (with any swap fixes from Discovery), motor mix, and yaw type are all committed. Bench-check each surface deflects the right way before flight."
+    },
+    "planeWizardSummaryAirframe": {
+        "message": "Airframe"
+    },
+    "planeWizardSummaryMotors": {
+        "message": "Motor count"
+    },
+    "planeWizardDoneNextSteps": {
+        "message": "Phases 4–6 of this wizard (servo identity, direction check, endpoints, and motor identity) ship in a follow-up update. For now, verify your servos move correctly via the Mixer sub-tab before flight."
+    },
+    "planeWizardBack": {
+        "message": "Back"
+    },
+    "planeWizardContinue": {
+        "message": "Continue"
+    },
+    "planeWizardApply": {
+        "message": "Apply"
+    },
+    "planeWizardRetry": {
+        "message": "Retry"
+    },
+    "planeWizardFinish": {
+        "message": "Finish"
     },
     "wingHardwareReload": {
         "message": "Reload from firmware"
@@ -747,6 +1494,8 @@
     "wingAutolandHelp_touchdownQuiescenceMs": { "message": "Continuous quiet (accel < 1.2 g, gyro < 30°/s) required before auto-disarm, in milliseconds. Default: 2000." },
     "wingAutolandLabel_minPatternSats": { "message": "Min pattern sats" },
     "wingAutolandHelp_minPatternSats": { "message": "Minimum GPS satellite count required during pattern legs. Phase 7B will use this for the RTH-timeout trigger gate. Default: 8." },
+    "wingAutolandLabel_stickCancelThreshold": { "message": "Stick cancel threshold" },
+    "wingAutolandHelp_stickCancelThreshold": { "message": "Stick deflection (% of full travel) on pitch / roll / yaw that fully cancels autoland and returns control to the pilot. Below this threshold, small inputs are added to autoland's setpoints as 'nudges' (pitch / roll only). 0 = stick cancel disabled (BOXAUTOLAND off still works). Default: 35% — mirrors wing_launch_stick_override." },
     "wingAutotrimTitle": {
         "message": "Servo Autotrim"
     },
@@ -808,7 +1557,7 @@
         "message": "Writing motor mix and rebooting the flight controller. The tab will reconnect automatically."
     },
     "wingMixerYawConflict": {
-        "message": "Mismatch: yaw_type is DIFF_THRUST, but a servo rule uses STABILIZED_YAW. Pure diff-thrust + rudder is sub-optimal (motor TPA posture applied to the servo). Did you mean COMBINED? It runs both actuators with an airspeed-weighted crossfade (rudder at high speed, motors at low). Otherwise: remove the rudder rule, or change yaw_type to RUDDER."
+        "message": "Mismatch: yaw_type is DIFF_THRUST, but a servo rule uses STABILIZED_YAW. Pure diff-thrust + rudder is sub-optimal (motor TPA posture applied to the servo). Fix: remove the rudder rule, or change yaw_type to RUDDER."
     },
     "wingMixerPresets": {
         "message": "Apply preset:"

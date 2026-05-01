@@ -38,10 +38,47 @@
                     </div>
                 </div>
 
-                <!-- Sub-tab navigation -->
+                <!-- Plane Setup Wizard launcher card — persistent across
+                     sub-tabs because the wizard triggers FC reboots and
+                     the user shouldn't have to renavigate to restart it.
+                     Uses the same `.update` link-button style as the
+                     bottom Save/Reload toolbar so the buttons read as
+                     interactive controls, not plain text. -->
+                <div class="grid-row">
+                    <div class="grid-col col12">
+                        <div class="gui_box">
+                            <div class="spacer wing_launcher_buttons">
+                                <div class="btn save_btn">
+                                    <a
+                                        class="update"
+                                        href="#"
+                                        :class="{ disabled: loading || saving }"
+                                        @click.prevent="openWizard"
+                                    >
+                                        {{ $t("wingLauncherStartWizard") }}
+                                    </a>
+                                </div>
+                                <div class="btn save_btn">
+                                    <a
+                                        class="update"
+                                        href="#"
+                                        :class="{ disabled: loading || saving }"
+                                        @click.prevent="showResetDialog = true"
+                                    >
+                                        {{ $t("wingLauncherResetConfig") }}
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-tab navigation. Hidden sub-tabs are filtered by
+                     wingCapabilities — Launch / GPS Rescue / Autoland only
+                     render when the FC advertises support for them. -->
                 <div class="subtab_bar">
                     <button
-                        v-for="id in SUB_TAB_IDS"
+                        v-for="id in availableSubTabIds"
                         :key="id"
                         type="button"
                         class="subtab_button"
@@ -115,7 +152,7 @@
                                     <select v-model="fields.yaw_type" :disabled="loading">
                                         <option value="RUDDER">RUDDER</option>
                                         <option value="DIFF_THRUST">DIFF_THRUST</option>
-                                        <option value="COMBINED">COMBINED</option>
+                                        <option v-if="combinedYawSupported" value="COMBINED">COMBINED</option>
                                     </select>
                                     <div v-if="fields.yaw_type === 'COMBINED'" class="yaw_blend_panel">
                                         <p class="yaw_blend_desc">{{ $t("wingYawBlendDesc") }}</p>
@@ -1634,11 +1671,65 @@
                 </div>
             </div>
         </div>
+
+        <!-- Reset wing config confirmation dialog. Lists what's wiped vs
+             preserved so the user knows what survives the reset (UART,
+             RX, modes, battery, OSD, VTX, LED, failsafe). -->
+        <Dialog v-if="apiOk" v-model="showResetDialog" :title="$t('wingResetDialogTitle')">
+            <p>{{ $t("wingResetDialogBody") }}</p>
+            <ul class="wing_reset_list">
+                <li>
+                    <strong>{{ $t("wingResetWipesLabel") }}:</strong> {{ $t("wingResetWipesItems") }}
+                </li>
+                <li>
+                    <strong>{{ $t("wingResetPreservesLabel") }}:</strong> {{ $t("wingResetPreservesItems") }}
+                </li>
+            </ul>
+            <div class="dialog-buttons">
+                <button type="button" class="btn" @click="showResetDialog = false">
+                    {{ $t("cancel") }}
+                </button>
+                <button type="button" class="btn btn-danger" @click="performResetWingConfig">
+                    {{ $t("wingResetDialogConfirm") }}
+                </button>
+            </div>
+        </Dialog>
+
+        <!-- Plane Setup Wizard — modal mount. Auto-resumes via
+             wizardResumeState if a marker was found post-reboot. All
+             wizard apply paths route through callbacks so the parent
+             owns MSP/CLI commits + reboot timing + marker persistence. -->
+        <PlaneSetupWizard
+            v-if="apiOk"
+            v-model="wizardOpen"
+            :armed="wizardArmed"
+            :motor-count="motorCount"
+            :cell-count="wizardCellCount"
+            :airframes="wizardAirframes"
+            :resume-state="wizardResumeState"
+            :current-resources="wizardCurrentResources"
+            :pad-defaults="wizardPadDefaults"
+            :extra-apply-rows="wizardExtraApplyRows"
+            :rules="mixerState.rules"
+            :hardware-analysis="hardwareAnalysis"
+            :expected-motors="wizardExpectedMotors"
+            :apply-callback="wizardApplyCallback"
+            :apply-direction-callback="wizardApplyDirectionCallback"
+            :apply-endpoints-callback="wizardApplyEndpointsCallback"
+            :apply-remap-callback="wizardApplyRemapCallback"
+            :apply-scan-callback="wizardApplyScanCallback"
+            :apply-motors-callback="wizardApplyMotorsCallback"
+            :apply-motor-scan-prep-callback="wizardApplyMotorScanPrepCallback"
+            :apply-motor-final-callback="wizardApplyMotorFinalCallback"
+            :apply-yaw-flip-callback="wizardApplyYawFlipCallback"
+            @close="closeWizard"
+            @complete="closeWizard"
+        />
     </BaseTab>
 </template>
 
 <script>
-import { defineComponent, reactive, ref, computed, watch } from "vue";
+import { defineComponent, reactive, ref, computed, watch, nextTick } from "vue";
 import BaseTab from "./BaseTab.vue";
 import GUI from "../../js/gui";
 import FC from "../../js/fc";
@@ -1654,6 +1745,9 @@ import {
     PLANE_SLOT_MAX,
 } from "../../js/utils/planePresets.js";
 import { applyCliLines } from "../../js/utils/wingMixerCli.js";
+import { autoCleanCliLines, fullWingResetCliLines } from "../../js/utils/wingReset.js";
+import { planeDefaultsCliLines, planeTuningStartingPoints } from "../../js/utils/wingPlaneDefaults.js";
+import { wizardServoPulseCleanup } from "../../js/utils/wingServoPulse.js";
 import {
     readCli,
     parseResourceShow,
@@ -1665,6 +1759,8 @@ import {
 import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
 import { computePresetResourcePlan, candidatePadsForSlot } from "../../js/utils/wingRemapRecommender.js";
 import { useConnectionStore } from "../../stores/connection";
+import PlaneSetupWizard from "../wing/PlaneSetupWizard.vue";
+import Dialog from "../elements/Dialog.vue";
 
 const PID_GAIN_MAX = 200;
 
@@ -1951,7 +2047,7 @@ function mixerStatesEqual(a, b) {
 
 export default defineComponent({
     name: "WingTuningTab",
-    components: { BaseTab },
+    components: { BaseTab, PlaneSetupWizard, Dialog },
 
     setup() {
         const connectionStore = useConnectionStore();
@@ -2252,6 +2348,20 @@ export default defineComponent({
         // returning to the tab opens where the user left off.
         const SUB_TAB_STORAGE_KEY = "wingTuningActiveSubTab";
         const SUB_TAB_IDS = ["tuning", "mixer", "launch", "gps_rescue", "autoland", "hardware"];
+        // Sub-tab visibility gates Launch / GPS Rescue / Autoland behind
+        // their respective wing-fork capability bits — mainline (post
+        // BF #13719) FCs return all-zero, so those tabs hide. Tuning /
+        // Mixer / Hardware stay always-visible (any USE_WING build has them).
+        const availableSubTabIds = computed(() => {
+            const caps = FC.CONFIG?.wingCapabilities ?? {};
+            return SUB_TAB_IDS.filter((id) => {
+                if (id === "tuning" || id === "mixer" || id === "hardware") return true;
+                if (id === "launch") return caps.launch === true;
+                if (id === "gps_rescue") return caps.gpsRescue === true;
+                if (id === "autoland") return caps.autoland === true;
+                return false;
+            });
+        });
         const activeSubTab = ref(
             (() => {
                 try {
@@ -2272,6 +2382,14 @@ export default defineComponent({
             // sub-tab switches; explicit Reload button refetches.
             if (v === "hardware" && hardwareAnalysis.value === null && !hardwareLoading.value) {
                 loadHardware();
+            }
+        });
+        // Redirect away from a sub-tab that just became hidden — e.g. user
+        // had "launch" persisted, then connects to a mainline FC that
+        // doesn't advertise launch capability.
+        watch(availableSubTabIds, (ids) => {
+            if (!ids.includes(activeSubTab.value)) {
+                activeSubTab.value = "tuning";
             }
         });
 
@@ -2741,6 +2859,13 @@ export default defineComponent({
             return Array.isArray(opts) && opts.includes("USE_WING");
         });
 
+        // COMBINED yaw type is wing-fork-only (not in mainline post-#13719).
+        // Gate the dropdown option behind the capability bit so mainline
+        // FCs only see RUDDER / DIFF_THRUST. The applyPreset auto-pick
+        // never selects COMBINED regardless — this just hides it from the
+        // user-facing dropdown.
+        const combinedYawSupported = computed(() => FC.CONFIG?.wingCapabilities?.combinedYaw === true);
+
         // Cell-count helper: derive S-count from tpa_speed_max_voltage (V×100).
         // Full charge per cell = 4.2V → V×100 / 420 ≈ cell count.
         const detectedCellCount = computed(() => {
@@ -2848,6 +2973,15 @@ export default defineComponent({
 
                 initialMixerState.value = cloneMixerState(mixerState);
 
+                // Servo configurations (min/middle/max/rate per servo).
+                // Required by the Plane Setup Wizard's pulse path:
+                // wingServoPulse.pulseServoMiddle reads FC.SERVO_CONFIG
+                // [slotN].middle to live-edit a temporary middle, then
+                // restores after durationMs. Without this fetch the
+                // pulse throws "Cannot read properties of undefined
+                // (reading 'middle')" on the wizard's Discovery step.
+                await MSP.promise(MSPCodes.MSP_SERVO_CONFIGURATIONS);
+
                 // Wing auto-launch — gracefully degrade on older firmware
                 // that doesn't know MSP2_WING_LAUNCH yet. FC.WING_LAUNCH
                 // keeps its defaults in that case; Launch sub-tab shows
@@ -2902,6 +3036,16 @@ export default defineComponent({
                 } catch (hwErr) {
                     console.warn("[WingTuning] hardware reload failed:", hwErr);
                 }
+
+                // Wizard auto-resume across FC reboots: if a valid resume
+                // marker is in localStorage, re-open the wizard at the
+                // step it was waiting on. Stale markers (5+ min old or
+                // wrong target) are cleared by readWizardMarker.
+                const marker = readWizardMarker();
+                if (marker) {
+                    wizardResumeState.value = marker;
+                    wizardOpen.value = true;
+                }
             } catch (e) {
                 console.error("[WingTuning] reload failed:", e);
                 error.value = e.message || String(e);
@@ -2924,6 +3068,14 @@ export default defineComponent({
             // the save (or error) path completes.
             connectionStore.pauseLiveData();
             try {
+                // Cross-tab Save protection: if the Plane Setup Wizard is
+                // mid-flight on the mainline-fallback servo pulse path,
+                // restore any in-flight pulse `middle` values BEFORE any
+                // servo config write would otherwise persist them to
+                // EEPROM. No-op when the wizard is closed or on the
+                // wing-fork override path.
+                await wizardServoPulseCleanup();
+
                 // Wing tuning fields first (atomic, via the MSP2 pair).
                 for (const def of FIELD_DEFS) {
                     FC.WING_TUNING[def.name] = fields[def.name];
@@ -3025,8 +3177,28 @@ export default defineComponent({
                         const preset = pinAssignmentPreset.value;
                         const baseCli = pinAssignmentPlan.value?.cliLines ?? [];
                         const mmixCli = preset ? buildMmixCliLines(buildEffectiveMmix(preset, motorCount.value)) : [];
-                        if (baseCli.length > 0 || mmixCli.length > 0) {
-                            await applyPinAssignment([...baseCli, ...mmixCli]);
+                        // Full preset CLI batch:
+                        //   1. autoCleanCliLines  — wipes stale mmix + SERVO/MOTOR resource binds
+                        //   2. baseCli            — pin assignment plan (resource SERVO/MOTOR N <pad>)
+                        //   3. mmixCli            — preset's mmix entries
+                        //   4. planeDefaults      — universal CLI feature toggles (anti_gravity_gain=0,
+                        //                           iterm_relax_cutoff=5, servo_pwm_rate=50, gps_use_3d_speed=ON)
+                        //   5. planeTuningPoints  — rates + PIDs (10/10/5/0 P/I/D/F, yaw I=0 if DIFF_THRUST)
+                        // Plane defaults + tuning starting points fire on every preset Save —
+                        // applying a preset is treated as a major airframe change where prior
+                        // tuning wouldn't transfer correctly anyway (per BF discussion #14032).
+                        const fullBatch = [
+                            ...autoCleanCliLines(),
+                            ...baseCli,
+                            ...mmixCli,
+                            ...planeDefaultsCliLines(),
+                            ...planeTuningStartingPoints({
+                                diffThrust: fields.yaw_type === "DIFF_THRUST",
+                                tpaMaxVoltage: fields.tpa_speed_max_voltage,
+                            }),
+                        ];
+                        if (fullBatch.length > 0) {
+                            await applyPinAssignment(fullBatch);
                         }
                     } catch (pinErr) {
                         console.warn("[WingTuning] pin assignment apply failed:", pinErr);
@@ -3094,6 +3266,314 @@ export default defineComponent({
             mixerState.airframe = preset.mixerIndex;
             mixerState.reverseMotorDir = 0;
             mixerState.rules = preset.rules.map((r) => ({ ...r }));
+
+            // Stage MSP-side plane defaults per BF discussion #14032.
+            // Universal across airframes; applying a preset is treated
+            // as a major airframe change where prior tuning wouldn't
+            // transfer correctly anyway. CLI-side defaults
+            // (anti_gravity_gain=0, iterm_relax_cutoff=5,
+            // gps_use_3d_speed=ON, servo_pwm_rate=50) and tuning
+            // starting points (rates + PIDs) are emitted by save()'s
+            // CLI batch via planeDefaultsCliLines() +
+            // planeTuningStartingPoints().
+            //
+            // S-term: 50 for pitch/roll on every preset; yaw = 50 unless
+            // DIFF_THRUST (then 0 — diffThrustMode watcher would force
+            // this anyway, but staging here keeps the dirty indicator
+            // honest if the user toggled yaw_type since last save).
+            fields.s_pitch = 50;
+            fields.s_roll = 50;
+            fields.s_yaw = effectiveYawType === "DIFF_THRUST" ? 0 : 50;
+            fields.angle_earth_ref = 0;
+            fields.tpa_mode = "PDS";
+            fields.tpa_curve_type = "HYPERBOLIC";
+
+            // tpa_speed_max_voltage = cellCount × 4.20V × 100. Auto-detect
+            // from FC battery profile when configured; fall back to 3S
+            // when batteryCellCount is 0 / out-of-range. Under-scaling is
+            // safer than over-scaling — pilot can adjust in Tuning if
+            // they're running >3S (3S is also the most common 5"-wing pack).
+            const fcCells = FC.BATTERY_CONFIG?.batteryCellCount ?? 0;
+            const safeCells = fcCells >= 2 && fcCells <= 6 ? fcCells : 3;
+            fields.tpa_speed_max_voltage = safeCells * 420;
+        }
+
+        // ════ Plane Setup Wizard launcher + Reset wing config ════
+        // Launcher card persists across sub-tab switches because the
+        // wizard triggers FC reboots multiple times during its 8-step
+        // flow; the buttons stay reachable regardless of activeSubTab.
+        const wizardOpen = ref(false);
+        const showResetDialog = ref(false);
+        // Resume marker payload from localStorage. Populated by reload()
+        // when a valid marker is found post-reboot. Passed to the wizard
+        // as resumeState so it re-opens at the right step.
+        const wizardResumeState = ref(null);
+
+        function openWizard() {
+            if (loading.value || saving.value) return;
+            wizardResumeState.value = null;
+            wizardOpen.value = true;
+        }
+        function closeWizard() {
+            wizardOpen.value = false;
+            wizardResumeState.value = null;
+            clearWizardMarker();
+        }
+
+        // Reset wing config — surgical reset that wipes mixer/resource
+        // /servo state but preserves UART, RX, modes, battery calibration,
+        // OSD, VTX, LED, failsafe. fullWingResetCliLines() emits the CLI
+        // batch; FC reboots after `save`. User clicks Start Wizard
+        // themselves after reconnect (no auto-launch on reset path).
+        async function performResetWingConfig() {
+            showResetDialog.value = false;
+            if (loading.value || saving.value) return;
+            saving.value = true;
+            error.value = null;
+            connectionStore.pauseLiveData();
+            try {
+                connectionStore.clearMspQueue();
+                await applyCliLines(fullWingResetCliLines());
+                await new Promise((r) => setTimeout(r, 5000));
+                await reload();
+            } catch (e) {
+                console.error("[WingTuning] reset failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                connectionStore.resumeLiveData();
+                saving.value = false;
+            }
+        }
+
+        // ════ Wizard auto-resume across reboots ════
+        // Each reboot-triggering wizard step writes a marker to
+        // localStorage before the FC reboots. After reconnect, reload()
+        // reads the marker and re-opens the wizard at the right step.
+        // Markers expire after 5 min OR when target changes (user
+        // flashed a different board mid-flow).
+        const WIZARD_MARKER_KEY = "wingTuningWizardMarker";
+        const WIZARD_MARKER_TTL_MS = 5 * 60 * 1000;
+
+        function persistWizardMarker(payload) {
+            try {
+                const marker = {
+                    ...payload,
+                    timestamp: Date.now(),
+                    target: FC.CONFIG?.targetName ?? null,
+                };
+                globalThis.localStorage?.setItem(WIZARD_MARKER_KEY, JSON.stringify(marker));
+            } catch (e) {
+                console.warn("[WingTuning] persist wizard marker failed:", e);
+            }
+        }
+
+        function readWizardMarker() {
+            try {
+                const raw = globalThis.localStorage?.getItem(WIZARD_MARKER_KEY);
+                if (!raw) return null;
+                const marker = JSON.parse(raw);
+                if (!marker || typeof marker !== "object") return null;
+                if (Date.now() - (marker.timestamp ?? 0) > WIZARD_MARKER_TTL_MS) {
+                    clearWizardMarker();
+                    return null;
+                }
+                const currentTarget = FC.CONFIG?.targetName;
+                if (marker.target && currentTarget && marker.target !== currentTarget) {
+                    clearWizardMarker();
+                    return null;
+                }
+                return marker;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function clearWizardMarker() {
+            try {
+                globalThis.localStorage?.removeItem(WIZARD_MARKER_KEY);
+            } catch {
+                /* no-op */
+            }
+        }
+
+        // ════ Wizard props (computed) ════
+        // airframes prop: wizard expects an array of preset objects, each
+        // augmented with a `surfaces` array describing the per-airframe
+        // SERVO walking sequence. Surfaces are derived from the preset's
+        // `wiring` entries (SERVO pads only, motor entries excluded).
+        // Each surface = { label, slotN, pad } where label is the
+        // human-friendly function name ("Aileron L", "Elevator", etc),
+        // slotN is the SERVO slot integer, pad is the original "SERVO N"
+        // string. Wizard's Discovery walks these in order.
+        const wizardAirframes = computed(() =>
+            Object.values(PLANE_PRESETS).map((preset) => ({
+                ...preset,
+                surfaces: (preset.wiring ?? [])
+                    .filter((w) => /^SERVO\s+\d+$/i.test(w.pad))
+                    .map((w) => {
+                        const cliSlot = parseInt(w.pad.replace(/^SERVO\s+/i, ""), 10);
+                        // Wizard reads multiple field names depending on
+                        // step (`.slot` for Discovery pulse at line 2450,
+                        // `.servoN` for Endpoints at line 1521, `.slotN`
+                        // elsewhere). Populate all three with the same
+                        // CLI slot number; `pad` is rendered as
+                        // "SERVO {{ pad }}" so it's the bare number to
+                        // avoid double-prefix.
+                        return {
+                            label: w.fn,
+                            slot: cliSlot,
+                            slotN: cliSlot,
+                            servoN: cliSlot,
+                            pad: String(cliSlot),
+                        };
+                    }),
+            })),
+        );
+
+        // Cell count for wizard's Step 2 picker: detect from FC battery
+        // profile, fall back to 3S when unconfigured.
+        const wizardCellCount = computed(() => {
+            const fcCells = FC.BATTERY_CONFIG?.batteryCellCount ?? 0;
+            return fcCells >= 2 && fcCells <= 6 ? fcCells : 3;
+        });
+
+        // Current SERVO N → pad map. Wizard uses to detect mismatches in
+        // Discovery + know which pad to release on swap. Empty if no
+        // resource state yet.
+        const wizardCurrentResources = computed(() => {
+            const map = {};
+            for (let n = PLANE_SLOT_MIN; n <= PLANE_SLOT_MAX; n += 1) {
+                map[`SERVO_${n}`] = null;
+            }
+            return map;
+        });
+
+        // Silkscreen-default pads { motors: [...], ledStrips: [...] }
+        // sourced from hardware analysis. Null until first hardware load.
+        const wizardPadDefaults = computed(() => hardwareAnalysis.value?.padDefaults ?? null);
+
+        // Apply-step preview rows (motors + LED) from the recommender.
+        const wizardExtraApplyRows = computed(() => {
+            const plan = pinAssignmentPlan.value;
+            if (!plan) return [];
+            const rows = [];
+            for (const m of plan.motors ?? []) rows.push({ type: "MOTOR", n: m.idx, pad: m.pad });
+            if (plan.ledStripPad) rows.push({ type: "LED_STRIP", n: 1, pad: plan.ledStripPad });
+            return rows;
+        });
+
+        // Expected motor bindings for the Motors step's identity walk.
+        const wizardExpectedMotors = computed(() => {
+            const motors = [];
+            const count = motorCount.value || 1;
+            for (let i = 1; i <= count; i += 1) {
+                motors.push({ motorIdx: i, label: `Motor ${i}`, pad: null });
+            }
+            return motors;
+        });
+
+        // armed prop — proxy via FC.CONFIG.armingDisabled. When false,
+        // the FC could be currently armed. Wizard's Safety step refuses
+        // to advance if armed.
+        const wizardArmed = computed(() => FC.CONFIG?.armingDisabled === false);
+
+        // ════ Wizard apply callbacks ════
+        // All callbacks run when wizard's state machine has decided
+        // what to commit. Parent persists resume marker (if reboot)
+        // then issues MSP/CLI commits. Direction + Endpoints don't
+        // reboot — runtime-effective changes only.
+        async function wizardApplyCallback(airframeId) {
+            applyPreset(airframeId);
+            await nextTick();
+            persistWizardMarker({
+                phase: "post-apply",
+                airframeId,
+                motorCount: motorCount.value,
+            });
+            await save();
+        }
+
+        async function wizardApplyDirectionCallback(ruleFlips) {
+            if (!Array.isArray(ruleFlips) || ruleFlips.length === 0) return;
+            for (const flip of ruleFlips) {
+                const idx = flip.ruleIdx;
+                if (FC.SERVO_RULES?.[idx]) {
+                    FC.SERVO_RULES[idx].rate = flip.newRate;
+                }
+            }
+            await new Promise((res, rej) => {
+                try {
+                    mspHelper.sendServoMixRules(res);
+                } catch (err) {
+                    rej(err);
+                }
+            });
+            await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+        }
+
+        async function wizardApplyEndpointsCallback(changes) {
+            if (!Array.isArray(changes) || changes.length === 0) return;
+            for (const c of changes) {
+                const cfg = FC.SERVO_CONFIG?.[c.servoIdx];
+                if (!cfg) continue;
+                cfg.min = c.min;
+                cfg.middle = c.mid;
+                cfg.max = c.max;
+            }
+            await new Promise((res, rej) => {
+                try {
+                    mspHelper.sendServoConfigurations(res);
+                } catch (err) {
+                    rej(err);
+                }
+            });
+            await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+        }
+
+        // Empty-array guard: when the wizard determines nothing needs
+        // committing (e.g. Discovery's "wiring matches" path), it still
+        // calls the relevant callback. Skipping the CLI dispatch on
+        // empty input prevents `applyCliLines` throwing + lets the
+        // wizard advance to the next step cleanly.
+        async function wizardApplyRemapCallback(cliLines) {
+            if (!Array.isArray(cliLines) || cliLines.length === 0) return;
+            persistWizardMarker({ phase: "post-remap" });
+            await applyCliLines(cliLines);
+        }
+
+        async function wizardApplyScanCallback({ cliLines, scanSlots, originalObservations, currentResources }) {
+            if (!Array.isArray(cliLines) || cliLines.length === 0) return;
+            persistWizardMarker({
+                phase: "post-scan-prep",
+                scanSlots,
+                originalObservations,
+                currentResources,
+            });
+            await applyCliLines(cliLines);
+        }
+
+        async function wizardApplyMotorsCallback(cliLines) {
+            if (!Array.isArray(cliLines) || cliLines.length === 0) return;
+            persistWizardMarker({ phase: "post-motors" });
+            await applyCliLines(cliLines);
+        }
+
+        async function wizardApplyMotorScanPrepCallback({ cliLines, scanSlots }) {
+            if (!Array.isArray(cliLines) || cliLines.length === 0) return;
+            persistWizardMarker({ phase: "post-motor-scan-prep", scanSlots });
+            await applyCliLines(cliLines);
+        }
+
+        async function wizardApplyMotorFinalCallback(cliLines) {
+            if (!Array.isArray(cliLines) || cliLines.length === 0) return;
+            persistWizardMarker({ phase: "post-motor-final" });
+            await applyCliLines(cliLines);
+        }
+
+        async function wizardApplyYawFlipCallback(cliLines) {
+            if (!Array.isArray(cliLines) || cliLines.length === 0) return;
+            persistWizardMarker({ phase: "post-yaw-flip" });
+            await applyCliLines(cliLines);
         }
 
         // Append rules from a quick-add template (or a single "raw" rule).
@@ -3175,6 +3655,7 @@ export default defineComponent({
             saving,
             error,
             apiOk,
+            combinedYawSupported,
             FC,
             dirty,
             diffThrustMode,
@@ -3188,6 +3669,30 @@ export default defineComponent({
             applyingPreset,
             activeSubTab,
             SUB_TAB_IDS,
+            availableSubTabIds,
+            // Plane Setup Wizard launcher + Reset wing config
+            wizardOpen,
+            showResetDialog,
+            wizardResumeState,
+            wizardArmed,
+            wizardCellCount,
+            wizardAirframes,
+            wizardCurrentResources,
+            wizardPadDefaults,
+            wizardExtraApplyRows,
+            wizardExpectedMotors,
+            openWizard,
+            closeWizard,
+            performResetWingConfig,
+            wizardApplyCallback,
+            wizardApplyDirectionCallback,
+            wizardApplyEndpointsCallback,
+            wizardApplyRemapCallback,
+            wizardApplyScanCallback,
+            wizardApplyMotorsCallback,
+            wizardApplyMotorScanPrepCallback,
+            wizardApplyMotorFinalCallback,
+            wizardApplyYawFlipCallback,
             wiringPresetId,
             motorCount,
             applyPreset,

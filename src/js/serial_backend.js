@@ -645,6 +645,11 @@ function applyWingBuildOption() {
             GUI.allowedTabs.push(tab);
         }
     }
+    // Fetch the wing-fork capability bitfield. Mainline (post-#13719)
+    // ignores this MSP code → FC.CONFIG.wingCapabilities stays at the
+    // all-false default, hiding wing-fork-only sub-tabs/options. Wing-
+    // fork sets all five bits and unlocks them.
+    MSP.send_message(MSPCodes.MSP2_GET_WING_CAPABILITIES, false, false);
 }
 
 function finishOpen() {

@@ -1205,8 +1205,9 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     break;
                 case MSPCodes.MSP2_WING_TUNING: {
                     // Atomic decode: populate a local snapshot first; only
-                    // copy to FC.WING_TUNING / _ACTIVE after the full 39
-                    // bytes parse without error. try/catch so a truncated
+                    // copy to FC.WING_TUNING / _ACTIVE after the full
+                    // 41-byte V2 payload (V1 was 39, still tolerated)
+                    // parses without error. try/catch so a truncated
                     // payload can't short-circuit callback dispatch after
                     // the switch — leaves the tab responsive with prior
                     // values intact.
@@ -1219,6 +1220,21 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     } catch (error) {
                         console.warn("Failed to decode wing tuning payload:", error);
                     }
+                    break;
+                }
+                case MSPCodes.MSP2_GET_WING_CAPABILITIES: {
+                    // u16 bitfield — wing-fork advertises supported
+                    // wing features so the configurator can gate
+                    // sub-tabs and yaw_type options that wouldn't
+                    // exist on mainline (post-#13719) builds.
+                    const bits = data.readU16();
+                    FC.CONFIG.wingCapabilities = {
+                        tuning: (bits & (1 << 0)) !== 0,
+                        launch: (bits & (1 << 1)) !== 0,
+                        gpsRescue: (bits & (1 << 2)) !== 0,
+                        autoland: (bits & (1 << 3)) !== 0,
+                        combinedYaw: (bits & (1 << 4)) !== 0,
+                    };
                     break;
                 }
                 case MSPCodes.MSP2_SET_WING_LAUNCH:
@@ -2367,11 +2383,11 @@ MspHelper.prototype.crunch = function (code, modifierCode = undefined) {
             buffer.push16(FC.ADVANCED_TUNING.tpaBreakpoint);
             break;
         case MSPCodes.MSP2_SET_WING_TUNING:
-            // 39-byte payload driven by WING_TUNING_SCHEMA. Field order
-            // is part of the MSP wire contract — extend the schema with
-            // new fields appended at the end (never reordered); type
-            // change or removal requires MSP2_SET_WING_TUNING_V2 at a
-            // new code slot.
+            // 41-byte V2 payload (V1 was 39) driven by WING_TUNING_SCHEMA.
+            // Field order is part of the MSP wire contract — extend the
+            // schema with new fields appended at the end (never reordered);
+            // type change or removal requires MSP2_SET_WING_TUNING_V2 at
+            // a new code slot.
             crunchWingTuning(buffer, FC.WING_TUNING);
             break;
         case MSPCodes.MSP2_SET_WING_LAUNCH:

@@ -104,6 +104,12 @@ function buildAllDisplayFields() {
         // API 1.48
         "OSD_CUSTOM_SERIAL_TEXT",
         "BATTERY_PROFILE_NAME",
+        // Wing-fork tail (must be stubbed so chooseFields()'s
+        // F.WING_LAUNCH_STATUS / F.GPS_RESCUE_PHASE / F.AUTOLAND_PHASE
+        // references resolve to defined entries).
+        "WING_LAUNCH_STATUS",
+        "GPS_RESCUE_PHASE",
+        "AUTOLAND_PHASE",
     ];
 
     const fields = {};
