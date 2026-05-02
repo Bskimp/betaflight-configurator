@@ -1724,6 +1724,9 @@
             :apply-yaw-flip-callback="wizardApplyYawFlipCallback"
             @close="closeWizard"
             @complete="closeWizard"
+            @airframe-selected="onWizardAirframeSelected"
+            @motor-count-selected="onWizardMotorCountSelected"
+            @cell-count-selected="onWizardCellCountSelected"
         />
     </BaseTab>
 </template>
@@ -3356,8 +3359,16 @@ export default defineComponent({
 
         function persistWizardMarker(payload) {
             try {
+                // airframeId gates the wizard's resume logic — without
+                // it set the wizard falls through to "fresh launch" at
+                // Safety (Step 1) regardless of `phase`. Auto-fill from
+                // wiringPresetId (which applyPreset always sets when an
+                // airframe is selected) so every marker carries it.
+                // Callers can override via payload.airframeId.
+                const airframeId = payload.airframeId ?? wiringPresetId.value ?? null;
                 const marker = {
                     ...payload,
+                    airframeId,
                     timestamp: Date.now(),
                     target: FC.CONFIG?.targetName ?? null,
                 };
@@ -3423,7 +3434,13 @@ export default defineComponent({
                             label: w.fn,
                             slot: cliSlot,
                             slotN: cliSlot,
-                            servoN: cliSlot,
+                            // wingEndpoints convention: servoN is 0-based;
+                            // CLI label "SERVO N" → servoN = N - 1.
+                            // slotForServoN(servoN) returns servoN + 1
+                            // (= 1-based FC.SERVO_CONFIG index, since
+                            // wing-fork servoConfigs[] is 1-indexed with
+                            // [0] reserved).
+                            servoN: cliSlot - 1,
                             pad: String(cliSlot),
                         };
                     }),
@@ -3437,37 +3454,89 @@ export default defineComponent({
             return fcCells >= 2 && fcCells <= 6 ? fcCells : 3;
         });
 
-        // Current SERVO N → pad map. Wizard uses to detect mismatches in
-        // Discovery + know which pad to release on swap. Empty if no
-        // resource state yet.
+        // Current SERVO N → pad map keyed by slot number string ("1",
+        // "2", ...) — matches surface.pad which the wizard's Apply +
+        // Discovery templates use as `currentResources[s.pad]`.
+        //
+        // Two state sources, with the planned pads taking precedence:
+        //   1. pinAssignmentPlan.servos — recommender's PLANNED bindings.
+        //      Available pre-Apply (computed when preset is staged), so
+        //      the Apply preview shows "where each SERVO will land"
+        //      instead of "—" (FC doesn't have SERVO N bindings yet —
+        //      those pads are still labeled MOTOR N silkscreen-side).
+        //   2. hardwareAnalysis.servos — FC's CURRENT resource map after
+        //      the Apply commit lands. Fills any slot the plan didn't
+        //      cover (e.g. pre-existing manual override the user kept).
         const wizardCurrentResources = computed(() => {
             const map = {};
-            for (let n = PLANE_SLOT_MIN; n <= PLANE_SLOT_MAX; n += 1) {
-                map[`SERVO_${n}`] = null;
+            // computePresetResourcePlan returns `picks` (NOT `servos`):
+            //   picks: Map<number, {pad, timer, channel, source}>
+            // keyed by servo slot → object with .pad. The earlier audit
+            // confused this with pickOptimalPadLayout's inner return
+            // (which IS Map<number, string>). Always go through .pad
+            // here; the recommender's picks structure carries timer/
+            // channel/source metadata alongside the pad string.
+            const picks = pinAssignmentPlan.value?.picks;
+            if (picks instanceof Map) {
+                for (const [idx, info] of picks) {
+                    if (idx != null && info?.pad) {
+                        map[String(idx)] = info.pad;
+                    }
+                }
+            }
+            // hardwareAnalysis.servos IS an array of {index, pad, ...}
+            // per wingResourceAnalyzer. Fills any slot the plan didn't
+            // cover (e.g. pre-existing manual override the user kept).
+            const fcServos = hardwareAnalysis.value?.servos ?? [];
+            for (const s of fcServos) {
+                if (s.index != null && s.pad && !map[String(s.index)]) {
+                    map[String(s.index)] = s.pad;
+                }
             }
             return map;
         });
 
-        // Silkscreen-default pads { motors: [...], ledStrips: [...] }
-        // sourced from hardware analysis. Null until first hardware load.
-        const wizardPadDefaults = computed(() => hardwareAnalysis.value?.padDefaults ?? null);
+        // Silkscreen-default pads { motors: [{index, pad}], ledStrips:
+        // [{pad}] } sourced from the standalone `padDefaults` ref
+        // (populated by readResourceDefaults at line ~2243). NOT nested
+        // inside hardwareAnalysis — that's a separate state. Null until
+        // first hardware load. Wizard's "Nothing moved" → scan path
+        // requires this to know which silkscreen MOTOR pads are
+        // candidates to repurpose as scratch SERVO slots.
+        const wizardPadDefaults = computed(() => padDefaults.value);
 
         // Apply-step preview rows (motors + LED) from the recommender.
+        // computePresetResourcePlan returns `motorPicks` (NOT `motors`):
+        //   motorPicks: Map<number, {pad, timer, channel, source}>
+        // Same shape correction as wizardCurrentResources above —
+        // iterate as Map<idx, info-object>, read info.pad.
         const wizardExtraApplyRows = computed(() => {
             const plan = pinAssignmentPlan.value;
             if (!plan) return [];
             const rows = [];
-            for (const m of plan.motors ?? []) rows.push({ type: "MOTOR", n: m.idx, pad: m.pad });
+            if (plan.motorPicks instanceof Map) {
+                for (const [idx, info] of plan.motorPicks) {
+                    if (info?.pad) rows.push({ type: "MOTOR", n: idx, pad: info.pad });
+                }
+            }
             if (plan.ledStripPad) rows.push({ type: "LED_STRIP", n: 1, pad: plan.ledStripPad });
             return rows;
         });
 
         // Expected motor bindings for the Motors step's identity walk.
         const wizardExpectedMotors = computed(() => {
+            // Pulls actual pad strings from hardwareAnalysis.motors so
+            // the Motors step's identity / scan-prep / scan-final logic
+            // can build CLI batches against real hardware. Falls back
+            // to null pad when motorCount > what the analyzer found
+            // (e.g. user picked twin-motor in wizard but only one is
+            // wired).
             const motors = [];
+            const fcMotors = hardwareAnalysis.value?.motors ?? [];
             const count = motorCount.value || 1;
             for (let i = 1; i <= count; i += 1) {
-                motors.push({ motorIdx: i, label: `Motor ${i}`, pad: null });
+                const m = fcMotors.find((x) => x.index === i);
+                motors.push({ motorIdx: i, label: `Motor ${i}`, pad: m?.pad ?? null });
             }
             return motors;
         });
@@ -3493,6 +3562,27 @@ export default defineComponent({
             await save();
         }
 
+        // Wizard early-staging hooks: fire as user picks options in
+        // Step 2 (Airframe). Without these, pinAssignmentPlan +
+        // staged fields are empty at Apply-step render time, so the
+        // preview shows "—" for every pad.
+        function onWizardAirframeSelected(airframeId) {
+            if (!airframeId) return;
+            applyPreset(airframeId);
+        }
+        function onWizardMotorCountSelected(n) {
+            const parsed = Number(n);
+            if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 8) {
+                motorCount.value = parsed;
+            }
+        }
+        function onWizardCellCountSelected(_n) {
+            // Cell count is consumed inside applyPreset (which auto-
+            // detects from FC.BATTERY_CONFIG with 3S fallback). Wizard
+            // emits cellCountSelected for parity with the other picker
+            // events; nothing to do here yet.
+        }
+
         async function wizardApplyDirectionCallback(ruleFlips) {
             if (!Array.isArray(ruleFlips) || ruleFlips.length === 0) return;
             for (const flip of ruleFlips) {
@@ -3512,13 +3602,18 @@ export default defineComponent({
         }
 
         async function wizardApplyEndpointsCallback(changes) {
+            // wingEndpoints.js emits change objects shaped:
+            //   { servoN, label, oldMin, oldMax, newMin, newMax }
+            // servoN is 0-based; FC.SERVO_CONFIG[servoN + 1] is the
+            // wing-fork slot (1-indexed array, [0] reserved). Endpoints
+            // step only mutates min/max — middle stays at user-set
+            // value, so we don't touch it here.
             if (!Array.isArray(changes) || changes.length === 0) return;
             for (const c of changes) {
-                const cfg = FC.SERVO_CONFIG?.[c.servoIdx];
+                const cfg = FC.SERVO_CONFIG?.[c.servoN + 1];
                 if (!cfg) continue;
-                cfg.min = c.min;
-                cfg.middle = c.mid;
-                cfg.max = c.max;
+                cfg.min = c.newMin;
+                cfg.max = c.newMax;
             }
             await new Promise((res, rej) => {
                 try {
@@ -3535,10 +3630,29 @@ export default defineComponent({
         // calls the relevant callback. Skipping the CLI dispatch on
         // empty input prevents `applyCliLines` throwing + lets the
         // wizard advance to the next step cleanly.
+        //
+        // Live-data shielding: every CLI batch reboots the FC, which
+        // floods the MSP queue with stale MSP_ANALOG (110) etc. polls
+        // unless live-data is paused first. Bench-observed: the queue
+        // overflow surfaces as "MSP: data request timed-out: 110" + the
+        // wizard's resume marker never gets read because loadHardware
+        // times out. Helper wraps each callback with the
+        // pauseLiveData → clearMspQueue → applyCliLines → resumeLiveData
+        // discipline that applyPinAssignment uses for the same reason.
+        async function fireWizardCliBatch(cliLines) {
+            connectionStore.pauseLiveData();
+            try {
+                connectionStore.clearMspQueue();
+                await applyCliLines(cliLines);
+            } finally {
+                connectionStore.resumeLiveData();
+            }
+        }
+
         async function wizardApplyRemapCallback(cliLines) {
             if (!Array.isArray(cliLines) || cliLines.length === 0) return;
             persistWizardMarker({ phase: "post-remap" });
-            await applyCliLines(cliLines);
+            await fireWizardCliBatch(cliLines);
         }
 
         async function wizardApplyScanCallback({ cliLines, scanSlots, originalObservations, currentResources }) {
@@ -3549,31 +3663,31 @@ export default defineComponent({
                 originalObservations,
                 currentResources,
             });
-            await applyCliLines(cliLines);
+            await fireWizardCliBatch(cliLines);
         }
 
         async function wizardApplyMotorsCallback(cliLines) {
             if (!Array.isArray(cliLines) || cliLines.length === 0) return;
             persistWizardMarker({ phase: "post-motors" });
-            await applyCliLines(cliLines);
+            await fireWizardCliBatch(cliLines);
         }
 
         async function wizardApplyMotorScanPrepCallback({ cliLines, scanSlots }) {
             if (!Array.isArray(cliLines) || cliLines.length === 0) return;
             persistWizardMarker({ phase: "post-motor-scan-prep", scanSlots });
-            await applyCliLines(cliLines);
+            await fireWizardCliBatch(cliLines);
         }
 
         async function wizardApplyMotorFinalCallback(cliLines) {
             if (!Array.isArray(cliLines) || cliLines.length === 0) return;
             persistWizardMarker({ phase: "post-motor-final" });
-            await applyCliLines(cliLines);
+            await fireWizardCliBatch(cliLines);
         }
 
         async function wizardApplyYawFlipCallback(cliLines) {
             if (!Array.isArray(cliLines) || cliLines.length === 0) return;
             persistWizardMarker({ phase: "post-yaw-flip" });
-            await applyCliLines(cliLines);
+            await fireWizardCliBatch(cliLines);
         }
 
         // Append rules from a quick-add template (or a single "raw" rule).
@@ -3684,6 +3798,9 @@ export default defineComponent({
             openWizard,
             closeWizard,
             performResetWingConfig,
+            onWizardAirframeSelected,
+            onWizardMotorCountSelected,
+            onWizardCellCountSelected,
             wizardApplyCallback,
             wizardApplyDirectionCallback,
             wizardApplyEndpointsCallback,
