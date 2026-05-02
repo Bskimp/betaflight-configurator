@@ -1,13 +1,6 @@
-// Tests for the MSP2_SET_SERVO_OVERRIDE-based pulse path. Replaced
-// the prior live-edit-middle test suite when wingServoPulse switched
-// to the firmware override primitive (see comment in wingServoPulse.js).
-//
-// Override semantics: send-and-forget. Firmware auto-clears after
-// durationMs; no client-side restore lifecycle, no snapshot/cache
-// state. The four legacy exports (wizardServoPulseCleanup,
-// snapshotMiddles, restoreMiddlesFromSnapshot, resetCapabilityCache)
-// are no-op stubs kept so PlaneSetupWizard's destructured import
-// list still resolves.
+// Dual-path servo pulse tests. The wizard picks override vs
+// live-edit-middle based on FC.CONFIG.wingCapabilities; tests below
+// flip that flag to exercise each path.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -24,7 +17,24 @@ vi.mock("../../../src/js/msp/MSPCodes", () => ({
     },
 }));
 
+vi.mock("../../../src/js/msp/MSPHelper", () => ({
+    mspHelper: {
+        sendServoConfigurations: vi.fn((cb) => {
+            if (typeof cb === "function") cb();
+        }),
+    },
+}));
+
+vi.mock("../../../src/js/fc", () => ({
+    default: {
+        CONFIG: {},
+        SERVO_CONFIG: [],
+    },
+}));
+
 import MSP from "../../../src/js/msp";
+import { mspHelper } from "../../../src/js/msp/MSPHelper";
+import FC from "../../../src/js/fc";
 import {
     pulseServoMiddle,
     wizardServoPulseCleanup,
@@ -36,9 +46,35 @@ import {
     PULSE_MAX_DURATION_MS,
 } from "../../../src/js/utils/wingServoPulse";
 
+function setForkActive(active) {
+    if (active) {
+        FC.CONFIG.wingCapabilities = { tuning: true };
+    } else {
+        delete FC.CONFIG.wingCapabilities;
+    }
+}
+
+function seedServoConfig() {
+    // Index 0+1 reserved on the wing-fork SLOT enum; real servos start
+    // at idx 2 (= SERVO 1). Mainline mirrors the same numbering for
+    // CUSTOM_AIRPLANE so configIdxFromSlot(slotN) = slotN + 1 is right
+    // on both targets.
+    FC.SERVO_CONFIG = [
+        { middle: 0, min: 1000, max: 2000 }, // reserved 0
+        { middle: 0, min: 1000, max: 2000 }, // reserved 1
+        { middle: 1500, min: 1000, max: 2000 }, // SERVO 1
+        { middle: 1500, min: 1000, max: 2000 }, // SERVO 2
+        { middle: 1500, min: 1000, max: 2000 }, // SERVO 3
+        { middle: 1500, min: 1000, max: 2000 }, // SERVO 4
+    ];
+}
+
 describe("pulseServoMiddle — argument validation", () => {
     beforeEach(() => {
         MSP.send_message.mockClear();
+        mspHelper.sendServoConfigurations.mockClear();
+        setForkActive(true);
+        seedServoConfig();
     });
 
     it("throws on non-integer slotN", async () => {
@@ -62,9 +98,12 @@ describe("pulseServoMiddle — argument validation", () => {
     });
 });
 
-describe("pulseServoMiddle — MSP wire format", () => {
+describe("pulseServoMiddle — wing-fork override path", () => {
     beforeEach(() => {
         MSP.send_message.mockClear();
+        mspHelper.sendServoConfigurations.mockClear();
+        setForkActive(true);
+        seedServoConfig();
     });
 
     it("sends MSP2_SET_SERVO_OVERRIDE with 5-byte payload", async () => {
@@ -76,7 +115,6 @@ describe("pulseServoMiddle — MSP wire format", () => {
     });
 
     it("encodes pwm as u16 little-endian", async () => {
-        // pwm = 1800 = 0x0708 → low=0x08, high=0x07
         await pulseServoMiddle(2, 1800, 1500);
         const payload = MSP.send_message.mock.calls[0][1];
         expect(payload[1]).toBe(0x08);
@@ -84,35 +122,103 @@ describe("pulseServoMiddle — MSP wire format", () => {
     });
 
     it("encodes durationMs as u16 little-endian", async () => {
-        // durationMs = 1500 = 0x05DC → low=0xDC, high=0x05
         await pulseServoMiddle(2, 1800, 1500);
         const payload = MSP.send_message.mock.calls[0][1];
         expect(payload[3]).toBe(0xdc);
         expect(payload[4]).toBe(0x05);
     });
 
-    it("maps slotN → servoIdx via slotN + 1 (wing-fork SLOT enum 0+1 reserved)", async () => {
-        // slot 1 (CLI "SERVO 1") → idx 2 (SLOT_ELEVATOR convention)
+    it("maps slotN → servoIdx via slotN + 1", async () => {
         await pulseServoMiddle(1, 1500, 1000);
         expect(MSP.send_message.mock.calls[0][1][0]).toBe(2);
 
         MSP.send_message.mockClear();
-        // slot 4 (CLI "SERVO 4") → idx 5
         await pulseServoMiddle(4, 1500, 1000);
         expect(MSP.send_message.mock.calls[0][1][0]).toBe(5);
     });
+
+    it("does not touch FC.SERVO_CONFIG", async () => {
+        await pulseServoMiddle(1, 1800, 1500);
+        expect(FC.SERVO_CONFIG[2].middle).toBe(1500);
+        expect(mspHelper.sendServoConfigurations).not.toHaveBeenCalled();
+    });
 });
 
-describe("legacy export stubs (kept for wizard import resolution)", () => {
-    it("wizardServoPulseCleanup resolves without error", async () => {
-        await expect(wizardServoPulseCleanup()).resolves.toBeUndefined();
+describe("pulseServoMiddle — mainline live-edit-middle path", () => {
+    beforeEach(() => {
+        MSP.send_message.mockClear();
+        mspHelper.sendServoConfigurations.mockClear();
+        setForkActive(false);
+        seedServoConfig();
     });
 
-    it("snapshotMiddles returns null", () => {
+    it("does not send MSP2_SET_SERVO_OVERRIDE on mainline", async () => {
+        await pulseServoMiddle(1, 1800, 1);
+        expect(MSP.send_message).not.toHaveBeenCalled();
+    });
+
+    it("writes pulse PWM to FC.SERVO_CONFIG middle then restores", async () => {
+        const writes = [];
+        mspHelper.sendServoConfigurations.mockImplementation((cb) => {
+            writes.push(FC.SERVO_CONFIG[2].middle);
+            cb();
+        });
+        await pulseServoMiddle(1, 1800, 1);
+        // Expect: write pulse PWM (1800), restore original (1500).
+        expect(writes).toEqual([1800, 1500]);
+        // Final FC state matches the snapshot.
+        expect(FC.SERVO_CONFIG[2].middle).toBe(1500);
+    });
+
+    it("calls sendServoConfigurations exactly twice (set + restore)", async () => {
+        await pulseServoMiddle(1, 1700, 1);
+        expect(mspHelper.sendServoConfigurations).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws when FC.SERVO_CONFIG is missing the target slot", async () => {
+        FC.SERVO_CONFIG = [];
+        await expect(pulseServoMiddle(1, 1800, 1)).rejects.toThrow(/SERVO_CONFIG/);
+    });
+});
+
+describe("wizardServoPulseCleanup", () => {
+    beforeEach(() => {
+        MSP.send_message.mockClear();
+        mspHelper.sendServoConfigurations.mockClear();
+        setForkActive(false);
+        seedServoConfig();
+    });
+
+    it("resolves without error when nothing is in flight", async () => {
+        await expect(wizardServoPulseCleanup()).resolves.toBeUndefined();
+        expect(mspHelper.sendServoConfigurations).not.toHaveBeenCalled();
+    });
+
+    it("restores in-flight middle if pulse is interrupted before restore", async () => {
+        // Simulate a Save fired DURING a pulse: stage the in-flight
+        // state by intercepting the "set" sendServoConfigurations call,
+        // running cleanup before the pulse's own restore runs.
+        let setCallSeen = false;
+        mspHelper.sendServoConfigurations.mockImplementation((cb) => {
+            if (!setCallSeen) {
+                setCallSeen = true;
+                // Cleanup runs while middle is still 1800. It should
+                // restore back to 1500 BEFORE we let the original
+                // pulse's restore call return.
+                wizardServoPulseCleanup().then(() => cb());
+                return;
+            }
+            cb();
+        });
+        await pulseServoMiddle(1, 1800, 1);
+        expect(FC.SERVO_CONFIG[2].middle).toBe(1500);
+    });
+
+    it("snapshotMiddles returns null when no pulse is in flight", () => {
         expect(snapshotMiddles()).toBeNull();
     });
 
-    it("restoreMiddlesFromSnapshot resolves without error", async () => {
+    it("restoreMiddlesFromSnapshot resolves cleanly with empty snapshot", async () => {
         await expect(restoreMiddlesFromSnapshot()).resolves.toBeUndefined();
     });
 
