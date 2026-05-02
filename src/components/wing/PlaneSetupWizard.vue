@@ -312,6 +312,20 @@
                                 {{ $t("planeWizardScanNoSlots") }}
                             </div>
                             <template v-else>
+                                <!-- Surface-led callout — hidden while the
+                                     scan finalize bug is chased. Restore by
+                                     re-enabling the v-if block below + the
+                                     2-card pick further down, then hiding
+                                     the legacy dropdown. -->
+                                <div v-if="false" class="wizard-callout wizard-callout--accent">
+                                    <strong>
+                                        {{ $t("planeWizardScanSearchingFor") }}
+                                        {{ currentSearchingSurface }}
+                                    </strong>
+                                    <p class="wizard-help">
+                                        {{ $t("planeWizardScanSurfaceLedHint") }}
+                                    </p>
+                                </div>
                                 <div class="wizard-identity-progress">
                                     {{ $t("planeWizardScanProgress") }}
                                     <strong>{{ scanSurfaceIdx + 1 }} / {{ scanSlots.length }}</strong>
@@ -338,6 +352,36 @@
                                     </button>
                                 </div>
                                 <p v-if="pulseError" class="wizard-blocker">{{ pulseError }}</p>
+                                <!-- Surface-led 2-card pick — DISABLED while
+                                     scan finalize semantics are being chased.
+                                     onScanSurfaceMoved writes a surface label
+                                     to scanObservations[slot.servoN] but the
+                                     finalize step still reports surfaces as
+                                     "couldn't be found"; needs investigation
+                                     into computeFinalRemap's expected key
+                                     space. Re-enable once that's nailed by
+                                     swapping v-if values on this block and
+                                     the dropdown block below. -->
+                                <div v-if="false" class="wizard-button-row">
+                                    <button
+                                        type="button"
+                                        class="wizard-btn wizard-btn--success"
+                                        :disabled="pulseInFlight"
+                                        @click="onScanSurfaceMoved"
+                                    >
+                                        {{ $t("planeWizardScanMoved") }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="wizard-btn wizard-btn--secondary"
+                                        :disabled="pulseInFlight"
+                                        @click="onScanSurfaceDidntMove"
+                                    >
+                                        {{ $t("planeWizardScanDidntMove") }}
+                                    </button>
+                                </div>
+                                <!-- Legacy dropdown — RESTORED while
+                                     surface-led UI is debugged. -->
                                 <div class="wizard-dropdown-row">
                                     <label class="wizard-dropdown-label">{{
                                         $t("planeWizardDiscoveryDropdownLabel")
@@ -2468,6 +2512,51 @@ function pickObservation(value) {
 function pickScanObservation(value) {
     const slotN = scanSlots.value[scanSurfaceIdx.value]?.servoN;
     if (slotN != null) scanObservations.value[slotN] = value;
+}
+
+// Surface-led scan-walking helpers. Original wizard UX (per
+// WING_TUNING_GUIDE) walks each missing surface ("Searching for
+// Aileron R") rather than each scratch slot, with 2-button
+// Moved / Didn't move picks. currentSearchingSurface returns the
+// first unmatched missing surface from scanPlan.missingSurfaces;
+// once a slot gets marked as a positive match, the next missing
+// surface auto-surfaces. Returns null when all matched, signalling
+// the template's scan-complete branch.
+const currentSearchingSurface = computed(() => {
+    const missing = scanPlan.value?.missingSurfaces;
+    if (!Array.isArray(missing) || missing.length === 0) return null;
+    const matched = new Set();
+    for (const v of Object.values(scanObservations.value)) {
+        if (v && v !== OBS_NOTHING && v !== OBS_MULTIPLE && v !== OBS_NO_SERVO) {
+            matched.add(v);
+        }
+    }
+    return missing.find((s) => !matched.has(s)) ?? null;
+});
+
+function onScanSurfaceMoved() {
+    const slot = scanSlots.value[scanSurfaceIdx.value];
+    const surface = currentSearchingSurface.value;
+    if (!slot || !surface) return;
+    scanObservations.value[slot.servoN] = surface;
+    advanceScanSlot();
+}
+
+function onScanSurfaceDidntMove() {
+    const slot = scanSlots.value[scanSurfaceIdx.value];
+    if (!slot) return;
+    scanObservations.value[slot.servoN] = OBS_NOTHING;
+    advanceScanSlot();
+}
+
+function advanceScanSlot() {
+    if (scanSurfaceIdx.value < scanSlots.value.length - 1) {
+        scanSurfaceIdx.value += 1;
+    }
+    // else: walked all slots; if any missing surface is still
+    // unmatched, currentSearchingSurface still points at it and the
+    // user can rewind via Back. Continue gating is unchanged —
+    // proceedFromScanning runs whenever the user clicks Continue.
 }
 
 async function proceedFromWalking() {

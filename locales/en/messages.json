@@ -1173,6 +1173,21 @@
     "planeWizardScanNoSlots": {
         "message": "No scan slots available — nothing to walk."
     },
+    "planeWizardScanSearchingFor": {
+        "message": "Searching for"
+    },
+    "planeWizardScanSurfaceLedHint": {
+        "message": "Pulse each scratch slot until this surface deflects. Click Moved if it did, Didn't move otherwise — the wizard advances to the next missing surface as soon as you find a positive match."
+    },
+    "planeWizardScanMoved": {
+        "message": "Moved"
+    },
+    "planeWizardScanDidntMove": {
+        "message": "Didn't move"
+    },
+    "planeWizardScanComplete": {
+        "message": "All missing surfaces matched. Click Continue to apply the rewrite."
+    },
     "planeWizardScanProgress": {
         "message": "Scan slot"
     },
