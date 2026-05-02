@@ -4073,6 +4073,42 @@ button {
     color: #888;
     font-style: italic;
 }
+/* Plane Setup Wizard / Reset wing config launcher row.
+   Without these the global .save_btn rules only apply inside
+   .fixed_band, so the buttons fall back to bare anchor-yellow
+   text. Mirror the bottom-toolbar style and bump the size one
+   notch up so they read as the primary entry-points to the tab. */
+.wing_launcher_buttons {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 4px 0;
+}
+.wing_launcher_buttons .save_btn {
+    margin: 0;
+}
+.wing_launcher_buttons .save_btn a.update {
+    display: inline-block;
+    background-color: var(--primary-500);
+    border: 1px solid var(--primary-600);
+    border-radius: 4px;
+    color: #000;
+    font-weight: bold;
+    font-size: 13px;
+    padding: 0 14px;
+    line-height: 32px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color ease 0.15s;
+}
+.wing_launcher_buttons .save_btn a.update:hover {
+    background-color: var(--primary-400);
+}
+.wing_launcher_buttons .save_btn a.update.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
 .preset_modal_overlay {
     position: fixed;
     inset: 0;
