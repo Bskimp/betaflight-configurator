@@ -559,7 +559,7 @@
                                     class="wizard-observation-card"
                                     :class="{
                                         'wizard-observation-card--selected':
-                                            directionObservations[currentDirectionSlot.surface.servoN]?.[
+                                            directionObservations[currentDirectionSlot.surface.slotN]?.[
                                                 currentDirectionSlot.axis
                                             ] === 'match',
                                     }"
@@ -573,7 +573,7 @@
                                     class="wizard-observation-card"
                                     :class="{
                                         'wizard-observation-card--selected':
-                                            directionObservations[currentDirectionSlot.surface.servoN]?.[
+                                            directionObservations[currentDirectionSlot.surface.slotN]?.[
                                                 currentDirectionSlot.axis
                                             ] === 'wrong',
                                     }"
@@ -1146,7 +1146,6 @@ import {
     buildEndpointStops,
     adjustEndpoint,
     computeEndpointChanges,
-    slotForServoN,
     END_MIN,
 } from "../../js/utils/wingEndpoints";
 import {
@@ -1344,7 +1343,13 @@ const directionError = ref(null);
 const directionSlots = computed(() => {
     const slots = [];
     for (const surface of surfaces.value) {
-        const slotN = surface.pad + 1; // SLOT enum = SERVO N + 1
+        // SLOT enum = silkscreen SERVO N + 1 (planePresets convention,
+        // wing-fork reserves SLOT 0+1). surface.slotN is the 1-based CLI
+        // servo number — adding 1 yields the SLOT enum value (SERVO 1
+        // → SLOT 2 = ELEVATOR). Earlier `surface.pad + 1` was string
+        // concatenation ("1" + 1 = "11"), broke the rules lookup, and
+        // left directionSlots empty so the entire Direction UI was gated.
+        const slotN = surface.slotN + 1;
         const axes = axesForSurface(props.rules ?? [], slotN);
         for (const axis of axes) {
             slots.push({ surface, axis });
@@ -1408,11 +1413,14 @@ function setDirectionMode(mode) {
 function recordDirectionObservation(result) {
     const slot = currentDirectionSlot.value;
     if (!slot) return;
-    const servoN = slot.surface.pad;
-    if (!directionObservations.value[servoN]) {
-        directionObservations.value[servoN] = {};
+    // Key by 1-based slotN — matches what proceedFromDirectionWalk
+    // passes to computeDirectionFixes (whose contract is 1-based servoN
+    // per its tests + JSDoc).
+    const slotKey = slot.surface.slotN;
+    if (!directionObservations.value[slotKey]) {
+        directionObservations.value[slotKey] = {};
     }
-    directionObservations.value[servoN][slot.axis] = result;
+    directionObservations.value[slotKey][slot.axis] = result;
     // Auto-advance to next (surface, axis).
     if (directionSlotIdx.value < directionSlots.value.length - 1) {
         directionSlotIdx.value += 1;
@@ -1431,7 +1439,7 @@ async function pulseDirectionAxis() {
         // correct deflection direction. Rate sign is what we're
         // verifying — pulsing in the rule's sign means: "if the rule
         // is right, surface deflects the way the user expects."
-        const slotN = slot.surface.pad + 1;
+        const slotN = slot.surface.slotN + 1;
         const rules = props.rules ?? [];
         const inputId = { roll: 0, pitch: 1, yaw: 2 }[slot.axis];
         const rule = rules.find((r) => r.target === slotN && r.input === inputId);
@@ -1454,7 +1462,11 @@ function proceedFromDirectionWalk() {
     directionFixes.value = computeDirectionFixes({
         rules: props.rules ?? [],
         airframeSurfaces: surfaces.value.map((s) => ({
-            servoN: s.pad,
+            // computeDirectionFixes expects 1-based servoN (per its
+            // tests: SERVO 1 → servoN=1, targetSlot=2). Pass slotN
+            // (1-based numeric) — earlier `s.pad` was the string form
+            // and broke `targetSlot = servoN + 1` via string concat.
+            servoN: s.slotN,
             expectedSurface: s.label,
             label: s.label,
         })),
@@ -1532,10 +1544,14 @@ async function initEndpoints() {
         endpointError.value = err?.message || String(err);
         return;
     }
-    // Wizard surfaces carry `pad` (silkscreen N); the pure utility
-    // expects `servoN`. Map at the call site (same pattern as Direction).
+    // wingEndpoints expects 1-based silkscreen servoN (matches its
+    // tests + slotForServoN's `+1 = SLOT enum`). Wizard surfaces
+    // carry `slotN` as the 1-based numeric form; `pad` was the
+    // string form and earlier broke `slotForServoN` via string
+    // concat, leaving endpointSlots empty and gating the entire
+    // walking UI to the "skip if defaults are fine" callout.
     const mappedSurfaces = surfaces.value.map((s) => ({
-        servoN: s.pad,
+        servoN: s.slotN,
         label: s.label,
     }));
     endpointSlots.value = buildEndpointSlots(mappedSurfaces, FC.SERVO_CONFIG ?? []);
@@ -1566,7 +1582,11 @@ async function holdCurrentEndpoint() {
     endpointError.value = null;
     try {
         const pwm = stop.end === END_MIN ? slot.min : slot.max;
-        await pulseServoMiddle(slotForServoN(slot.surface.servoN), pwm, ENDPOINT_HOLD_DURATION_MS);
+        // pulseServoMiddle takes the CLI silkscreen number (1-based)
+        // and internally converts to firmware servoIdx. surface.servoN
+        // is already 1-based here — wrapping with slotForServoN would
+        // double-shift and pulse the wrong physical servo.
+        await pulseServoMiddle(slot.surface.servoN, pwm, ENDPOINT_HOLD_DURATION_MS);
         endpointHoldEnd.value = stop.end;
         // Auto-clear the hold-end indicator when firmware's auto-clear fires.
         setTimeout(() => {

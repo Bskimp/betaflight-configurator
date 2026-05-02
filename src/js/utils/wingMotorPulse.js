@@ -21,9 +21,29 @@
 import MSP from "../msp";
 import MSPCodes from "../msp/MSPCodes";
 import { mspHelper } from "../msp/MSPHelper";
+import FC from "../fc";
+import EscProtocols from "./EscProtocols";
+import DshotCommand from "./DshotCommand";
 
 const NUM_MOTOR_SLOTS = 8;
 const MOTOR_OFF = 1000; // PWM-equivalent; firmware translates per protocol.
+
+// DShot ESCs ignore MSP_SET_MOTOR commands until they receive an
+// explicit "enable extended dshot telemetry" handshake (CMD 13). This
+// matches what useMotorTesting.js does for the regular Motors tab —
+// without it, the wizard's pulse buttons silently no-op on every
+// modern (DShot) wing build. Analog protocols don't need the handshake.
+function isDigitalProtocol() {
+    const apiVersion = FC.CONFIG?.apiVersion;
+    const protocolIndex = FC.MOTOR_CONFIG?.motor_pwm_protocol;
+    if (apiVersion == null || protocolIndex == null) return false;
+    return EscProtocols.IsProtocolDshot(apiVersion, protocolIndex);
+}
+
+function sendDshotCommand(commandCode) {
+    const buffer = [DshotCommand.dshotCommandType_e.DSHOT_CMD_TYPE_BLOCKING, DshotCommand.ALL_MOTORS, 1, commandCode];
+    MSP.send_message(MSPCodes.MSP2_SEND_DSHOT_COMMAND, buffer);
+}
 
 // Same ignore set as useMotorTesting.js — keys the user is likely to
 // press accidentally while operating the wizard (Tab to focus, etc).
@@ -67,6 +87,13 @@ function safeKeyHandler(e) {
 export async function enableMotorTest() {
     if (testEnabled) return;
     testEnabled = true;
+    // DShot handshake first: CMD 13 enables extended dshot telemetry,
+    // which is what unlocks ESCs to accept MSP_SET_MOTOR while the
+    // craft is disarmed. Without this every pulseMotor call silently
+    // no-ops on digital wings. Analog protocols skip the handshake.
+    if (isDigitalProtocol()) {
+        sendDshotCommand(13);
+    }
     // setArmingEnabled(disabled, persist): true/true sets the BF arming-
     // disabled flag and persists it for the duration of the session.
     await new Promise((resolve) => {
@@ -80,6 +107,11 @@ export async function disableMotorTest() {
     testEnabled = false;
     document.removeEventListener("keydown", safeKeyHandler);
     stopMotors();
+    // DShot teardown: explicit MOTOR_STOP so ESCs latch off cleanly
+    // instead of holding the last commanded value across a reboot.
+    if (isDigitalProtocol()) {
+        sendDshotCommand(DshotCommand.dshotCommands_e.DSHOT_CMD_MOTOR_STOP);
+    }
     await new Promise((resolve) => {
         mspHelper.setArmingEnabled(false, false, resolve);
     });

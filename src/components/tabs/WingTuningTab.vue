@@ -3621,10 +3621,12 @@ export default defineComponent({
         async function wizardApplyEndpointsCallback(changes) {
             // wingEndpoints.js emits change objects shaped:
             //   { servoN, label, oldMin, oldMax, newMin, newMax }
-            // servoN is 0-based; FC.SERVO_CONFIG[servoN + 1] is the
-            // wing-fork slot (1-indexed array, [0] reserved). Endpoints
-            // step only mutates min/max — middle stays at user-set
-            // value, so we don't touch it here.
+            // servoN is 1-based silkscreen (matches the utility's
+            // tests + Direction's convention). Wing-fork SERVO_CONFIG
+            // reserves [0]+[1], so SERVO 1 lives at index 2 — `+1`
+            // gets us there from a 1-based servoN. Endpoints step
+            // only mutates min/max — middle stays at user-set value,
+            // so we don't touch it here.
             if (!Array.isArray(changes) || changes.length === 0) return;
             for (const c of changes) {
                 const cfg = FC.SERVO_CONFIG?.[c.servoN + 1];
