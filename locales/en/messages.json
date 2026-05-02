@@ -1219,7 +1219,7 @@
         "message": "Motor count"
     },
     "planeWizardDoneNextSteps": {
-        "message": "Phases 4–6 of this wizard (servo identity, direction check, endpoints, and motor identity) ship in a follow-up update. For now, verify your servos move correctly via the Mixer sub-tab before flight."
+        "message": "All wizard phases are committed: servo identity, direction, endpoints, motor identity, and yaw. Open the Mixer sub-tab if you need to fine-tune individual smix rules, then move on to the Tuning sub-tab for PID and rates before your maiden."
     },
     "planeWizardBack": {
         "message": "Back"

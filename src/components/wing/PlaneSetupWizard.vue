@@ -1945,8 +1945,11 @@ async function runMotorFinal() {
     try {
         await teardownMotorTest();
         await props.applyMotorFinalCallback(result.cliLines);
-        completed.value.add(STEP_MOTORS);
-        step.value = STEP_DONE;
+        // Post-scan-final must funnel through advanceFromMotorIdentity()
+        // so twin-motor wings still hit the yaw-walking sub-phase. The
+        // earlier direct `step.value = STEP_DONE` jumped past yaw entirely
+        // whenever the user took the scan path.
+        advanceFromMotorIdentity();
     } catch (err) {
         motorError.value = err?.message || String(err);
     } finally {
