@@ -3366,9 +3366,9 @@ export default defineComponent({
         const PHASE_TO_START_STEP = {
             "post-remap": 4, // Discovery committed → Direction
             "post-scan-prep": 3, // mid-Discovery scan walk continues
-            "post-motors": 6, // motor commit → continue MOTORS (yaw sub-phase)
+            "post-motors": 6, // motor identity committed → MOTORS (yaw sub-phase decides on resume)
             "post-motor-scan-prep": 6, // motor scan walk continues at MOTORS
-            "post-motor-final": 7, // motor binding done → Done
+            "post-motor-final": 6, // scan-final committed → MOTORS (yaw sub-phase decides on resume)
             "post-yaw-flip": 7, // yaw flip done → Done
         };
 

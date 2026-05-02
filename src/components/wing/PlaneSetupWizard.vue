@@ -2815,6 +2815,21 @@ function resetState() {
             // Post-remap resume lands at Direction. Discovery is done.
             completed.value.add(STEP_DISCOVERY);
             discoveryPhase.value = "gate"; // irrelevant for STEP_DIRECTION
+        } else if (props.resumeState.phase === "post-motors" || props.resumeState.phase === "post-motor-final") {
+            // Identity (or scan-final) committed via reboot. Twin-motor
+            // wings still need yaw direction verification — single-motor
+            // wings have no diff-thrust yaw to verify, so they advance
+            // straight to Done.
+            completed.value.add(STEP_DISCOVERY);
+            completed.value.add(STEP_DIRECTION);
+            completed.value.add(STEP_ENDPOINTS);
+            discoveryPhase.value = "gate";
+            if ((props.motorCount ?? 1) >= 2) {
+                motorPhase.value = "yaw-walking";
+            } else {
+                completed.value.add(STEP_MOTORS);
+                step.value = STEP_DONE;
+            }
         } else if (props.resumeState.phase === "post-motor-scan-prep") {
             // Motor scan-prep just rebooted. Land at STEP_MOTORS with
             // motorPhase = "scanning", populated from the persisted
