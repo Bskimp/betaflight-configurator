@@ -2880,7 +2880,13 @@ function resetState() {
     remapResult.value = null;
     remapInFlight.value = false;
     remapError.value = null;
-    scanPlan.value = null;
+    // scanPlan: only reset when NOT resuming into the scan walk —
+    // post-scan-prep resume rehydrates scanPlan above and nulling it
+    // here would wipe the surface-led banner's target, leaving the
+    // Moved button permanently disabled.
+    if (props.resumeState?.phase !== "post-scan-prep") {
+        scanPlan.value = null;
+    }
     scanInFlight.value = false;
     scanError.value = null;
     scanObservations.value = {};
