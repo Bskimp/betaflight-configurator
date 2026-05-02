@@ -87,18 +87,34 @@ function safeKeyHandler(e) {
 export async function enableMotorTest() {
     if (testEnabled) return;
     testEnabled = true;
-    // DShot handshake first: CMD 13 enables extended dshot telemetry,
-    // which is what unlocks ESCs to accept MSP_SET_MOTOR while the
-    // craft is disarmed. Without this every pulseMotor call silently
-    // no-ops on digital wings. Analog protocols skip the handshake.
-    if (isDigitalProtocol()) {
-        sendDshotCommand(13);
+    // FC.MOTOR_CONFIG.motor_pwm_protocol is what isDigitalProtocol()
+    // checks. WingTuningTab doesn't fetch MSP_MOTOR_CONFIG on its
+    // reload, so if the user opens the wizard without first visiting
+    // Motors / PID tab it'd be stale (or undefined → isDigitalProtocol
+    // returns false → no DShot handshake → digital ESCs ignore every
+    // pulse). One refresh here keeps it bulletproof regardless of
+    // navigation order.
+    try {
+        await MSP.promise(MSPCodes.MSP_MOTOR_CONFIG);
+    } catch {
+        // Best-effort: if the fetch fails, fall through with whatever's
+        // cached. Worst case we miss the DShot handshake on a stale
+        // FC.MOTOR_CONFIG, same as before this fetch was added.
     }
-    // setArmingEnabled(disabled, persist): true/true sets the BF arming-
-    // disabled flag and persists it for the duration of the session.
+    // setArmingEnabled signature is (doEnable, disableRunawayTakeoffPrevention).
+    // Fire it BEFORE the DShot handshake — useMotorTesting orders it
+    // the other way, but in practice the FC needs arming-enabled state
+    // before it'll accept the BLOCKING DShot command.
     await new Promise((resolve) => {
         mspHelper.setArmingEnabled(true, true, resolve);
     });
+    // DShot handshake: CMD 13 enables extended dshot telemetry, which
+    // is what unlocks digital ESCs to accept MSP_SET_MOTOR while the
+    // craft is disarmed. Without this every pulseMotor call silently
+    // no-ops on DShot wings. Analog protocols skip the handshake.
+    if (isDigitalProtocol()) {
+        sendDshotCommand(13);
+    }
     document.addEventListener("keydown", safeKeyHandler);
 }
 
