@@ -3266,9 +3266,21 @@ export default defineComponent({
             //     COMBINED (standard_plane, v_tail — rudder + motor diff)
             //   motorCount=2 + no STABILIZED_YAW rule → DIFF_THRUST
             //     (flying_wing — motor-only yaw)
+            //
+            // COMBINED only exists on the wing-fork (capability bit 4);
+            // on mainline FCs we fall back to RUDDER for that branch.
+            // The preset has a yaw rule wiring a rudder/V-tail surface,
+            // so RUDDER is the right downgrade — DIFF_THRUST would
+            // ignore the rudder servo and feel wrong to the pilot.
             const presetHasYawRule = preset.rules.some((r) => r.input === INPUT_SOURCES.STABILIZED_YAW);
-            const effectiveYawType =
-                motorCount.value === 2 ? (presetHasYawRule ? "COMBINED" : "DIFF_THRUST") : preset.yawType;
+            const wantsCombined = motorCount.value === 2 && presetHasYawRule;
+            const effectiveYawType = wantsCombined
+                ? combinedYawSupported.value
+                    ? "COMBINED"
+                    : "RUDDER"
+                : motorCount.value === 2
+                    ? "DIFF_THRUST"
+                    : preset.yawType;
 
             // Stage reactive state. The existing diffThrustMode watcher
             // zeroes s_yaw when yaw_type flips to DIFF_THRUST. mmix lines
