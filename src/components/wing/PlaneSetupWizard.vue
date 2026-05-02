@@ -352,58 +352,44 @@
                                     </button>
                                 </div>
                                 <p v-if="pulseError" class="wizard-blocker">{{ pulseError }}</p>
-                                <!-- Surface-led 2-card pick — DISABLED while
-                                     scan finalize semantics are being chased.
-                                     onScanSurfaceMoved writes a surface label
-                                     to scanObservations[slot.servoN] but the
-                                     finalize step still reports surfaces as
-                                     "couldn't be found"; needs investigation
-                                     into computeFinalRemap's expected key
-                                     space. Re-enable once that's nailed by
-                                     swapping v-if values on this block and
-                                     the dropdown block below. -->
-                                <div v-if="false" class="wizard-button-row">
+                                <!-- Surface-led "Searching for X" banner.
+                                     Names the missing surface the wizard
+                                     is currently hunting for so the user
+                                     knows what the Moved button will bind.
+                                     Hidden once every missing surface has
+                                     been matched (currentSearchingSurface
+                                     is null) — Continue advances. -->
+                                <div v-if="currentSearchingSurface" class="wizard-callout wizard-callout--info">
+                                    <strong>
+                                        {{ $t("planeWizardScanSearchingFor") }}
+                                        {{ currentSearchingSurface }}
+                                    </strong>
+                                    <p>{{ $t("planeWizardScanSurfaceLedHint") }}</p>
+                                </div>
+                                <div v-else class="wizard-callout wizard-callout--success">
+                                    <strong>{{ $t("planeWizardScanComplete") }}</strong>
+                                </div>
+                                <!-- Two-button surface-led pick. Greedy:
+                                     each Moved click consumes the current
+                                     search target; Not-moved just advances
+                                     the slot. -->
+                                <div class="wizard-button-row">
                                     <button
                                         type="button"
-                                        class="wizard-btn wizard-btn--success"
-                                        :disabled="pulseInFlight"
+                                        class="wizard-btn wizard-btn--primary"
+                                        :disabled="pulseInFlight || !currentSearchingSurface"
                                         @click="onScanSurfaceMoved"
                                     >
                                         {{ $t("planeWizardScanMoved") }}
                                     </button>
                                     <button
                                         type="button"
-                                        class="wizard-btn wizard-btn--secondary"
+                                        class="wizard-btn"
                                         :disabled="pulseInFlight"
                                         @click="onScanSurfaceDidntMove"
                                     >
                                         {{ $t("planeWizardScanDidntMove") }}
                                     </button>
-                                </div>
-                                <!-- Legacy dropdown — RESTORED while
-                                     surface-led UI is debugged. -->
-                                <div class="wizard-dropdown-row">
-                                    <label class="wizard-dropdown-label">{{
-                                        $t("planeWizardDiscoveryDropdownLabel")
-                                    }}</label>
-                                    <select
-                                        class="wizard-dropdown"
-                                        :value="scanObservations[scanSlots[scanSurfaceIdx].servoN] ?? OBS_NOTHING"
-                                        :disabled="pulseInFlight"
-                                        @change="pickScanObservation($event.target.value)"
-                                    >
-                                        <optgroup :label="$t('planeWizardDiscoveryGroupSurfaces')">
-                                            <option v-for="opt in surfaceOptions" :key="opt.value" :value="opt.value">
-                                                {{ opt.label }}
-                                            </option>
-                                        </optgroup>
-                                        <optgroup :label="$t('planeWizardDiscoveryGroupOutcomes')">
-                                            <option :value="OBS_NOTHING">{{ $t("planeWizardObsNothingTitle") }}</option>
-                                            <option :value="OBS_MULTIPLE">
-                                                {{ $t("planeWizardObsMultipleTitle") }}
-                                            </option>
-                                        </optgroup>
-                                    </select>
                                 </div>
                             </template>
                         </template>
@@ -938,38 +924,36 @@
                             </button>
                             <p v-if="motorError" class="wizard-blocker">{{ motorError }}</p>
 
-                            <p class="wizard-help wizard-help--small">{{ $t("planeWizardMotorsObsPrompt") }}</p>
-                            <div class="wizard-motor-obs">
+                            <!-- Surface-led "Searching for M{N}" banner.
+                                 Names the missing motor the wizard is
+                                 hunting for; greedy binding consumes
+                                 targets in order on each Moved click. -->
+                            <div v-if="currentMotorScanSearchingTarget" class="wizard-callout wizard-callout--info">
+                                <strong>
+                                    {{ $t("planeWizardScanSearchingFor") }}
+                                    MOTOR {{ currentMotorScanSearchingTarget }}
+                                </strong>
+                                <p>{{ $t("planeWizardScanSurfaceLedHint") }}</p>
+                            </div>
+                            <div v-else class="wizard-callout wizard-callout--success">
+                                <strong>{{ $t("planeWizardScanComplete") }}</strong>
+                            </div>
+                            <div class="wizard-button-row">
                                 <button
-                                    v-for="missingIdx in motorScanMissingList"
-                                    :key="missingIdx"
                                     type="button"
-                                    class="wizard-observation-card"
-                                    :class="{
-                                        'wizard-observation-card--selected':
-                                            motorScanObservations[currentMotorScanSlot.scratchIdx]?.result === 'swap' &&
-                                            motorScanObservations[currentMotorScanSlot.scratchIdx]?.swapWith ===
-                                                missingIdx,
-                                    }"
-                                    @click="recordMotorScanObservation('swap', missingIdx)"
+                                    class="wizard-btn wizard-btn--primary"
+                                    :disabled="motorPulseInFlight || !currentMotorScanSearchingTarget"
+                                    @click="onMotorScanMoved"
                                 >
-                                    <strong>{{
-                                        motorWalkPool.find((m) => m.motorIdx === missingIdx)?.label ||
-                                        "Motor " + missingIdx
-                                    }}</strong>
-                                    <span>{{ $t("planeWizardMotorsScanIdentifiedHelp") }}</span>
+                                    {{ $t("planeWizardScanMoved") }}
                                 </button>
                                 <button
                                     type="button"
-                                    class="wizard-observation-card"
-                                    :class="{
-                                        'wizard-observation-card--selected':
-                                            motorScanObservations[currentMotorScanSlot.scratchIdx]?.result === 'none',
-                                    }"
-                                    @click="recordMotorScanObservation('none')"
+                                    class="wizard-btn"
+                                    :disabled="motorPulseInFlight"
+                                    @click="onMotorScanDidntMove"
                                 >
-                                    <strong>{{ $t("planeWizardMotorsNoneTitle") }}</strong>
-                                    <span>{{ $t("planeWizardMotorsNoneHelp") }}</span>
+                                    {{ $t("planeWizardScanDidntMove") }}
                                 </button>
                             </div>
                         </template>
@@ -1693,6 +1677,41 @@ const motorScanMissingList = computed(() =>
         .map(Number),
 );
 const motorsAutoSkipped = computed(() => (props.motorCount ?? 1) <= 1);
+
+// Surface-led motor scan target. Returns the first motorIdx in
+// motorScanMissingList that hasn't been claimed yet (i.e. no scratch
+// slot's observation has swapWith === motorIdx). Drives the "Searching
+// for M{N}" banner; null once every missing motor has a slot match.
+const currentMotorScanSearchingTarget = computed(() => {
+    const missing = motorScanMissingList.value;
+    if (missing.length === 0) return null;
+    const matched = new Set();
+    for (const obs of Object.values(motorScanObservations.value)) {
+        if (obs?.result === "swap" && obs.swapWith != null) matched.add(obs.swapWith);
+    }
+    return missing.find((m) => !matched.has(m)) ?? null;
+});
+
+function onMotorScanMoved() {
+    const slot = currentMotorScanSlot.value;
+    const target = currentMotorScanSearchingTarget.value;
+    if (!slot || target == null) return;
+    motorScanObservations.value[slot.scratchIdx] = { result: "swap", swapWith: target };
+    advanceMotorScanSlot();
+}
+
+function onMotorScanDidntMove() {
+    const slot = currentMotorScanSlot.value;
+    if (!slot) return;
+    motorScanObservations.value[slot.scratchIdx] = { result: "none" };
+    advanceMotorScanSlot();
+}
+
+function advanceMotorScanSlot() {
+    if (motorScanIdx.value < motorScanSlots.value.length - 1) {
+        motorScanIdx.value += 1;
+    }
+}
 
 async function ensureMotorTestEnabled() {
     if (motorTestReady.value) return;
@@ -2689,6 +2708,12 @@ async function runScan() {
         await props.applyScanCallback({
             cliLines: scanPlan.value.cliLines,
             scanSlots: scanPlan.value.scanSlots,
+            // missingSurfaces is what drives the surface-led "Searching
+            // for X" banner during the scan walk. Round-tripping it
+            // through the resume marker is what re-hydrates scanPlan
+            // post-reboot — without it currentSearchingSurface always
+            // returns null and the Moved button no-ops silently.
+            missingSurfaces: scanPlan.value.missingSurfaces,
             originalObservations: originalObservationsForFinal.value,
             currentResources: postScanResources,
         });
@@ -2811,11 +2836,22 @@ function resetState() {
             discoveryPhase.value = "gate";
         } else if (props.resumeState.phase === "post-scan-prep") {
             // Resume directly into the scan walking sub-phase. The
-            // parent persisted scanSlots + originalObservations across
-            // the scan-prep reboot so computeFinalRemap can run later.
+            // parent persisted scanSlots + originalObservations + the
+            // missingSurfaces list across the scan-prep reboot so the
+            // surface-led "Searching for X" banner has a target and
+            // computeFinalRemap can run on Continue.
             discoveryPhase.value = "scanning";
             scanSlots.value = props.resumeState.scanSlots ?? [];
             originalObservationsForFinal.value = props.resumeState.originalObservations ?? {};
+            // Re-hydrate enough of scanPlan that currentSearchingSurface
+            // can compute. Eligible+cliLines aren't needed post-reboot
+            // (the prep batch already ran).
+            scanPlan.value = {
+                eligible: true,
+                cliLines: [],
+                scanSlots: scanSlots.value,
+                missingSurfaces: props.resumeState.missingSurfaces ?? [],
+            };
             propsConfirmedForDiscovery.value = true; // already passed gate
         } else {
             discoveryPhase.value = "gate";

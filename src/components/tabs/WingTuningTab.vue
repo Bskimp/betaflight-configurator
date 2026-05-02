@@ -3674,11 +3674,18 @@ export default defineComponent({
             await fireWizardCliBatch(cliLines);
         }
 
-        async function wizardApplyScanCallback({ cliLines, scanSlots, originalObservations, currentResources }) {
+        async function wizardApplyScanCallback({
+            cliLines,
+            scanSlots,
+            missingSurfaces,
+            originalObservations,
+            currentResources,
+        }) {
             if (!Array.isArray(cliLines) || cliLines.length === 0) return;
             persistWizardMarker({
                 phase: "post-scan-prep",
                 scanSlots,
+                missingSurfaces,
                 originalObservations,
                 currentResources,
             });
