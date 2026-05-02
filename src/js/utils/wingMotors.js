@@ -109,18 +109,29 @@ export function buildMotorWalkPool(expectedMotors) {
 // @param opts.missingMotors    - [motorIdx] (from computeMotorIdentity.missing)
 // @param opts.currentBindings  - [{motorIdx, pad}] currently-bound motors
 // @param opts.padDefaults      - { motors: [{index, pad}], ledStrips: [{pad}] }
+// @param opts.servoBoundPads   - [pad] OR Set<pad> currently bound as
+//                                SERVOS. Excluded from the scan candidate
+//                                pool so we never overwrite a working
+//                                servo binding with `resource MOTOR N
+//                                <thatPad>`. Optional — defaults to empty;
+//                                pre-Discovery callers (no servo binds
+//                                yet) can omit it.
 // @returns {
 //   cliLines:   [string],
 //   scanSlots:  [{scratchIdx, pad}],   // where each free pad got bound
 //   scratchStart: number,              // first scratch motorIdx used
 // }
-export function computeMotorScanPlan({ missingMotors, currentBindings, padDefaults }) {
+export function computeMotorScanPlan({ missingMotors, currentBindings, padDefaults, servoBoundPads = [] }) {
     const cliLines = [];
     const scanSlots = [];
     const boundPads = new Set(currentBindings.map((b) => b.pad));
-    // Free silkscreen-MOTOR pads — those NOT already bound to a motor.
-    // Sort by silkscreen index so scratch slots walk in M-N order.
-    const freePads = (padDefaults?.motors ?? []).filter((m) => !boundPads.has(m.pad)).sort((a, b) => a.index - b.index);
+    const servoPadSet = servoBoundPads instanceof Set ? servoBoundPads : new Set(servoBoundPads);
+    // Free silkscreen-MOTOR pads — those NOT already bound to a motor
+    // AND NOT bound as a servo. Sort by silkscreen index so scratch
+    // slots walk in M-N order.
+    const freePads = (padDefaults?.motors ?? [])
+        .filter((m) => !boundPads.has(m.pad) && !servoPadSet.has(m.pad))
+        .sort((a, b) => a.index - b.index);
 
     if (missingMotors.length === 0 || freePads.length === 0) {
         return { cliLines, scanSlots, scratchStart: 0 };

@@ -1891,10 +1891,17 @@ async function runMotorScanPrep() {
         motorIdx: m.motorIdx,
         pad: m.pad,
     }));
+    // Servo-bound pads must also be excluded from the scan candidate
+    // pool — Discovery's remap can land servos on silkscreen-motor
+    // pads, and we don't want the motor scan to overwrite those
+    // bindings with `resource MOTOR N <pad>`. props.currentResources
+    // is the {servoN: pad} map from the parent.
+    const servoBoundPads = Object.values(props.currentResources ?? {}).filter(Boolean);
     const plan = computeMotorScanPlan({
         missingMotors: motorIdentityResult.value.missing,
         currentBindings,
         padDefaults: props.padDefaults,
+        servoBoundPads,
     });
     if (plan.cliLines.length === 0) {
         motorError.value = i18n.getMessage("planeWizardMotorsNoFreePads");
