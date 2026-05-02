@@ -2824,10 +2824,15 @@ function resetState() {
             motorScanObservations.value = Object.fromEntries(
                 motorScanSlots.value.map((s) => [s.scratchIdx, { result: "none" }]),
             );
-            // Recreate the "missing motors" carry from the prior walk
-            // so computeMotorScanFinal has the right input. Stored on
-            // the resume state by the parent.
-            motorObservations.value = props.resumeState.motorObservations ?? {};
+            // Recreate motorObservations from missingMotors so the
+            // surface-led "Searching for MOTOR N" banner has a target
+            // and computeMotorScanFinal sees the right "missing" set.
+            // The parent's marker stores missingMotors directly (a
+            // simple list of motorIdx); rebuild { [idx]: {result:
+            // "none"} } to match what the original walk would have left
+            // in motorObservations.
+            const missingFromMarker = props.resumeState.missingMotors ?? [];
+            motorObservations.value = Object.fromEntries(missingFromMarker.map((idx) => [idx, { result: "none" }]));
         } else if (step.value === STEP_DONE) {
             completed.value.add(STEP_DISCOVERY);
             completed.value.add(STEP_DIRECTION);

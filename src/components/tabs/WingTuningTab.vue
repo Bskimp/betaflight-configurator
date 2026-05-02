@@ -3698,9 +3698,14 @@ export default defineComponent({
             await fireWizardCliBatch(cliLines);
         }
 
-        async function wizardApplyMotorScanPrepCallback({ cliLines, scanSlots }) {
+        async function wizardApplyMotorScanPrepCallback({ cliLines, scanSlots, missingMotors }) {
             if (!Array.isArray(cliLines) || cliLines.length === 0) return;
-            persistWizardMarker({ phase: "post-motor-scan-prep", scanSlots });
+            // missingMotors round-trips through the marker so the
+            // wizard's surface-led "Searching for MOTOR N" banner has
+            // a target after the reboot. Without this, motorObservations
+            // re-hydrates empty, motorScanMissingList computes [], and
+            // the Moved button stays disabled.
+            persistWizardMarker({ phase: "post-motor-scan-prep", scanSlots, missingMotors });
             await fireWizardCliBatch(cliLines);
         }
 
