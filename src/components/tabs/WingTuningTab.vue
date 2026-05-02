@@ -2351,14 +2351,17 @@ export default defineComponent({
         // returning to the tab opens where the user left off.
         const SUB_TAB_STORAGE_KEY = "wingTuningActiveSubTab";
         const SUB_TAB_IDS = ["tuning", "mixer", "launch", "gps_rescue", "autoland", "hardware"];
-        // Sub-tab visibility gates Launch / GPS Rescue / Autoland behind
-        // their respective wing-fork capability bits — mainline (post
-        // BF #13719) FCs return all-zero, so those tabs hide. Tuning /
-        // Mixer / Hardware stay always-visible (any USE_WING build has them).
+        // Sub-tab visibility gates fork-only sub-tabs behind their
+        // respective wing-fork capability bits — mainline (post
+        // BF #13719/#14972) FCs NACK the capabilities probe, so caps
+        // ends up empty and Tuning / Launch / GPS Rescue / Autoland
+        // all hide. Mixer + Hardware stay always-visible — they work
+        // on both targets via MSP2_CLI_SETTING (#14972).
         const availableSubTabIds = computed(() => {
             const caps = FC.CONFIG?.wingCapabilities ?? {};
             return SUB_TAB_IDS.filter((id) => {
-                if (id === "tuning" || id === "mixer" || id === "hardware") return true;
+                if (id === "mixer" || id === "hardware") return true;
+                if (id === "tuning") return caps.tuning === true;
                 if (id === "launch") return caps.launch === true;
                 if (id === "gps_rescue") return caps.gpsRescue === true;
                 if (id === "autoland") return caps.autoland === true;
@@ -2385,6 +2388,16 @@ export default defineComponent({
             // sub-tab switches; explicit Reload button refetches.
             if (v === "hardware" && hardwareAnalysis.value === null && !hardwareLoading.value) {
                 loadHardware();
+            }
+        });
+        // Capabilities arrive asynchronously (MSP2_GET_WING_CAPABILITIES
+        // is fired during reload). If the persisted activeSubTab points
+        // at a sub-tab that turns out to be hidden on this build (e.g.
+        // user was on Tuning then flashed mainline), fall back to Mixer
+        // — always available since #14972's MSP2_CLI_SETTING covers it.
+        watch(availableSubTabIds, (avail) => {
+            if (!avail.includes(activeSubTab.value)) {
+                activeSubTab.value = "mixer";
             }
         });
         // Redirect away from a sub-tab that just became hidden — e.g. user
