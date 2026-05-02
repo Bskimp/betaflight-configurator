@@ -3357,6 +3357,21 @@ export default defineComponent({
         const WIZARD_MARKER_KEY = "wingTuningWizardMarker";
         const WIZARD_MARKER_TTL_MS = 5 * 60 * 1000;
 
+        // Wizard STEP_* enum mirror (PlaneSetupWizard.vue):
+        //   SAFETY=0, AIRFRAME=1, APPLY=2, DISCOVERY=3,
+        //   DIRECTION=4, ENDPOINTS=5, MOTORS=6, DONE=7.
+        // Each reboot-triggering phase maps to the step the wizard should
+        // land on after auto-resume. Without this, the wizard falls back
+        // to STEP_DISCOVERY at "gate" and re-runs Discovery.
+        const PHASE_TO_START_STEP = {
+            "post-remap": 4, // Discovery committed → Direction
+            "post-scan-prep": 3, // mid-Discovery scan walk continues
+            "post-motors": 6, // motor commit → continue MOTORS (yaw sub-phase)
+            "post-motor-scan-prep": 6, // motor scan walk continues at MOTORS
+            "post-motor-final": 7, // motor binding done → Done
+            "post-yaw-flip": 7, // yaw flip done → Done
+        };
+
         function persistWizardMarker(payload) {
             try {
                 // airframeId gates the wizard's resume logic — without
@@ -3366,9 +3381,11 @@ export default defineComponent({
                 // airframe is selected) so every marker carries it.
                 // Callers can override via payload.airframeId.
                 const airframeId = payload.airframeId ?? wiringPresetId.value ?? null;
+                const startAtStep = payload.startAtStep ?? PHASE_TO_START_STEP[payload.phase] ?? 3;
                 const marker = {
                     ...payload,
                     airframeId,
+                    startAtStep,
                     timestamp: Date.now(),
                     target: FC.CONFIG?.targetName ?? null,
                 };
