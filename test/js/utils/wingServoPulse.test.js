@@ -157,6 +157,25 @@ describe("pulseServoMiddle — mainline live-edit-middle path", () => {
         expect(MSP.send_message).not.toHaveBeenCalled();
     });
 
+    it("treats all-false default wingCapabilities object as mainline (regression: bench-observed bug)", async () => {
+        // fc.js initializes wingCapabilities as an all-false object so
+        // sub-tab gates can read bits without null-guarding. Earlier
+        // gate logic (`wingCapabilities != null`) wrongly classified
+        // this as wing-fork → fired MSP2_SET_SERVO_OVERRIDE on mainline
+        // → NACK 12315 → silent servo. Bench user confirmed via console
+        // logs.
+        FC.CONFIG.wingCapabilities = {
+            tuning: false,
+            launch: false,
+            gpsRescue: false,
+            autoland: false,
+            combinedYaw: false,
+        };
+        await pulseServoMiddle(1, 1800, 1);
+        expect(MSP.send_message).not.toHaveBeenCalled();
+        expect(mspHelper.sendServoConfigurations).toHaveBeenCalled();
+    });
+
     it("writes pulse PWM to FC.SERVO_CONFIG middle then restores", async () => {
         const writes = [];
         mspHelper.sendServoConfigurations.mockImplementation((cb) => {

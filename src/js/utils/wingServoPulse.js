@@ -56,12 +56,20 @@ function configIdxFromSlot(slotN) {
     return slotN + 1;
 }
 
-// FC.CONFIG.wingCapabilities is populated by the MSP parser when the
-// firmware ACKs MSP2_GET_WING_CAPABILITIES. Fork yields an object
-// (even if all bits are zero); mainline NACKs and the field stays
-// undefined.
+// FC.CONFIG.wingCapabilities defaults to an all-false object (see
+// fc.js so the wing-only sub-tab gates can read bits without null-
+// guarding). On wing-fork firmware MSP2_GET_WING_CAPABILITIES ACKs
+// and the parser flips bits to true; on mainline it NACKs and the
+// default all-false object stays in place. So we can't use object
+// existence as the fork signal — bench-confirmed mainline NACK still
+// leaves wingCapabilities defined, which had the wizard incorrectly
+// taking the override path and firing MSP2_SET_SERVO_OVERRIDE → NACK
+// → silent servo. Check a specific capability bit instead. The
+// `tuning` bit is always set on the wing-fork (per MSPCodes.js
+// comment: "bit 0: WING_TUNING — always set when MSP2_WING_TUNING is
+// supported") so it's the canonical fork-presence flag.
 function isWingForkActive() {
-    return FC.CONFIG?.wingCapabilities != null;
+    return FC.CONFIG?.wingCapabilities?.tuning === true;
 }
 
 // In-flight live-edit-middle snapshot. Map<configIdx, originalMiddle>.
