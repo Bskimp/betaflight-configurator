@@ -876,6 +876,12 @@
     "planeWizardMotorsScanWalkIntro": {
         "message": "Pulse each free pad and tell us which motor spins. We'll bind that motor to this pad."
     },
+    "planeWizardMotorsScanLedEvictedTitle": {
+        "message": "LED_STRIP temporarily reassigned"
+    },
+    "planeWizardMotorsScanLedEvictedHelp": {
+        "message": "To find the missing motor on this board, the wizard temporarily evicted the LED_STRIP from pad $1. After the wizard finishes, you can rebind LED_STRIP via CLI: resource LED_STRIP 1 <pad>"
+    },
     "planeWizardMotorsScanScratchLabel": {
         "message": "scratch slot"
     },

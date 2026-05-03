@@ -110,31 +110,91 @@ export function buildMotorWalkPool(expectedMotors) {
 // @param opts.currentBindings  - [{motorIdx, pad}] currently-bound motors
 // @param opts.padDefaults      - { motors: [{index, pad}], ledStrips: [{pad}] }
 // @param opts.servoBoundPads   - [pad] OR Set<pad> currently bound as
-//                                SERVOS. Excluded from the scan candidate
-//                                pool so we never overwrite a working
-//                                servo binding with `resource MOTOR N
-//                                <thatPad>`. Optional — defaults to empty;
-//                                pre-Discovery callers (no servo binds
-//                                yet) can omit it.
+//                                SERVOS. NEVER evicted.
+// @param opts.ledStripBoundPads - [pad] OR Set<pad> currently bound as
+//                                LED_STRIP. Tier-B-evictable (only when
+//                                Tier A doesn't yield enough scratch slots).
+// @param opts.freePadSet       - Set<pad> currently FREE per analyzer
+//                                (peripheral === "FREE"). When provided,
+//                                Tier A pads are filtered to this set —
+//                                protects UART/PINIO/SPI/etc. that the
+//                                motors+servos+LED filter alone misses.
+//                                When null/omitted, falls back to the
+//                                legacy filter (motors+servos+LED only).
 // @returns {
-//   cliLines:   [string],
-//   scanSlots:  [{scratchIdx, pad}],   // where each free pad got bound
-//   scratchStart: number,              // first scratch motorIdx used
+//   cliLines:        [string],
+//   scanSlots:       [{scratchIdx, pad}],   // where each free pad got bound
+//   scratchStart:    number,                // first scratch motorIdx used
+//   evictedLedPads:  [pad],                 // LED pads we evicted (Tier B). Empty when Tier A sufficed.
 // }
-export function computeMotorScanPlan({ missingMotors, currentBindings, padDefaults, servoBoundPads = [] }) {
+export function computeMotorScanPlan({
+    missingMotors,
+    currentBindings,
+    padDefaults,
+    servoBoundPads = [],
+    ledStripBoundPads = [],
+    freePadSet = null,
+}) {
     const cliLines = [];
     const scanSlots = [];
+    const evictedLedPads = [];
     const boundPads = new Set(currentBindings.map((b) => b.pad));
     const servoPadSet = servoBoundPads instanceof Set ? servoBoundPads : new Set(servoBoundPads);
-    // Free silkscreen-MOTOR pads — those NOT already bound to a motor
-    // AND NOT bound as a servo. Sort by silkscreen index so scratch
-    // slots walk in M-N order.
-    const freePads = (padDefaults?.motors ?? [])
-        .filter((m) => !boundPads.has(m.pad) && !servoPadSet.has(m.pad))
-        .sort((a, b) => a.index - b.index);
+    const ledPadSet = ledStripBoundPads instanceof Set ? ledStripBoundPads : new Set(ledStripBoundPads);
+    const trueFreePads = freePadSet instanceof Set ? freePadSet : null;
+
+    const motorPool = padDefaults?.motors ?? [];
+
+    // Tier A: silkscreen MOTOR pads truly free of any binding. When
+    // analyzer freePadSet is supplied, intersects with FREE pads —
+    // protects UART/PINIO/SPI/etc. Without freePadSet, falls back to
+    // the legacy "not motor, servo, or LED" filter.
+    let tierAPads;
+    if (trueFreePads) {
+        tierAPads = motorPool.filter((m) => trueFreePads.has(m.pad)).sort((a, b) => a.index - b.index);
+    } else {
+        tierAPads = motorPool
+            .filter((m) => !boundPads.has(m.pad) && !servoPadSet.has(m.pad) && !ledPadSet.has(m.pad))
+            .sort((a, b) => a.index - b.index);
+    }
+
+    // Tier B: Tier A + LED_STRIP-bound silkscreen MOTOR pads. Used as
+    // fallback for pad-constrained boards where the only free TIM
+    // channel is currently assigned to LED_STRIP. Motors and servos
+    // are never in this set.
+    let tierBPads;
+    if (trueFreePads) {
+        tierBPads = motorPool
+            .filter((m) => trueFreePads.has(m.pad) || ledPadSet.has(m.pad))
+            .sort((a, b) => a.index - b.index);
+    } else {
+        tierBPads = motorPool
+            .filter((m) => !boundPads.has(m.pad) && !servoPadSet.has(m.pad))
+            .sort((a, b) => a.index - b.index);
+    }
+
+    // Use Tier B only if Tier A doesn't have enough capacity for the
+    // missing motors AND Tier B genuinely adds candidates. Otherwise
+    // prefer Tier A — never evict LED if we don't have to.
+    const useTierB = tierAPads.length < missingMotors.length && tierBPads.length > tierAPads.length;
+    const freePads = useTierB ? tierBPads : tierAPads;
+
+    if (useTierB) {
+        for (const m of freePads) {
+            if (ledPadSet.has(m.pad)) evictedLedPads.push(m.pad);
+        }
+    }
 
     if (missingMotors.length === 0 || freePads.length === 0) {
-        return { cliLines, scanSlots, scratchStart: 0 };
+        return { cliLines, scanSlots, scratchStart: 0, evictedLedPads };
+    }
+
+    // Release LED_STRIP first if we're evicting any (BF has a single
+    // LED_STRIP resource at index 1 — clearing it frees its pad). Must
+    // happen before the scratch-MOTOR bind on that pad to avoid BF
+    // rejecting on resource conflict.
+    if (evictedLedPads.length > 0) {
+        cliLines.push("resource LED_STRIP 1 NONE");
     }
 
     // Release each missing motor's current binding (the C09-was-empty
@@ -158,7 +218,7 @@ export function computeMotorScanPlan({ missingMotors, currentBindings, padDefaul
         scanSlots.push({ scratchIdx, pad });
     }
 
-    return { cliLines, scanSlots, scratchStart };
+    return { cliLines, scanSlots, scratchStart, evictedLedPads };
 }
 
 // Final commit: after the scan walk, derive the CLI batch that:

@@ -897,6 +897,19 @@
                      spun on each free pad. -->
                         <template v-if="motorPhase === 'scanning' && currentMotorScanSlot">
                             <p class="wizard-help">{{ $t("planeWizardMotorsScanWalkIntro") }}</p>
+                            <div
+                                v-if="motorScanLedEvictionWarning.length > 0"
+                                class="wizard-callout wizard-callout--warn"
+                            >
+                                <strong>{{ $t("planeWizardMotorsScanLedEvictedTitle") }}</strong>
+                                <p>
+                                    {{
+                                        $t("planeWizardMotorsScanLedEvictedHelp", [
+                                            motorScanLedEvictionWarning.join(", "),
+                                        ])
+                                    }}
+                                </p>
+                            </div>
                             <div class="wizard-identity-progress">
                                 {{ $t("planeWizardMotorsProgress") }}
                                 <strong>{{ motorScanIdx + 1 }} / {{ motorScanSlots.length }}</strong>
@@ -1419,20 +1432,26 @@ async function pulseDirectionAxis() {
     pulseError.value = null;
     pulseInFlight.value = true;
     try {
-        // Find the rule's rate for this surface + axis to pick the
-        // correct deflection direction. Rate sign is what we're
-        // verifying — pulsing in the rule's sign means: "if the rule
-        // is right, surface deflects the way the user expects."
-        const slotN = slot.surface.slotN + 1;
+        // Two related-but-distinct values here:
+        //   slotEnum  — SLOT enum value (silkscreen + 1) used for the
+        //               smix rule lookup (rule.target stores SLOT enum).
+        //   pulseSlot — 1-based silkscreen number; pulseServoMiddle adds
+        //               its own +1 internally to reach SERVO_CONFIG[idx].
+        // Earlier code reused slotEnum for the pulse, double-adding +1
+        // and pulsing the next-higher servo (bench: SERVO 1 click moved
+        // physical SERVO 2). Discovery's pulseCurrentSurface passes the
+        // raw silkscreen value and works correctly — same contract here.
+        const slotEnum = slot.surface.slotN + 1;
+        const pulseSlot = slot.surface.slotN;
         const rules = props.rules ?? [];
         const inputId = { roll: 0, pitch: 1, yaw: 2 }[slot.axis];
-        const rule = rules.find((r) => r.target === slotN && r.input === inputId);
+        const rule = rules.find((r) => r.target === slotEnum && r.input === inputId);
         const rate = rule ? rule.rate : 50;
         // PWM offset = rate% × 500us full-scale.
         const offset = (rate / 100) * 500;
         const pwm = Math.max(1000, Math.min(2000, Math.round(1500 + offset)));
         lastPulseDir.value = offset >= 0 ? 1 : -1;
-        await pulseServoMiddle(slotN, pwm, PULSE_DURATION_MS);
+        await pulseServoMiddle(pulseSlot, pwm, PULSE_DURATION_MS);
         await new Promise((resolve) => setTimeout(resolve, PULSE_DURATION_MS));
     } catch (err) {
         pulseError.value = err?.message || String(err);
@@ -1649,6 +1668,11 @@ const motorPulseInFlight = ref(false);
 const motorTestReady = ref(false);
 const motorInFlight = ref(false);
 const motorError = ref(null);
+// LED pads that the motor scan-prep plan evicted (Tier B fallback when
+// Tier A had no/insufficient truly-free silkscreen MOTOR pads). Surfaced
+// in the scan reviewing screen so user knows their LED config will need
+// a manual restore via CLI after the wizard completes.
+const motorScanLedEvictionWarning = ref([]);
 
 const motorWalkPool = computed(() => buildMotorWalkPool(props.expectedMotors ?? []));
 const currentMotorStop = computed(() => motorWalkPool.value[motorWalkIdx.value] ?? null);
@@ -1897,16 +1921,29 @@ async function runMotorScanPrep() {
     // bindings with `resource MOTOR N <pad>`. props.currentResources
     // is the {servoN: pad} map from the parent.
     const servoBoundPads = Object.values(props.currentResources ?? {}).filter(Boolean);
+    // LED_STRIP-bound pads — Tier-B evictable when constrained boards
+    // (F4 minis with the only free TIM channel on the LED pad) leave
+    // no Tier-A capacity. Motors and servos are never evictable.
+    const ledStripBoundPads = (props.hardwareAnalysis?.ledStrips ?? []).map((l) => l.pad).filter(Boolean);
+    // analyzer-derived FREE-pad set. When supplied, computeMotorScanPlan
+    // intersects scratch candidates with this set — protects UART/PINIO/
+    // SPI bindings that the motors+servos+LED filter alone misses.
+    const freePadSet = props.hardwareAnalysis?.freePads ?? null;
     const plan = computeMotorScanPlan({
         missingMotors: motorIdentityResult.value.missing,
         currentBindings,
         padDefaults: props.padDefaults,
         servoBoundPads,
+        ledStripBoundPads,
+        freePadSet,
     });
     if (plan.cliLines.length === 0) {
         motorError.value = i18n.getMessage("planeWizardMotorsNoFreePads");
         return;
     }
+    // Surface LED eviction so the user knows why an LED config they
+    // had survives only a manual restore. Empty list → no warning.
+    motorScanLedEvictionWarning.value = plan.evictedLedPads ?? [];
     if (!props.applyMotorScanPrepCallback) {
         motorError.value = i18n.getMessage("planeWizardMotorsNoCallback");
         return;

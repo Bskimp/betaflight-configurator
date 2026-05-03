@@ -171,6 +171,83 @@ describe("computeMotorScanPlan", () => {
         expect(r.cliLines).toEqual([]);
         expect(r.scanSlots).toEqual([]);
     });
+
+    // ─── Tiered eviction (LED-strip fallback for constrained boards) ───
+    it("Tier A available: never evicts LED_STRIP", () => {
+        const r = computeMotorScanPlan({
+            missingMotors: [2],
+            currentBindings: CURRENT_BINDINGS,
+            padDefaults: PAD_DEFAULTS, // B08, C08 are tier-A free
+            ledStripBoundPads: ["A08"], // LED-bound pad available but Tier A suffices
+            freePadSet: new Set(["B08", "C08"]),
+        });
+        expect(r.evictedLedPads).toEqual([]);
+        expect(r.cliLines).not.toContain("resource LED_STRIP 1 NONE");
+        expect(r.scanSlots.length).toBeGreaterThan(0);
+    });
+
+    it("Tier A insufficient: falls back to Tier B and evicts LED_STRIP", () => {
+        // padDefaults includes 4 silkscreen MOTOR pads. M1 + M4 are
+        // currently bound as motors. M2 has LED_STRIP. M3 is the only
+        // truly free pad. Two motors are missing → Tier A (1 pad)
+        // < missingMotors (2). Falls back to Tier B which adds the
+        // LED-bound pad.
+        const constrainedPads = {
+            motors: [
+                { index: 1, pad: "B06" }, // bound as MOTOR 1
+                { index: 2, pad: "B08" }, // bound as LED_STRIP
+                { index: 3, pad: "C08" }, // truly FREE (Tier A)
+                { index: 4, pad: "C09" }, // bound as MOTOR 2 (originally)
+            ],
+            ledStrips: [{ pad: "B08" }],
+        };
+        const r = computeMotorScanPlan({
+            missingMotors: [2, 3], // need 2 scratch slots
+            currentBindings: [
+                { motorIdx: 1, pad: "B06" },
+                { motorIdx: 2, pad: "C09" }, // user is missing M2 + M3
+            ],
+            padDefaults: constrainedPads,
+            ledStripBoundPads: ["B08"],
+            freePadSet: new Set(["C08"]), // only C08 is truly FREE
+        });
+        expect(r.evictedLedPads).toEqual(["B08"]);
+        expect(r.cliLines[0]).toBe("resource LED_STRIP 1 NONE");
+        // Both pads end up as scratch slots (B08 from Tier B, C08 from Tier A)
+        const slotPads = r.scanSlots.map((s) => s.pad).sort();
+        expect(slotPads).toEqual(["B08", "C08"]);
+    });
+
+    it("freePadSet protects UART/PINIO bindings on silkscreen-MOTOR pads", () => {
+        // C08 is a silkscreen-MOTOR pad currently bound as UART2_TX.
+        // Without freePadSet the legacy filter would consider it a
+        // candidate (not motor, not servo). With freePadSet it's
+        // excluded → wizard refuses to evict the UART.
+        const r = computeMotorScanPlan({
+            missingMotors: [2],
+            currentBindings: CURRENT_BINDINGS,
+            padDefaults: PAD_DEFAULTS, // B08, C08 are silkscreen-MOTOR
+            freePadSet: new Set(["B08"]), // C08 is bound as UART → not free
+        });
+        // Only B08 is eligible. Plan still works but scratches only B08.
+        expect(r.scanSlots.map((s) => s.pad)).toEqual(["B08"]);
+        // C08 must NOT appear anywhere in the bind lines.
+        expect(r.cliLines.some((l) => l.endsWith("C08"))).toBe(false);
+    });
+
+    it("backward compat: works without freePadSet (legacy callers)", () => {
+        const r = computeMotorScanPlan({
+            missingMotors: [2],
+            currentBindings: CURRENT_BINDINGS,
+            padDefaults: PAD_DEFAULTS,
+            // no freePadSet, no ledStripBoundPads
+        });
+        // Falls back to legacy filter (motors+servos only). LED_STRIP
+        // pads aren't in padDefaults.motors so the existing fixture's
+        // behavior is preserved.
+        expect(r.scanSlots.length).toBeGreaterThan(0);
+        expect(r.evictedLedPads).toEqual([]);
+    });
 });
 
 describe("computeMotorScanFinal", () => {

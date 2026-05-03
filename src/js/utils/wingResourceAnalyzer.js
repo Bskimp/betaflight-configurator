@@ -287,6 +287,10 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
         ledStrips,
         serials,
         freePadsCount,
+        // Set<pad> of pads currently FREE (peripheral === "FREE"). Used
+        // by computeMotorScanPlan to gate Tier-A scratch candidates so
+        // UART/PINIO/SPI bindings are never overwritten.
+        freePads,
         freeDmaStreams,
         hardwareFixedPads,
         pwmCapableFreePads,
