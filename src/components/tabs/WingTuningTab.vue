@@ -1723,7 +1723,7 @@
             :apply-motor-final-callback="wizardApplyMotorFinalCallback"
             :apply-yaw-flip-callback="wizardApplyYawFlipCallback"
             @close="closeWizard"
-            @complete="closeWizard"
+            @complete="finishWizard"
             @airframe-selected="onWizardAirframeSelected"
             @motor-count-selected="onWizardMotorCountSelected"
             @cell-count-selected="onWizardCellCountSelected"
@@ -3347,6 +3347,22 @@ export default defineComponent({
             wizardResumeState.value = null;
             clearWizardMarker();
         }
+        // Wizard's Finish button — distinct from X-close. Auto-fires the
+        // tab's save() so any pending dirty state (preset selection,
+        // motorCount changes the wizard nudged, smix rule edits, etc.)
+        // gets committed without the user having to manually click Save
+        // on the Wing Tuning tab afterwards. save() is the same code
+        // path the manual button uses; bench-validated. Errors surface
+        // through the existing tab-level error UI, not the wizard's.
+        async function finishWizard() {
+            try {
+                await save();
+            } catch (err) {
+                console.warn("[WingTuning] auto-save on wizard finish failed:", err);
+            } finally {
+                closeWizard();
+            }
+        }
 
         // Reset wing config — surgical reset that wipes mixer/resource
         // /servo state but preserves UART, RX, modes, battery calibration,
@@ -3853,6 +3869,7 @@ export default defineComponent({
             wizardExpectedMotors,
             openWizard,
             closeWizard,
+            finishWizard,
             performResetWingConfig,
             onWizardAirframeSelected,
             onWizardMotorCountSelected,
