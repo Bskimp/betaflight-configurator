@@ -574,7 +574,7 @@
         "message": "BOTH V-TAILS UP"
     },
     "planeWizardDirectionMotion_v_tail_yaw": {
-        "message": "V-TAILS split (one UP, one DOWN)"
+        "message": "LEFT V-TAIL UP, RIGHT V-TAIL DOWN"
     },
     "planeWizardDirectionHintPilotPrompt": {
         "message": "Move your TX stick to test"
