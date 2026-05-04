@@ -255,10 +255,36 @@ export function computeScanPlan({
         };
     }
 
-    // Pick a starting SERVO N for the new slots — continue past the
-    // airframe's existing servo numbers.
+    // Slot-reuse strategy: surfaces that reported Nothing aren't
+    // usefully bound right now — their SERVO N → pad mapping isn't
+    // moving anything physical. Release them so their slot NUMBERS
+    // become available for scratch use. computeFinalRemap restores
+    // them post-scan based on whatever the scan walk identified
+    // (or leaves them released if still missing). On Standard Plane
+    // (4 surfaces, all-Nothing), this raises usable scratch slots
+    // from (maxServoN - 4) to maxServoN — bench: 2 → 6 on an 8-slot
+    // firmware. Working surfaces (non-Nothing observations) stay put;
+    // their bindings are still doing the right thing.
+    const releasableSlots = airframeSurfaces
+        .filter((s) => observations[s.servoN] === OBS_NOTHING)
+        .map((s) => s.servoN)
+        .sort((a, b) => a - b);
+    const keptSlots = new Set(
+        airframeSurfaces.filter((s) => observations[s.servoN] !== OBS_NOTHING).map((s) => s.servoN),
+    );
+
+    // Available scratch slot pool: released-Nothing slots + slots above
+    // the airframe's existing range, bounded by maxServoN. We only need
+    // as many slots as we have candidate pads — bound the upper-end loop
+    // accordingly so an unbounded maxServoN (Number.MAX_SAFE_INTEGER
+    // default) doesn't try to push billions of entries.
     const maxExistingServoN = airframeSurfaces.reduce((m, s) => Math.max(m, s.servoN), 0);
-    let nextServoN = maxExistingServoN + 1;
+    const slotsStillNeeded = Math.max(0, candidatePads.length - releasableSlots.length);
+    const upperBound = Math.min(maxServoN, maxExistingServoN + slotsStillNeeded + keptSlots.size);
+    const availableSlots = [...releasableSlots];
+    for (let n = maxExistingServoN + 1; n <= upperBound; n += 1) {
+        if (!keptSlots.has(n)) availableSlots.push(n);
+    }
 
     const cliLines = [];
     const scanSlots = [];
@@ -272,15 +298,26 @@ export function computeScanPlan({
         cliLines.push("resource LED_STRIP 1 NONE");
     }
 
+    // Release the Nothing-surface SERVO bindings so their slot numbers
+    // are free to be reclaimed by scratch binds. Order matters: this
+    // must happen before the `resource SERVO N <pad>` lines below for
+    // any reused slot number — BF processes lines in order and the
+    // second binding overwrites the first.
+    for (const slotN of releasableSlots) {
+        cliLines.push(`resource SERVO ${slotN} NONE`);
+    }
+
+    let slotIdx = 0;
     for (const m of candidatePads) {
-        if (nextServoN > maxServoN) {
+        if (slotIdx >= availableSlots.length) {
             skippedForCapacity.push(m.pad);
             continue;
         }
+        const scratchN = availableSlots[slotIdx];
+        slotIdx += 1;
         cliLines.push(`resource MOTOR ${m.index} NONE`);
-        cliLines.push(`resource SERVO ${nextServoN} ${m.pad}`);
-        scanSlots.push({ servoN: nextServoN, pad: m.pad, fromMotorN: m.index });
-        nextServoN += 1;
+        cliLines.push(`resource SERVO ${scratchN} ${m.pad}`);
+        scanSlots.push({ servoN: scratchN, pad: m.pad, fromMotorN: m.index });
     }
 
     return {
@@ -360,6 +397,19 @@ export function computeFinalRemap({
     const swaps = [];
     const stillMissing = [];
 
+    // Slot-reuse handling: computeScanPlan may have used surface
+    // servoN values (from Nothing-reporting surfaces) as scratch slot
+    // numbers. So a scan slot's servoN can collide with a surface's
+    // servoN. Track which slot numbers will end up holding a surface
+    // binding so we don't fire `resource SERVO N NONE` after a
+    // `resource SERVO N <pad>` and silently undo the rebind.
+    const surfaceServoNsBeingBound = new Set();
+    for (const s of airframeSurfaces) {
+        if (surfaceToPad.has(s.expectedSurface)) {
+            surfaceServoNsBeingBound.add(s.servoN);
+        }
+    }
+
     // For each airframe surface, point its SERVO N at the pad we
     // discovered (whether from original walk or scan).
     for (const s of airframeSurfaces) {
@@ -384,8 +434,13 @@ export function computeFinalRemap({
     // no longer needed once the real airframe surfaces have been
     // remapped onto the discovered pads. The freed pads return to a
     // released state; available for the motor picker below.
+    //
+    // Skip slots whose servoN is being claimed by a surface (slot-reuse
+    // case): the surface's bind line already wrote the correct pad,
+    // and a release line after it would clobber that.
     const releasedScanSlots = [];
     for (const slot of scanSlots) {
+        if (surfaceServoNsBeingBound.has(slot.servoN)) continue;
         cliLines.push(`resource SERVO ${slot.servoN} NONE`);
         releasedScanSlots.push(slot.servoN);
     }

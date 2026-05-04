@@ -216,15 +216,19 @@ describe("computeScanPlan", () => {
         });
         expect(result.eligible).toBe(true);
         expect(result.scanSlots).toHaveLength(2);
+        // Slot reuse: surface 4 reported Nothing, so its slot (4) is
+        // freed and reused for the first scratch. Second scratch goes
+        // to the next available slot above existing surfaces (5).
         expect(result.scanSlots).toEqual([
-            { servoN: 5, pad: "B00", fromMotorN: 3 },
-            { servoN: 6, pad: "B01", fromMotorN: 4 },
+            { servoN: 4, pad: "B00", fromMotorN: 3 },
+            { servoN: 5, pad: "B01", fromMotorN: 4 },
         ]);
         expect(result.cliLines).toEqual([
+            "resource SERVO 4 NONE",
             "resource MOTOR 3 NONE",
-            "resource SERVO 5 B00",
+            "resource SERVO 4 B00",
             "resource MOTOR 4 NONE",
-            "resource SERVO 6 B01",
+            "resource SERVO 5 B01",
         ]);
         expect(result.missingSurfaces).toEqual(["Rudder"]);
     });
@@ -279,13 +283,11 @@ describe("computeScanPlan", () => {
     });
 
     it("maxServoN cap: skips scratch slots beyond firmware SERVO_CONFIG capacity", () => {
-        // Bench-found regression: Standard Plane has 4 surfaces (servoN
-        // 1-4), nextServoN starts at 5. With 4 unused motor pads
-        // (M5-M8), scratch SERVOs 5-8 were generated. But the live-edit
-        // pulse path's configIdx = servoN + 1 → 9 max → out-of-bounds
-        // throw on FC.SERVO_CONFIG[9]. With maxServoN=6 (configIdx max
-        // 7, fits in 8-entry array), only 5 and 6 fit; 7 and 8 land
-        // in skippedForCapacity.
+        // Bench-found regression: scratch SERVO 7+ produced configIdx
+        // 8+ → out-of-bounds on FC.SERVO_CONFIG[8]. With slot-reuse
+        // (Nothing-surface slots freed), Standard Plane all-Nothing
+        // gives availableSlots = [1,2,3,4,5,6] on a maxServoN=6 cap.
+        // 8 candidate pads → 6 fit, 2 skipped.
         const result = computeScanPlan({
             padDefaults: makePadDefaults([
                 { index: 1, pad: "C06" },
@@ -297,15 +299,13 @@ describe("computeScanPlan", () => {
                 { index: 7, pad: "B08" },
                 { index: 8, pad: "C09" },
             ]),
-            motorCount: 4,
+            motorCount: 0,
             airframeSurfaces: STANDARD_AIRFRAME,
             observations: { 1: OBS_NOTHING, 2: OBS_NOTHING, 3: OBS_NOTHING, 4: OBS_NOTHING },
             maxServoN: 6,
         });
-        // M1-M4 are motors (motorCount=4), M5-M8 are scan candidates.
-        // With cap=6: scratch SERVO 5,6 fit; 7,8 → skipped.
-        expect(result.scanSlots).toHaveLength(2);
-        expect(result.scanSlots.map((s) => s.servoN)).toEqual([5, 6]);
+        expect(result.scanSlots).toHaveLength(6);
+        expect(result.scanSlots.map((s) => s.servoN)).toEqual([1, 2, 3, 4, 5, 6]);
         expect(result.skippedForCapacity).toEqual(["B08", "C09"]);
     });
 
@@ -335,6 +335,62 @@ describe("computeScanPlan", () => {
         expect(result.evictedLedPads.sort()).toEqual(["B06", "B08"]);
         expect(result.cliLines[0]).toBe("resource LED_STRIP 1 NONE");
         expect(result.scanSlots.map((s) => s.pad).sort()).toEqual(["B06", "B07", "B08"]);
+    });
+
+    it("slot reuse: Nothing surfaces' slots get reclaimed for scratch", () => {
+        // Standard Plane all-Nothing case from Brian's bench: the
+        // wizard's old behavior started scratch at servoN=5 (max
+        // existing + 1), giving only 2 slots before hitting the cap.
+        // With slot reuse, slots 1-4 (Nothing surfaces) are released and
+        // reusable — 6 scratch slots available on a 6-cap firmware.
+        const result = computeScanPlan({
+            padDefaults: makePadDefaults([
+                { index: 1, pad: "C06" },
+                { index: 2, pad: "C07" },
+                { index: 3, pad: "B00" },
+                { index: 4, pad: "B01" },
+                { index: 5, pad: "B06" },
+                { index: 6, pad: "B07" },
+            ]),
+            motorCount: 4,
+            airframeSurfaces: STANDARD_AIRFRAME,
+            observations: { 1: OBS_NOTHING, 2: OBS_NOTHING, 3: OBS_NOTHING, 4: OBS_NOTHING },
+            maxServoN: 6,
+        });
+        // 2 unused MOTOR pads (M5, M6) → bound to first 2 freed slots.
+        expect(result.scanSlots).toHaveLength(2);
+        expect(result.scanSlots.map((s) => s.servoN)).toEqual([1, 2]);
+        // Release lines for ALL 4 Nothing surfaces emit, even if scratch
+        // only claims 2 of them. Releasing extras is harmless and keeps
+        // the CLI batch deterministic.
+        expect(result.cliLines).toContain("resource SERVO 1 NONE");
+        expect(result.cliLines).toContain("resource SERVO 2 NONE");
+        expect(result.cliLines).toContain("resource SERVO 3 NONE");
+        expect(result.cliLines).toContain("resource SERVO 4 NONE");
+        // Working surfaces (none in this test) would NOT be released.
+    });
+
+    it("slot reuse: kept (non-Nothing) surfaces stay bound, only their slot numbers stay reserved", () => {
+        // Mixed: SERVO 1 reported a real surface, SERVO 2-4 reported
+        // Nothing. Only slots 2-4 are released; SERVO 1 stays bound.
+        const result = computeScanPlan({
+            padDefaults: makePadDefaults([
+                { index: 1, pad: "C06" },
+                { index: 2, pad: "C07" },
+                { index: 3, pad: "B00" },
+                { index: 4, pad: "B01" },
+                { index: 5, pad: "B06" },
+                { index: 6, pad: "B07" },
+            ]),
+            motorCount: 4,
+            airframeSurfaces: STANDARD_AIRFRAME,
+            observations: { 1: "Elevator", 2: OBS_NOTHING, 3: OBS_NOTHING, 4: OBS_NOTHING },
+            maxServoN: 6,
+        });
+        expect(result.cliLines).not.toContain("resource SERVO 1 NONE");
+        expect(result.cliLines).toContain("resource SERVO 2 NONE");
+        // scratchN should NOT be 1 (kept by Elevator).
+        expect(result.scanSlots.every((s) => s.servoN !== 1)).toBe(true);
     });
 
     it("Tier A sufficient: never evicts LED even when LED-bound pads exist", () => {
