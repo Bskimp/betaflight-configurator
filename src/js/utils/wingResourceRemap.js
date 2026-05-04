@@ -162,44 +162,13 @@ export function computeRemap({ currentResources, airframeSurfaces, observations 
 //                                   Used to exclude pads already
 //                                   committed as servos so we don't
 //                                   double-assign them to a scan slot.
-// @param opts.ledStripBoundPads — Set<pad> | [pad] of silkscreen-MOTOR
-//                                  pads currently held by LED_STRIP.
-//                                  Tier-B-evictable: included as scan
-//                                  candidates only when Tier A pads
-//                                  alone don't cover all missingSurfaces.
-//                                  Constrained boards (F4 minis where
-//                                  the only spare TIM is on the LED pad)
-//                                  need this fallback or the scan would
-//                                  be unable to reach the missing servo.
-//                                  Optional, defaults to empty set.
-// @param opts.maxServoN          — cap on scratch SERVO numbering. The
-//                                  pulse path requires SERVO_CONFIG[N+1]
-//                                  to exist, so the wizard passes
-//                                  FC.SERVO_CONFIG.length - 2 (the +1
-//                                  internal mapping plus 0-indexing).
-//                                  Bench-found regression: scratch SERVO
-//                                  7 / 8 generated configIdx 8 / 9 →
-//                                  out-of-bounds throws on pulse. Pads
-//                                  beyond the cap are reported in
-//                                  skippedForCapacity. Optional, defaults
-//                                  to unbounded.
 // @returns {
 //   eligible: bool,                — true if scan would help
 //   cliLines: string[],            — batch to release motors + assign as SERVO
 //   scanSlots: [{servoN, pad, fromMotorN}, ...] — new SERVO slots to walk
 //   missingSurfaces: [...],        — surfaces that reported Nothing
-//   evictedLedPads: [pad],         — LED pads we evicted (Tier B). Empty when Tier A sufficed.
-//   skippedForCapacity: [pad],     — pads we couldn't bind because nextServoN > maxServoN.
 // }
-export function computeScanPlan({
-    padDefaults,
-    motorCount,
-    airframeSurfaces,
-    observations,
-    currentResources = {},
-    ledStripBoundPads = [],
-    maxServoN = Number.MAX_SAFE_INTEGER,
-}) {
+export function computeScanPlan({ padDefaults, motorCount, airframeSurfaces, observations, currentResources = {} }) {
     // Find surfaces that reported Nothing in the original walk.
     const missingSurfaces = [];
     for (const s of airframeSurfaces) {
@@ -208,14 +177,7 @@ export function computeScanPlan({
         }
     }
     if (missingSurfaces.length === 0) {
-        return {
-            eligible: false,
-            cliLines: [],
-            scanSlots: [],
-            missingSurfaces: [],
-            evictedLedPads: [],
-            skippedForCapacity: [],
-        };
+        return { eligible: false, cliLines: [], scanSlots: [], missingSurfaces: [] };
     }
 
     // Pads already bound as servos — exclude from scan candidates so we
@@ -225,34 +187,13 @@ export function computeScanPlan({
     // after Apply; without this exclusion, scan tried to claim the
     // same pads at a different SERVO index.
     const padsBoundAsServo = new Set(Object.values(currentResources).filter(Boolean));
-    const ledPadSet = ledStripBoundPads instanceof Set ? ledStripBoundPads : new Set(ledStripBoundPads);
 
     // Find silkscreen-motor pads that are NOT used by the wing's
     // motorCount AND aren't already bound as servos.
     const motorPads = Array.isArray(padDefaults?.motors) ? padDefaults.motors : [];
-    const baseUnused = motorPads.filter((m) => m.index > motorCount && m.pad && !padsBoundAsServo.has(m.pad));
-    // Tier A: pads that aren't holding any binding we care about
-    // (not motor-in-use, not servo, not LED). Safe to scratch-bind.
-    const tierAPads = baseUnused.filter((m) => !ledPadSet.has(m.pad));
-    // Tier B: Tier A + LED-held pads. Evicting LED is acceptable when
-    // Tier A alone can't cover the missing surfaces.
-    const tierBPads = baseUnused;
-
-    // Use Tier B only when Tier A is short of missing-surface coverage
-    // AND Tier B genuinely adds candidates.
-    const useTierB = tierAPads.length < missingSurfaces.length && tierBPads.length > tierAPads.length;
-    const candidatePads = useTierB ? tierBPads : tierAPads;
-    const evictedLedPads = useTierB ? candidatePads.filter((m) => ledPadSet.has(m.pad)).map((m) => m.pad) : [];
-
-    if (candidatePads.length === 0) {
-        return {
-            eligible: false,
-            cliLines: [],
-            scanSlots: [],
-            missingSurfaces,
-            evictedLedPads: [],
-            skippedForCapacity: [],
-        };
+    const unused = motorPads.filter((m) => m.index > motorCount && m.pad && !padsBoundAsServo.has(m.pad));
+    if (unused.length === 0) {
+        return { eligible: false, cliLines: [], scanSlots: [], missingSurfaces };
     }
 
     // Pick a starting SERVO N for the new slots — continue past the
@@ -262,21 +203,7 @@ export function computeScanPlan({
 
     const cliLines = [];
     const scanSlots = [];
-    const skippedForCapacity = [];
-
-    // Release LED_STRIP first if any LED-held pad is in our candidate
-    // set. BF has a single LED_STRIP resource (index 1) — clearing it
-    // frees the pad before the scratch-SERVO bind, avoiding resource-
-    // conflict NACK on save.
-    if (evictedLedPads.length > 0) {
-        cliLines.push("resource LED_STRIP 1 NONE");
-    }
-
-    for (const m of candidatePads) {
-        if (nextServoN > maxServoN) {
-            skippedForCapacity.push(m.pad);
-            continue;
-        }
+    for (const m of unused) {
         cliLines.push(`resource MOTOR ${m.index} NONE`);
         cliLines.push(`resource SERVO ${nextServoN} ${m.pad}`);
         scanSlots.push({ servoN: nextServoN, pad: m.pad, fromMotorN: m.index });
@@ -288,8 +215,6 @@ export function computeScanPlan({
         cliLines,
         scanSlots,
         missingSurfaces,
-        evictedLedPads,
-        skippedForCapacity,
     };
 }
 
