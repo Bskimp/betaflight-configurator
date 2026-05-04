@@ -2678,12 +2678,24 @@ async function proceedFromWalking() {
     // computeScanPlan utility generates the CLI batch + scanSlots; the
     // wizard only fires it when the user clicks "Scan unused pads" in
     // the reviewing phase.
+    // LED_STRIP-bound silkscreen MOTOR pads are Tier-B-evictable scan
+    // candidates. Empty/missing on boards without LED_STRIP set.
+    const ledStripBoundPads = (props.hardwareAnalysis?.ledStrips ?? []).map((l) => l.pad).filter(Boolean);
+    // Cap scratch SERVO N so the live-edit pulse path's configIdx
+    // (servoN + 1 via configIdxFromSlot) stays within FC.SERVO_CONFIG.
+    // Bench-found regression: SERVO 7+ produced configIdx 8+ →
+    // out-of-bounds throw "no FC.SERVO_CONFIG[8]". Subtract 2: one for
+    // the +1 mapping, one for 0-indexed array length → max-valid index.
+    const servoConfigLen = Array.isArray(FC.SERVO_CONFIG) ? FC.SERVO_CONFIG.length : 8;
+    const maxServoN = Math.max(0, servoConfigLen - 2);
     scanPlan.value = computeScanPlan({
         padDefaults: props.padDefaults,
         motorCount: props.motorCount,
         airframeSurfaces,
         observations: obsByServoN,
         currentResources: props.currentResources,
+        ledStripBoundPads,
+        maxServoN,
     });
 
     // Stash the original observations for use in computeFinalRemap
