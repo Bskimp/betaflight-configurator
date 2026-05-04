@@ -2570,8 +2570,10 @@ async function pulseCurrentSurface() {
 }
 
 // Pulse the current scan slot. The slot's pad was reassigned from a
-// MOTOR resource to SERVO N+ during scan-prep; SERVO_OVERRIDE matches
-// by SLOT enum so we send servoN+1 (slot 2 = SERVO 1, etc.).
+// MOTOR resource to SERVO N+ during scan-prep. pulseServoMiddle is the
+// dual-path primitive (override on wing-fork, live-edit on mainline)
+// and does the silkscreen → SLOT-enum conversion internally via
+// configIdxFromSlot — pass raw 1-based servoN here.
 async function pulseCurrentScanSlot() {
     const slot = scanSlots.value[scanSurfaceIdx.value];
     if (!slot || pulseInFlight.value) return;
@@ -2579,9 +2581,13 @@ async function pulseCurrentScanSlot() {
     pulseInFlight.value = true;
     lastPulseDir.value = PULSE_PWM > 1500 ? 1 : -1;
     try {
-        // SLOT enum value = servoN + 1 (per planePresets convention:
-        // SERVO 1 pad = SLOT 2 = ELEVATOR slot, etc.).
-        await pulseServoMiddle(slot.servoN + 1, PULSE_PWM, PULSE_DURATION_MS);
+        // Earlier this pre-baked the +1 SLOT-enum offset back when the
+        // pulse only fired MSP2_SET_SERVO_OVERRIDE directly. The dual-
+        // path primitive now owns that offset, so the +1 here was
+        // double-adding: servoN >= 6 → configIdx 8+ → out-of-bounds
+        // throw ("no FC.SERVO_CONFIG[8]"); servoN <= 5 → wrong slot
+        // pulsed silently.
+        await pulseServoMiddle(slot.servoN, PULSE_PWM, PULSE_DURATION_MS);
         await new Promise((resolve) => setTimeout(resolve, PULSE_DURATION_MS));
     } catch (err) {
         pulseError.value = err?.message || String(err);
