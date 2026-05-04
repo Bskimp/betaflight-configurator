@@ -3,6 +3,7 @@ import {
     candidatePadsForSlot,
     computePresetResourcePlan,
     pickOptimalPadLayout,
+    pickSilkscreenOrderLayout,
 } from "../../../src/js/utils/wingRemapRecommender.js";
 
 // Minimal analyzer shape used across the suite — same shape analyzer returns.
@@ -713,5 +714,99 @@ describe("computePresetResourcePlan: optimizer integration", () => {
             const pad = line.split(" ").pop();
             expect(allPoolPads.has(pad)).toBe(true);
         }
+    });
+});
+
+describe("pickSilkscreenOrderLayout: motor/servo timer disjoint enforcement", () => {
+    // TMOTORF7X2-style pad map: M1-M4 share TIM3, M5-M8 spread across
+    // TIM4 + TIM8. Bench-found bug: Flying Wing (1 motor + 2 servos) had
+    // servos take M1+M2 (TIM3 CH1+CH2), motor land on M3 (TIM3 CH3) →
+    // motor + servos on same timer → BF can't drive both.
+    const TMOTORF7X2_PAD_DEFAULTS = {
+        target: "TMOTORF7X2",
+        source: "firmware",
+        motors: [
+            { index: 1, pad: "C06" },
+            { index: 2, pad: "C07" },
+            { index: 3, pad: "B00" },
+            { index: 4, pad: "B01" },
+            { index: 5, pad: "B06" },
+            { index: 6, pad: "B08" },
+            { index: 7, pad: "B07" },
+            { index: 8, pad: "C09" },
+        ],
+        ledStrips: [{ pad: "A08" }],
+    };
+    const TMOTORF7X2_PAD_TIMERS = new Map([
+        ["C06", { timer: 3, channel: 1 }],
+        ["C07", { timer: 3, channel: 2 }],
+        ["B00", { timer: 3, channel: 3 }],
+        ["B01", { timer: 3, channel: 4 }],
+        ["B06", { timer: 4, channel: 1 }],
+        ["B08", { timer: 4, channel: 3 }],
+        ["B07", { timer: 4, channel: 2 }],
+        ["C09", { timer: 8, channel: 4 }],
+        ["A08", { timer: 1, channel: 1 }],
+    ]);
+
+    it("Flying Wing (1 motor / 2 servos): motor lands on TIM4, not the servo's TIM3", () => {
+        const a = analysis([], { padTimers: TMOTORF7X2_PAD_TIMERS });
+        const result = pickSilkscreenOrderLayout(a, 1, [2, 3], { padDefaults: TMOTORF7X2_PAD_DEFAULTS });
+        // Servos take M1+M2 (silkscreen-first).
+        expect(result.servos.get(2)).toBe("C06");
+        expect(result.servos.get(3)).toBe("C07");
+        // Motor walks past TIM3 candidates (M3, M4) and lands on TIM4 (M5).
+        expect(result.motors.get(1)).toBe("B06");
+    });
+
+    it("V-Tail (1 motor / 4 servos): unchanged — servos fill TIM3, motor lands on M5", () => {
+        const a = analysis([], { padTimers: TMOTORF7X2_PAD_TIMERS });
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2, 3, 4], { padDefaults: TMOTORF7X2_PAD_DEFAULTS });
+        // Servos take M1-M4.
+        expect(result.servos.get(1)).toBe("C06");
+        expect(result.servos.get(4)).toBe("B01");
+        // Motor lands on M5 (next pool slot — and TIM4, naturally disjoint).
+        expect(result.motors.get(1)).toBe("B06");
+    });
+
+    it("Twin-motor wing (2 motors / 2 servos): both motors stay on TIM4 together (TIMUP burst preference)", () => {
+        const a = analysis([], { padTimers: TMOTORF7X2_PAD_TIMERS });
+        const result = pickSilkscreenOrderLayout(a, 2, [2, 3], { padDefaults: TMOTORF7X2_PAD_DEFAULTS });
+        // Servos take M1+M2 (TIM3).
+        expect(result.servos.get(2)).toBe("C06");
+        expect(result.servos.get(3)).toBe("C07");
+        // Both motors skip TIM3 candidates and land together on TIM4.
+        expect(result.motors.get(1)).toBe("B06"); // M5 = TIM4 CH1
+        expect(result.motors.get(2)).toBe("B08"); // M6 = TIM4 CH3
+    });
+
+    it("returns null when no motor pad has a disjoint timer (caller falls back)", () => {
+        // Pathological: ALL pads on TIM3.
+        const allTim3Defaults = {
+            target: "ALL_TIM3",
+            motors: [
+                { index: 1, pad: "P1" },
+                { index: 2, pad: "P2" },
+                { index: 3, pad: "P3" },
+            ],
+            ledStrips: [],
+        };
+        const allTim3Timers = new Map([
+            ["P1", { timer: 3, channel: 1 }],
+            ["P2", { timer: 3, channel: 2 }],
+            ["P3", { timer: 3, channel: 3 }],
+        ]);
+        const a = analysis([], { padTimers: allTim3Timers });
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], { padDefaults: allTim3Defaults });
+        expect(result).toBeNull();
+    });
+
+    it("works without padTimers (analyzer didn't get timerDump): falls back to strict silkscreen order", () => {
+        const a = analysis([], {}); // no padTimers
+        const result = pickSilkscreenOrderLayout(a, 1, [2, 3], { padDefaults: TMOTORF7X2_PAD_DEFAULTS });
+        // Without timer info, can't enforce disjoint-timer — silkscreen order applies.
+        expect(result.servos.get(2)).toBe("C06");
+        expect(result.servos.get(3)).toBe("C07");
+        expect(result.motors.get(1)).toBe("B00"); // pool[2]
     });
 });

@@ -319,7 +319,6 @@ export function pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices
     const allowLedStrip = options.allowLedStrip === true;
 
     // Pool: silkscreen-MOTOR pads in silkscreen order, then LED if allowed.
-    // No timer or scoring math — pure deterministic order.
     const pool = [...padDefaults.motors].sort((a, b) => a.index - b.index).map((m) => m.pad);
     if (allowLedStrip && Array.isArray(padDefaults.ledStrips)) {
         for (const ls of padDefaults.ledStrips) {
@@ -330,15 +329,48 @@ export function pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices
     const servoCount = usedServoIndices.length;
     if (pool.length < servoCount + motorCount) return null;
 
+    const padTimers = analysis?.padTimers instanceof Map ? analysis.padTimers : null;
+
     const servos = new Map();
     const motors = new Map();
-    // Servos take the first servoCount pads in silkscreen order.
+    const servoTimers = new Set();
+
+    // Servos take the first servoCount pads in silkscreen order. Track
+    // their timers so we can avoid landing motors on the same timer
+    // group below.
     for (let i = 0; i < servoCount; i += 1) {
-        servos.set(usedServoIndices[i], pool[i]);
+        const pad = pool[i];
+        servos.set(usedServoIndices[i], pad);
+        if (padTimers) {
+            const t = padTimers.get(pad);
+            if (t && t.timer != null) servoTimers.add(t.timer);
+        }
     }
-    // Motors take the next motorCount pads.
-    for (let i = 0; i < motorCount; i += 1) {
-        motors.set(i + 1, pool[servoCount + i]);
+
+    // Motors take the next available pads, but SKIP pads sharing a
+    // timer with any allocated servo. BF can't run DSHOT (motor) and
+    // 50Hz servo PWM on the same TIM peripheral — bench-found on Flying
+    // Wing (1-motor / 2-servo) where pool position 0+1 went to servos
+    // (TIM3 CH1+CH2) and the strict "next pad" rule landed MOTOR 1 on
+    // pool[2] = TIM3 CH3 → conflict. With this skip, MOTOR 1 walks past
+    // TIM3 candidates and lands on TIM4. For 2-motor wings the motors
+    // still land together (M5+M6 = TIM4 CH1+CH3) — preserves the
+    // bench-preferred TIMUP-burst grouping.
+    let nextPoolIdx = servoCount;
+    for (let m = 0; m < motorCount; m += 1) {
+        let claimed = null;
+        while (nextPoolIdx < pool.length) {
+            const pad = pool[nextPoolIdx];
+            nextPoolIdx += 1;
+            if (padTimers && servoTimers.size > 0) {
+                const t = padTimers.get(pad);
+                if (t && t.timer != null && servoTimers.has(t.timer)) continue; // shares servo timer — skip
+            }
+            claimed = pad;
+            break;
+        }
+        if (!claimed) return null; // ran out of disjoint pads — caller falls back
+        motors.set(m + 1, claimed);
     }
     return { motors, servos, score: 0 };
 }
