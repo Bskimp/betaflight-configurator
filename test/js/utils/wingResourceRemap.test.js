@@ -277,6 +277,86 @@ describe("computeScanPlan", () => {
         expect(result.scanSlots).toHaveLength(4);
         expect(result.missingSurfaces.sort()).toEqual(["Aileron L", "Aileron R", "Rudder"]);
     });
+
+    it("Tier A sufficient: never evicts LED even when LED-bound pads exist", () => {
+        // 2 unused MOTOR pads (M5, M6); only 2 surfaces report Nothing.
+        // M5 is LED-bound, M6 is truly free. Tier A has 1 candidate
+        // (M6), missingSurfaces is 2 — wait, that'd trigger Tier B.
+        // Adjust: report only 1 Nothing so Tier A's 1 candidate is enough.
+        const result = computeScanPlan({
+            padDefaults: makePadDefaults([
+                { index: 1, pad: "C06" },
+                { index: 2, pad: "C07" },
+                { index: 3, pad: "B00" },
+                { index: 4, pad: "B01" },
+                { index: 5, pad: "B06" }, // LED-bound, but Tier A sufficient → not evicted
+                { index: 6, pad: "B07" }, // truly free
+            ]),
+            motorCount: 4,
+            airframeSurfaces: STANDARD_AIRFRAME,
+            observations: { 1: "Elevator", 2: "Aileron L", 3: "Aileron R", 4: OBS_NOTHING },
+            ledStripBoundPads: ["B06"],
+            freePadSet: new Set(["B07"]),
+        });
+        expect(result.evictedLedPads).toEqual([]);
+        expect(result.cliLines).not.toContain("resource LED_STRIP 1 NONE");
+        // Scratch should land on B07 only, not B06.
+        expect(result.scanSlots.map((s) => s.pad)).toEqual(["B07"]);
+    });
+
+    it("Tier B fallback: evicts LED when Tier A short of missingSurfaces", () => {
+        // 2 surfaces report Nothing, but Tier A has only 1 truly-free
+        // pad. M5 is LED-bound. Tier B includes M5 → 2 candidates fit.
+        // CLI batch leads with `resource LED_STRIP 1 NONE`.
+        const result = computeScanPlan({
+            padDefaults: makePadDefaults([
+                { index: 1, pad: "C06" },
+                { index: 2, pad: "C07" },
+                { index: 3, pad: "B00" },
+                { index: 4, pad: "B01" },
+                { index: 5, pad: "B06" }, // LED-bound
+                { index: 6, pad: "B07" }, // truly free
+            ]),
+            motorCount: 4,
+            airframeSurfaces: STANDARD_AIRFRAME,
+            observations: { 1: "Elevator", 2: "Aileron L", 3: OBS_NOTHING, 4: OBS_NOTHING },
+            ledStripBoundPads: ["B06"],
+            freePadSet: new Set(["B07"]),
+        });
+        expect(result.evictedLedPads).toEqual(["B06"]);
+        expect(result.cliLines[0]).toBe("resource LED_STRIP 1 NONE");
+        expect(result.scanSlots.map((s) => s.pad).sort()).toEqual(["B06", "B07"]);
+    });
+
+    it("freePadSet excludes silkscreen-MOTOR pads currently bound as MOTOR (recommender override case)", () => {
+        // Bench-found bug: Apply's recommender can place MOTOR 1 on a
+        // silkscreen pad with index > motorCount (e.g. M3's pad). The
+        // legacy index-only filter would still consider that pad
+        // "unused" by silkscreen index and try to scratch-bind a SERVO
+        // there → resource conflict on save (FC silently un-binds
+        // either motor or servo). With freePadSet, motor-bound pads
+        // are excluded regardless of silkscreen index.
+        const result = computeScanPlan({
+            padDefaults: makePadDefaults([
+                { index: 1, pad: "C09" }, // silkscreen M1
+                { index: 2, pad: "A08" }, // silkscreen M2
+                { index: 3, pad: "B06" }, // silkscreen M3 — recommender put MOTOR 1 here
+                { index: 4, pad: "B08" }, // silkscreen M4 — recommender put MOTOR 2 here
+                { index: 5, pad: "B07" }, // truly free
+                { index: 6, pad: "C09b" }, // truly free (placeholder distinct pad)
+            ]),
+            motorCount: 2,
+            airframeSurfaces: STANDARD_AIRFRAME,
+            observations: { 1: "Elevator", 2: "Aileron L", 3: OBS_NOTHING, 4: OBS_NOTHING },
+            // Analyzer reports only B07 and C09b as truly FREE; B06 and
+            // B08 are bound by the recommender's motor placement.
+            freePadSet: new Set(["B07", "C09b"]),
+        });
+        const scratchPads = result.scanSlots.map((s) => s.pad);
+        expect(scratchPads).not.toContain("B06");
+        expect(scratchPads).not.toContain("B08");
+        expect(scratchPads.sort()).toEqual(["B07", "C09b"]);
+    });
 });
 
 describe("computeFinalRemap", () => {

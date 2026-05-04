@@ -162,13 +162,47 @@ export function computeRemap({ currentResources, airframeSurfaces, observations 
 //                                   Used to exclude pads already
 //                                   committed as servos so we don't
 //                                   double-assign them to a scan slot.
+// @param opts.freePadSet         — Set<pad> currently FREE per analyzer
+//                                   (peripheral === "FREE"). When supplied,
+//                                   candidate pads are intersected with
+//                                   this set. Bench-found bug: Apply's
+//                                   recommender can place motors on
+//                                   silkscreen-MOTOR pads at indices >
+//                                   motorCount (e.g. MOTOR 1 → silkscreen
+//                                   M3's pad), which the index-only filter
+//                                   would then re-claim as scratch →
+//                                   resource conflict on save. With
+//                                   freePadSet, motor-bound (and any other
+//                                   non-FREE: UART, PINIO, SPI, ...) pads
+//                                   are excluded regardless of silkscreen
+//                                   index. Optional; without it the legacy
+//                                   index+servo filter is used.
+// @param opts.ledStripBoundPads — Set<pad> | [pad] of silkscreen-MOTOR
+//                                   pads currently held by LED_STRIP.
+//                                   Tier-B-evictable: included as scan
+//                                   candidates only when Tier A pads
+//                                   alone don't cover all missingSurfaces.
+//                                   Constrained boards (F4 minis where
+//                                   the only spare TIM is on the LED pad)
+//                                   need this fallback or the scan would
+//                                   be unable to reach the missing servo.
+//                                   Optional, defaults to empty set.
 // @returns {
 //   eligible: bool,                — true if scan would help
 //   cliLines: string[],            — batch to release motors + assign as SERVO
 //   scanSlots: [{servoN, pad, fromMotorN}, ...] — new SERVO slots to walk
 //   missingSurfaces: [...],        — surfaces that reported Nothing
+//   evictedLedPads: [pad],         — LED pads we evicted (Tier B). Empty when Tier A sufficed.
 // }
-export function computeScanPlan({ padDefaults, motorCount, airframeSurfaces, observations, currentResources = {} }) {
+export function computeScanPlan({
+    padDefaults,
+    motorCount,
+    airframeSurfaces,
+    observations,
+    currentResources = {},
+    freePadSet = null,
+    ledStripBoundPads = [],
+}) {
     // Find surfaces that reported Nothing in the original walk.
     const missingSurfaces = [];
     for (const s of airframeSurfaces) {
@@ -177,7 +211,7 @@ export function computeScanPlan({ padDefaults, motorCount, airframeSurfaces, obs
         }
     }
     if (missingSurfaces.length === 0) {
-        return { eligible: false, cliLines: [], scanSlots: [], missingSurfaces: [] };
+        return { eligible: false, cliLines: [], scanSlots: [], missingSurfaces: [], evictedLedPads: [] };
     }
 
     // Pads already bound as servos — exclude from scan candidates so we
@@ -187,13 +221,42 @@ export function computeScanPlan({ padDefaults, motorCount, airframeSurfaces, obs
     // after Apply; without this exclusion, scan tried to claim the
     // same pads at a different SERVO index.
     const padsBoundAsServo = new Set(Object.values(currentResources).filter(Boolean));
+    const truePadsFreeSet = freePadSet instanceof Set ? freePadSet : null;
+    const ledPadSet = ledStripBoundPads instanceof Set ? ledStripBoundPads : new Set(ledStripBoundPads);
 
-    // Find silkscreen-motor pads that are NOT used by the wing's
-    // motorCount AND aren't already bound as servos.
+    // Two-tier candidate pool:
+    //   Tier A: silkscreen-motor pads that are silkscreen-unused, not
+    //           bound as servo, and (when freePadSet supplied) currently
+    //           FREE per analyzer. The safe-default set.
+    //   Tier B: Tier A + silkscreen-motor pads currently held by
+    //           LED_STRIP. Used as fallback for pad-constrained boards
+    //           where the only free TIM channel is on the LED pad. CLI
+    //           batch leads with `resource LED_STRIP 1 NONE` so the
+    //           scratch-SERVO bind doesn't NACK on resource conflict.
     const motorPads = Array.isArray(padDefaults?.motors) ? padDefaults.motors : [];
-    const unused = motorPads.filter((m) => m.index > motorCount && m.pad && !padsBoundAsServo.has(m.pad));
+    const passesBaseFilter = (m) => m.pad && m.index > motorCount && !padsBoundAsServo.has(m.pad);
+    const tierAPads = motorPads.filter((m) => {
+        if (!passesBaseFilter(m)) return false;
+        if (truePadsFreeSet) return truePadsFreeSet.has(m.pad);
+        // No analyzer freePadSet → fall back to legacy filter (also
+        // exclude LED-held pads from Tier A).
+        return !ledPadSet.has(m.pad);
+    });
+    const tierBPads = motorPads.filter((m) => {
+        if (!passesBaseFilter(m)) return false;
+        if (truePadsFreeSet) return truePadsFreeSet.has(m.pad) || ledPadSet.has(m.pad);
+        return true; // legacy mode: LED-held pads allowed
+    });
+
+    // Use Tier B only when Tier A is short of missingSurfaces coverage
+    // AND Tier B genuinely adds candidates. Otherwise prefer Tier A —
+    // never evict LED if we don't have to.
+    const useTierB = tierAPads.length < missingSurfaces.length && tierBPads.length > tierAPads.length;
+    const unused = useTierB ? tierBPads : tierAPads;
+    const evictedLedPads = useTierB ? unused.filter((m) => ledPadSet.has(m.pad)).map((m) => m.pad) : [];
+
     if (unused.length === 0) {
-        return { eligible: false, cliLines: [], scanSlots: [], missingSurfaces };
+        return { eligible: false, cliLines: [], scanSlots: [], missingSurfaces, evictedLedPads: [] };
     }
 
     // Pick a starting SERVO N for the new slots — continue past the
@@ -203,6 +266,15 @@ export function computeScanPlan({ padDefaults, motorCount, airframeSurfaces, obs
 
     const cliLines = [];
     const scanSlots = [];
+
+    // Release LED_STRIP first if we evicted any LED-held pads. BF has a
+    // single LED_STRIP resource at index 1 — clearing it frees its pad
+    // before the scratch-SERVO bind, avoiding resource-conflict NACK on
+    // save.
+    if (evictedLedPads.length > 0) {
+        cliLines.push("resource LED_STRIP 1 NONE");
+    }
+
     for (const m of unused) {
         cliLines.push(`resource MOTOR ${m.index} NONE`);
         cliLines.push(`resource SERVO ${nextServoN} ${m.pad}`);
@@ -215,6 +287,7 @@ export function computeScanPlan({ padDefaults, motorCount, airframeSurfaces, obs
         cliLines,
         scanSlots,
         missingSurfaces,
+        evictedLedPads,
     };
 }
 

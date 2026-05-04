@@ -2678,12 +2678,22 @@ async function proceedFromWalking() {
     // computeScanPlan utility generates the CLI batch + scanSlots; the
     // wizard only fires it when the user clicks "Scan unused pads" in
     // the reviewing phase.
+    // LED_STRIP-bound silkscreen-MOTOR pads are Tier-B-evictable scan
+    // candidates. Empty/missing on boards without LED_STRIP set.
+    const ledStripBoundPads = (props.hardwareAnalysis?.ledStrips ?? []).map((l) => l.pad).filter(Boolean);
     scanPlan.value = computeScanPlan({
         padDefaults: props.padDefaults,
         motorCount: props.motorCount,
         airframeSurfaces,
         observations: obsByServoN,
         currentResources: props.currentResources,
+        // Analyzer-derived FREE-pad set: scratch candidates exclude
+        // pads that the index-only filter would miss — chiefly pads
+        // currently bound as MOTOR (Apply's recommender can place
+        // motors on silkscreen-MOTOR pads at indices > motorCount,
+        // which would otherwise collide with scratch-SERVO binds).
+        freePadSet: props.hardwareAnalysis?.freePads ?? null,
+        ledStripBoundPads,
     });
 
     // Stash the original observations for use in computeFinalRemap
