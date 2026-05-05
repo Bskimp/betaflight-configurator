@@ -3347,21 +3347,26 @@ export default defineComponent({
             wizardResumeState.value = null;
             clearWizardMarker();
         }
-        // Wizard's Finish button — distinct from X-close. Auto-fires the
-        // tab's save() so any pending dirty state (preset selection,
-        // motorCount changes the wizard nudged, smix rule edits, etc.)
-        // gets committed without the user having to manually click Save
-        // on the Wing Tuning tab afterwards. save() is the same code
-        // path the manual button uses; bench-validated. Errors surface
-        // through the existing tab-level error UI, not the wizard's.
-        async function finishWizard() {
-            try {
-                await save();
-            } catch (err) {
-                console.warn("[WingTuning] auto-save on wizard finish failed:", err);
-            } finally {
-                closeWizard();
-            }
+        // Wizard's Finish button — distinct from X-close. Originally
+        // auto-fired save() on the assumption that wizard state needed
+        // a final commit. Bench-found this WIPED scan results: save()
+        // re-runs the full preset-apply path including
+        //   autoCleanCliLines()  (releases ALL motor + servo resources)
+        //   baseCli              (pinAssignmentPlan.cliLines — diff-style;
+        //                         empty/partial when FC already correct)
+        //   mmix + plane defaults
+        // Net effect after motor scan: autoclean wipes everything, the
+        // diff-style baseCli only re-emits the few binds the recommender
+        // thought needed changing, and the rest stays NONE on reboot.
+        // User saw their motor scan + servo configs partially wiped.
+        //
+        // Per-step wizard callbacks (Apply, Direction, Endpoints,
+        // Motors, MotorScanPrep, MotorFinal, YawFlip) each commit their
+        // own state via MSP+EEPROM_WRITE or CLI+save reboot, so by the
+        // time Finish fires there's nothing pending to commit. Just
+        // close — no save() needed, no wipe.
+        function finishWizard() {
+            closeWizard();
         }
 
         // Reset wing config — surgical reset that wipes mixer/resource
@@ -3648,6 +3653,16 @@ export default defineComponent({
                 if (FC.SERVO_RULES?.[idx]) {
                     FC.SERVO_RULES[idx].rate = flip.newRate;
                 }
+                // Mirror the flip into Vue's reactive mixerState.rules
+                // so a later save() (manual or auto) doesn't push the
+                // pre-flip preset rates over the FC's now-correct rules.
+                // Bench-found: without this sync, mixerState.rules stays
+                // at the preset defaults from Apply, and the next save()
+                // call's `mspHelper.sendServoMixRules(mixerState.rules)`
+                // wipes Direction's flips back to defaults.
+                if (mixerState.rules?.[idx]) {
+                    mixerState.rules[idx].rate = flip.newRate;
+                }
             }
             await new Promise((res, rej) => {
                 try {
@@ -3657,6 +3672,11 @@ export default defineComponent({
                 }
             });
             await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+            // Re-baseline initialMixerState so the rule edits we just
+            // committed don't show up as pending dirty state on a
+            // subsequent manual Save (which would also fire the CLI
+            // batch and wipe scan-committed bindings).
+            initialMixerState.value = cloneMixerState(mixerState);
         }
 
         async function wizardApplyEndpointsCallback(changes) {
