@@ -64,6 +64,15 @@ export function planeTuningStartingPoints({ diffThrust = false, tpaMaxVoltage = 
         "set p_yaw = 10",
         `set i_yaw = ${diffThrust ? 0 : 10}`,
         "set d_yaw = 5",
+        // D-term filter starting points. Quad defaults (multiplier ~100,
+        // higher LPF cutoffs) leave too much noise on the plane control
+        // path; tighter filtering keeps the slower plane control loop
+        // clean. Pilots can lift these as they tune.
+        "set simplified_dterm_filter_multiplier = 80",
+        "set dterm_lpf1_dyn_min_hz = 60",
+        "set dterm_lpf1_dyn_max_hz = 120",
+        "set dterm_lpf1_static_hz = 60",
+        "set dterm_lpf2_static_hz = 120",
         "set d_max_roll = 0",
         "set d_max_pitch = 0",
         "set d_max_yaw = 0",
@@ -86,6 +95,16 @@ export function planeTuningStartingPoints({ diffThrust = false, tpaMaxVoltage = 
         "set angle_earth_ref = 0",
         "set tpa_mode = PD",
         `set tpa_speed_max_voltage = ${tpaMaxVoltage}`,
+        // TPA curve + speed-based attenuation. HYPERBOLIC curve gives a
+        // softer roll-off than LINEAR for plane throttle ranges. BASIC
+        // speed-type uses delay/gravity rather than airspeed sensor
+        // input — universal default; pilots with airspeed sensors switch
+        // via Tuning tab. Same MSP-fallback reasoning: silently no-ops on
+        // firmwares that don't expose these params.
+        "set tpa_curve_type = HYPERBOLIC",
+        "set tpa_speed_type = BASIC",
+        "set tpa_speed_basic_delay = 1000",
+        "set tpa_speed_basic_gravity = 50",
         // SPA (Stick Position Attenuation) — safe starting point per
         // PR #13719's recommended defaults. I_FREEZE freezes I-term
         // when stick crosses the center band, which avoids I-buildup
