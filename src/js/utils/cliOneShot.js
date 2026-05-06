@@ -301,6 +301,222 @@ export function parseTimerDump(input) {
     return out;
 }
 
+/**
+ * Parse `timer <pin> list` output. Lists every (timer, channel, AF)
+ * tuple the firmware's DEF_TIM table allows for that pin on this MCU
+ * — i.e. what timer remaps are physically possible. Distinct from
+ * `parseTimerDump` which only reports the pin's CURRENT binding.
+ *
+ * Example input lines (from cli.c cliTimer "list" branch):
+ *   # AF1: TIM2 CH1
+ *   # AF2: TIM5 CH1
+ *   # AF3: TIM8 CH1N
+ *
+ * The trailing "N" marks complementary channels. We capture it so
+ * callers planning DShot remaps can avoid complementary outputs
+ * (which can't drive DShot on most MCUs).
+ *
+ * @param {string[]|string} input
+ * @returns {Array<{af: number, timer: number, channel: number, complementary: boolean}>}
+ */
+export function parseTimerOptions(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const out = [];
+    for (const line of lines) {
+        const m = /^\s*#\s*AF(\d+):\s*TIM(\d+)\s+CH(\d+)(N?)\s*$/i.exec(line);
+        if (!m) continue;
+        out.push({
+            af: Number(m[1]),
+            timer: Number(m[2]),
+            channel: Number(m[3]),
+            complementary: m[4].toUpperCase() === "N",
+        });
+    }
+    return out;
+}
+
+/**
+ * Issue `timer <pad> list` against the FC and return the parsed
+ * available-AF options for that pad. Returns [] if the firmware
+ * doesn't recognize the pin or the response is empty (older BF
+ * builds without the `list` subcommand).
+ *
+ * @param {string} pad - port+pin string e.g. "B07", "A05"
+ * @param {object} [opts] - passed through to readCli (timeout, abort, etc.)
+ * @returns {Promise<Array<{af, timer, channel, complementary}>>}
+ */
+export async function readTimerOptionsForPin(pad, opts = {}) {
+    if (typeof pad !== "string" || pad.length === 0) return [];
+    const { lines } = await readCli(`timer ${pad} list`, opts);
+    return parseTimerOptions(lines);
+}
+
+/**
+ * Parse the bare `dma` (no args) dump output. Single CLI roundtrip
+ * surfaces both:
+ *   - resource-bound non-default DMA options
+ *     (`dma ADC 1 1` + `# ADC 1: DMA2 Stream 4 Channel 0`)
+ *   - per-pin default DMA options
+ *     (`dma pin C06 0` + `#  DMA1 Stream 4 Channel 5`)
+ *   - per-pin no-DMA markers
+ *     (`dma pin B09 NONE`) — pin can drive servo PWM but not DSHOT.
+ *
+ * Per-pin entries are the optimizer's primary input: they answer
+ * "if a motor lands on this pad, what DMA stream will the firmware
+ * try to allocate?" Cross-referencing against `parseDmaShow` (the
+ * per-stream view) tells us whether that stream is already claimed.
+ *
+ * @param {string[]|string} input
+ * @returns {{
+ *   resources: Array<{peripheral: string, index: number, opt: number, controller: number, stream: number, channel: number}>,
+ *   pads: Array<{pad: string, opt: number|null, controller: number|null, stream: number|null, channel: number|null}>,
+ * }}
+ *   - `pads` entries with opt=null are the "NONE" cases — caller
+ *     treats them as motor-ineligible.
+ */
+export function parseDmaPinDefaults(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const resources = [];
+    const pads = [];
+    let pending = null;
+    for (const line of lines) {
+        // `dma pin <pad> NONE` — pin has no DMA option at all.
+        const noneMatch = /^\s*dma\s+pin\s+(\S+)\s+NONE\s*$/i.exec(line);
+        if (noneMatch) {
+            if (pending) {
+                if (pending.kind === "pad") pads.push(pending.entry);
+                else resources.push(pending.entry);
+                pending = null;
+            }
+            pads.push({
+                pad: noneMatch[1].toUpperCase(),
+                opt: null,
+                controller: null,
+                stream: null,
+                channel: null,
+            });
+            continue;
+        }
+        // `dma pin <pad> <opt>` — pin has a DMA option, expect a
+        // comment line next with the actual stream/channel.
+        const padMatch = /^\s*dma\s+pin\s+(\S+)\s+(\d+)\s*$/i.exec(line);
+        if (padMatch) {
+            if (pending) {
+                if (pending.kind === "pad") pads.push(pending.entry);
+                else resources.push(pending.entry);
+            }
+            pending = {
+                kind: "pad",
+                entry: {
+                    pad: padMatch[1].toUpperCase(),
+                    opt: Number(padMatch[2]),
+                    controller: null,
+                    stream: null,
+                    channel: null,
+                },
+            };
+            continue;
+        }
+        // `dma <PERIPHERAL> <index> <opt>` — non-default resource
+        // DMA option (e.g. `dma ADC 1 1`).
+        const resMatch = /^\s*dma\s+([A-Z][A-Z0-9_]*)\s+(\d+)\s+(\d+)\s*$/i.exec(line);
+        if (resMatch) {
+            if (pending) {
+                if (pending.kind === "pad") pads.push(pending.entry);
+                else resources.push(pending.entry);
+            }
+            pending = {
+                kind: "resource",
+                entry: {
+                    peripheral: resMatch[1].toUpperCase(),
+                    index: Number(resMatch[2]),
+                    opt: Number(resMatch[3]),
+                    controller: null,
+                    stream: null,
+                    channel: null,
+                },
+            };
+            continue;
+        }
+        // Comment line carrying the stream info for the pending
+        // entry. Two formats observed:
+        //   `# <PERIPHERAL> <index>: DMA<n> Stream <m> Channel <p>`
+        //   `#  DMA<n> Stream <m> Channel <p>`  (pin-keyed, no header)
+        if (pending) {
+            const cm = /DMA(\d+)\s+Stream\s+(\d+)\s+Channel\s+(\d+)/i.exec(line);
+            if (cm) {
+                pending.entry.controller = Number(cm[1]);
+                pending.entry.stream = Number(cm[2]);
+                pending.entry.channel = Number(cm[3]);
+            }
+        }
+    }
+    if (pending) {
+        if (pending.kind === "pad") pads.push(pending.entry);
+        else resources.push(pending.entry);
+    }
+    return { resources, pads };
+}
+
+/**
+ * Issue `dma pin <pad>` per pad (no `list` suffix — we want the
+ * pin's CURRENT default option + stream, not the list of all
+ * available options). Concatenates responses into a single string
+ * suitable for parseDmaPinDefaults. Bare `dma` (no args) calls
+ * showDma() in firmware which gives the wrong format (per-stream
+ * not per-pin), so we have to loop.
+ *
+ * @param {string[]} pads
+ * @param {object} [opts]
+ * @returns {Promise<string>} concatenated raw output, ready to feed
+ *   into parseDmaPinDefaults
+ */
+export async function readDmaPinDefaultsConcatenated(pads, opts = {}) {
+    if (!Array.isArray(pads)) return "";
+    const chunks = [];
+    const seen = new Set();
+    for (const pad of pads) {
+        if (typeof pad !== "string" || pad.length === 0) continue;
+        const upper = pad.toUpperCase();
+        if (seen.has(upper)) continue;
+        seen.add(upper);
+        const { raw } = await readCli(`dma pin ${upper}`, opts);
+        if (raw) chunks.push(raw);
+    }
+    return chunks.join("\n");
+}
+
+/**
+ * Discover available timer/AF options for a list of pads. Issues
+ * `timer <pad> list` serially for each pad and returns a Map keyed
+ * by pad.
+ *
+ * Cost: ~100ms per pad (CLI_LINE_DELAY_MS in readCli). For a typical
+ * wing optimizer pool of 8–12 pads this adds ~1–1.5s to Discovery
+ * scan. Caller should populate this only for the candidate pool, not
+ * every pad on the board.
+ *
+ * Pads that return no options (FC didn't recognize the pin, or older
+ * firmware without the `list` subcommand) are still included with an
+ * empty array so the caller can distinguish "checked, none available"
+ * from "not checked yet."
+ *
+ * @param {string[]} pads - list of port+pin strings, e.g. ["B07", "A05"]
+ * @param {object} [opts] - passed through to readCli
+ * @returns {Promise<Map<string, Array<{af, timer, channel, complementary}>>>}
+ */
+export async function discoverPadTimerOptions(pads, opts = {}) {
+    const out = new Map();
+    if (!Array.isArray(pads)) return out;
+    for (const pad of pads) {
+        if (typeof pad !== "string" || pad.length === 0) continue;
+        const upper = pad.toUpperCase();
+        if (out.has(upper)) continue;
+        out.set(upper, await readTimerOptionsForPin(upper, opts));
+    }
+    return out;
+}
+
 // ─── convenience readers for the wing-fork `defaults` subcommands ─────
 //
 // The wing-fork firmware exposes `resource defaults` / `timer defaults` /

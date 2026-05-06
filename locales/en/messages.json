@@ -1655,6 +1655,48 @@
     "wingPinAssignAddServo": {
         "message": "Add SERVO pin"
     },
+    "wingPinAssignTimerRemapBadge": {
+        "message": "AF$fromAF$ → AF$toAF$",
+        "description": "Compact AF-remap indicator next to a pad whose alternate function is being changed by the planned CLI batch.",
+        "placeholders": {
+            "fromAF": { "content": "$1", "example": "1" },
+            "toAF": { "content": "$2", "example": "2" }
+        }
+    },
+    "wingPinAssignTimerRemapTooltip": {
+        "message": "Pad $pad$ alternate function: AF$fromAF$ → AF$toAF$ (TIM$timer$ CH$channel$). The planned CLI batch will emit `timer $pad$ AF$toAF$` so this pad's timer doesn't conflict with another wing function.",
+        "description": "Hover/title text on the timer-remap badge in the Pin Assignment panel.",
+        "placeholders": {
+            "pad": { "content": "$1", "example": "B07" },
+            "fromAF": { "content": "$2", "example": "1" },
+            "toAF": { "content": "$3", "example": "2" },
+            "timer": { "content": "$4", "example": "3" },
+            "channel": { "content": "$5", "example": "2" }
+        }
+    },
+    "wingPinAssignDmaTooltip": {
+        "message": "Pad $pad$ default DMA option lands on DMA$controller$ Stream $stream$. The firmware allocates this stream to the motor at boot; bidir DSHOT + RPM filter will use it.",
+        "description": "Hover/title for the green DMA badge on motor rows in Pin Assignment.",
+        "placeholders": {
+            "pad": { "content": "$1", "example": "B06" },
+            "controller": { "content": "$2", "example": "1" },
+            "stream": { "content": "$3", "example": "0" }
+        }
+    },
+    "wingPinAssignDmaBitBangBadge": {
+        "message": "bit-bang",
+        "description": "Red badge shown next to a motor whose pin has no DMA option — bidir DSHOT will fall back to bit-bang (works but software-driven, less efficient)."
+    },
+    "wingPinAssignDmaBitBangTooltip": {
+        "message": "This pad has no DMA-capable timer channel. Bidir DSHOT will fall back to bit-bang mode — the motor still runs but the firmware drives it via software interrupts instead of DMA. Consider picking a different pad or check whether the pin's silicon supports DMA on this MCU."
+    },
+    "wingPinAssignNotEnoughPads": {
+        "message": "Not enough physical pads for the selected preset",
+        "description": "Banner shown above the Pin Assignment dropdowns when one or more rows can't be filled — typically after the pilot un-checks too many pads in the allowlist."
+    },
+    "wingPinAssignNotEnoughPadsTip": {
+        "message": "The current preset needs more outputs than the allowlist permits. Re-check pads in the Pad mapping table above, pick a preset with fewer rules, or reduce the motor count."
+    },
     "wingPinAssignAllowLed": {
         "message": "Allow LED_STRIP pad as servo candidate (disables LED effects)"
     },
@@ -1694,8 +1736,19 @@
     "wingPinAssignMappingPad": {
         "message": "Pad"
     },
+    "wingPinAssignMappingAf": {
+        "message": "AF",
+        "description": "Header for the alternate-function column in the Pad mapping table. Shows current AF and count of alternate AFs the firmware reports for each pad."
+    },
     "wingPinAssignMappingNow": {
         "message": "Currently"
+    },
+    "wingPinAssignMappingPhysical": {
+        "message": "Physical pad",
+        "description": "Header for the physical-pad allowlist checkbox column. Pilot un-checks pads not actually broken out as solder points on this PCB so the optimizer / wizard / preset never picks a phantom pad."
+    },
+    "wingPinAssignMappingPhysicalTip": {
+        "message": "Check this if the pad is physically broken out as a solder point on your board. Un-check pads the firmware lists but your PCB doesn't actually expose — the optimizer will avoid them when picking outputs."
     },
     "wingMixerRulesTitle": {
         "message": "Function → Output Mapping"

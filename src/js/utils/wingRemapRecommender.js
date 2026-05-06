@@ -14,6 +14,8 @@
 // 2026-04-19 after Phase 2.5 took over. See the plan file's Phase 2.5
 // section for why that model was replaced.
 
+import { predictDmaConflict } from "./wingDmaTopology.js";
+
 // ─── Phase 2.5: per-slot candidate helper ─────────────────────────
 //
 // Ranking (motor-release ahead of free-PWM so the silkscreen-label
@@ -119,9 +121,16 @@ export function candidatePadsForSlot(analysis, servoIndex, options = {}) {
 
     const results = [];
     const seen = new Set();
+    // Dedup key includes AF so the same pad can appear once per
+    // viable alternate function. Default-AF entries use the pad
+    // alone (af === null). Alt-AF entries from the post-pass below
+    // key by `pad:af`, letting `B00 — TIM3 CH3` (default) coexist
+    // with `B00 — TIM1 CH2N (alt AF1)` in the dropdown.
+    const keyFor = (pad, af) => (af == null ? pad : `${pad}:${af}`);
     const push = (entry) => {
-        if (seen.has(entry.pad)) return;
-        seen.add(entry.pad);
+        const k = keyFor(entry.pad, entry.af ?? null);
+        if (seen.has(k)) return;
+        seen.add(k);
         results.push(entry);
     };
 
@@ -248,6 +257,41 @@ export function candidatePadsForSlot(analysis, servoIndex, options = {}) {
         }
     }
 
+    // 7. Alt-AF expansion. For each pad already in results, emit
+    // additional entries for every alternate AF the firmware reports
+    // (via `analysis.padTimerOptions`). Lets the pilot manually park
+    // a pad on a different (timer, channel) — useful when the
+    // optimizer's automatic AF remap doesn't fire (e.g. tight DMA
+    // boards) but the pilot knows a specific alt AF would help.
+    // Each alt entry inherits the base pad's source/requiresRelease,
+    // but carries the alt AF's (timer, channel, af) so the caller
+    // can emit `timer <pad> AF<n>` ahead of the resource bind.
+    const padTimerOptions = analysis.padTimerOptions instanceof Map ? analysis.padTimerOptions : null;
+    const padCurrentAF = analysis.padCurrentAF instanceof Map ? analysis.padCurrentAF : null;
+    if (padTimerOptions) {
+        const altEntries = [];
+        for (const base of results) {
+            const opts = padTimerOptions.get(base.pad);
+            if (!Array.isArray(opts) || opts.length === 0) continue;
+            const currentAf = padCurrentAF?.get(base.pad);
+            for (const opt of opts) {
+                if (opt.af === currentAf) continue;
+                altEntries.push({
+                    pad: base.pad,
+                    timer: opt.timer,
+                    channel: opt.channel,
+                    af: opt.af,
+                    complementary: !!opt.complementary,
+                    dmaStream: null,
+                    source: "alt-af",
+                    requiresRelease: base.requiresRelease,
+                    sharesTimerWithMotor: opt.timer !== null && motorTimers.has(opt.timer),
+                });
+            }
+        }
+        for (const e of altEntries) push(e);
+    }
+
     return results;
 }
 
@@ -312,7 +356,17 @@ function enumerateCombinations(arr, k) {
 // Returns the same shape as `pickOptimalPadLayout` so it's a drop-in
 // replacement at the call site.
 //
-// @returns {{motors: Map<number,string>, servos: Map<number,string>, score: number} | null}
+// @param {boolean} [options.allowAfRemap=false] - when true and
+//   `analysis.padTimerOptions` is present, motors that would
+//   otherwise be skipped (timer shared with a servo) are recovered
+//   by picking an alternate AF for the pad whose timer doesn't
+//   collide. The chosen remap lands in the returned `remaps` Map and
+//   the caller emits `timer <pin> AF<n>` CLI lines for it. Bench
+//   case (MicoAir743): pad's current AF lands on TIM4 (LED_STRIP-
+//   adjacent) but its alt AF lands on TIM3 — without remap, optimizer
+//   skips the pad and may run out; with remap, pad is recovered.
+//
+// @returns {{motors: Map<number,string>, servos: Map<number,string>, score: number, remaps: Map<string,{af,timer,channel}>} | null}
 export function pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices, options = {}) {
     const padDefaults = options.padDefaults;
     if (!padDefaults || !Array.isArray(padDefaults.motors) || padDefaults.motors.length === 0) return null;
@@ -330,10 +384,60 @@ export function pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices
     if (pool.length < servoCount + motorCount) return null;
 
     const padTimers = analysis?.padTimers instanceof Map ? analysis.padTimers : null;
+    const padTimerOptions = analysis?.padTimerOptions instanceof Map ? analysis.padTimerOptions : null;
+    const padCurrentAF = analysis?.padCurrentAF instanceof Map ? analysis.padCurrentAF : null;
+    const padDmaDefaults = analysis?.padDmaDefaults instanceof Map ? analysis.padDmaDefaults : null;
+    const allowAfRemap = options.allowAfRemap === true && padTimerOptions != null;
+
+    // Streams claimed by non-motor non-servo consumers, derived from
+    // `dma show`. Motor candidates that would land on one of these
+    // streams will lose at firmware-init (the existing consumer wins,
+    // motor falls back to bit-bang). Servos don't claim DMA at runtime
+    // — their default-option overlap with a motor's stream is fine, so
+    // we explicitly DON'T include MOTOR/SERVO peripherals here. Built
+    // once per layout call, used by the motor placement loop and AF-
+    // remap fallback below.
+    const claimedStreams = new Set();
+    if (Array.isArray(analysis?.dmaShow)) {
+        for (const e of analysis.dmaShow) {
+            if (!e || !e.peripheral) continue;
+            if (e.peripheral === "FREE" || e.peripheral === "MOTOR" || e.peripheral === "SERVO") continue;
+            // TIMUP burst entries are timer-side bookkeeping, not
+            // peripheral claims that block motor DMA — skip.
+            if (e.peripheral === "TIMUP") continue;
+            if (typeof e.controller !== "number" || typeof e.stream !== "number") continue;
+            claimedStreams.add(`${e.controller}:${e.stream}`);
+        }
+    }
+    // Streams the optimizer's own motor picks have already grabbed.
+    // Updated as each motor is placed; checked when picking the next.
+    const plannedMotorStreams = new Set();
+
+    // Helper: does a pad's default DMA option land on a stream that's
+    // already taken by something else? Returns true to reject the pad.
+    // Pads with no padDmaDefaults entry are accepted (caller may not
+    // have populated DMA defaults — fall back to today's behavior).
+    // Pads with a null payload (no DMA option at all, e.g. F7 TIM11
+    // channel pins) are rejected for motor use — they can drive
+    // servos but not DSHOT.
+    const motorDmaConflicts = (pad) => {
+        if (!padDmaDefaults) return false;
+        if (!padDmaDefaults.has(pad)) return false;
+        const dma = padDmaDefaults.get(pad);
+        if (dma == null) return true; // no DMA option → motor-ineligible
+        const k = `${dma.controller}:${dma.stream}`;
+        return claimedStreams.has(k) || plannedMotorStreams.has(k);
+    };
 
     const servos = new Map();
     const motors = new Map();
     const servoTimers = new Set();
+    // Pads whose final AF differs from current — caller emits
+    // `timer <pad> AF<af>` for each.
+    const remaps = new Map();
+    // Final timer/channel per motor pad after AF resolution. Feeds the
+    // F4 burst-DMA conflict check below.
+    const motorTimerByPad = new Map();
 
     // Servos take the first servoCount pads in silkscreen order. Track
     // their timers so we can avoid landing motors on the same timer
@@ -356,23 +460,98 @@ export function pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices
     // TIM3 candidates and lands on TIM4. For 2-motor wings the motors
     // still land together (M5+M6 = TIM4 CH1+CH3) — preserves the
     // bench-preferred TIMUP-burst grouping.
+    //
+    // When allowAfRemap is true, a pad that would otherwise be skipped
+    // can be RECOVERED by picking an alternate AF whose timer doesn't
+    // collide with servoTimers. Recovery only fires when (a) the pad
+    // has alternate AF options in `padTimerOptions`, and (b) at least
+    // one option's timer is disjoint from servoTimers. Complementary
+    // (CHnN) channels are filtered out — they can't drive DSHOT.
     let nextPoolIdx = servoCount;
     for (let m = 0; m < motorCount; m += 1) {
-        let claimed = null;
+        let claimedPad = null;
+        let claimedTimer = null;
+        let claimedChannel = null;
+        let claimedAf = null;
         while (nextPoolIdx < pool.length) {
             const pad = pool[nextPoolIdx];
             nextPoolIdx += 1;
-            if (padTimers && servoTimers.size > 0) {
-                const t = padTimers.get(pad);
-                if (t && t.timer != null && servoTimers.has(t.timer)) continue; // shares servo timer — skip
+            // DMA collision (with another motor / LED_STRIP / ADC /
+            // UART / SPI peripheral) is INFORMATIONAL, not a hard
+            // reject. Firmware handles it at boot: motor falls back
+            // to bit-bang DSHOT — still works, just less efficient.
+            // Bench-observed on TMOTORF7X2: rejecting motor pads on
+            // DMA collision caused the optimizer to return null,
+            // motor binding fell back to silkscreen-default
+            // (C06+C07), and servos took leftovers including TIM3
+            // pads → real timer conflict. Better to accept the soft
+            // DMA degradation and emit a warning. (motorDmaConflicts
+            // / claimedStreams / plannedMotorStreams kept around for
+            // the F4 burst-DMA reject and as scaffolding for a
+            // future v2 that scores rather than rejects.)
+            if (!padTimers || servoTimers.size === 0) {
+                claimedPad = pad;
+                break;
             }
-            claimed = pad;
+            const t = padTimers.get(pad);
+            if (!t || t.timer == null) {
+                claimedPad = pad;
+                break;
+            }
+            if (!servoTimers.has(t.timer)) {
+                claimedPad = pad;
+                claimedTimer = t.timer;
+                claimedChannel = t.channel;
+                break;
+            }
+            if (!allowAfRemap) continue;
+            const opts = padTimerOptions.get(pad);
+            if (!Array.isArray(opts) || opts.length === 0) continue;
+            const fit = opts.find((o) => !o.complementary && !servoTimers.has(o.timer));
+            if (!fit) continue;
+            claimedPad = pad;
+            claimedTimer = fit.timer;
+            claimedChannel = fit.channel;
+            claimedAf = fit.af;
             break;
         }
-        if (!claimed) return null; // ran out of disjoint pads — caller falls back
-        motors.set(m + 1, claimed);
+        if (!claimedPad) return null;
+        motors.set(m + 1, claimedPad);
+        if (claimedTimer != null) {
+            motorTimerByPad.set(claimedPad, { timer: claimedTimer, channel: claimedChannel });
+        }
+        // Track this motor's stream so subsequent motor picks won't
+        // collide with it. Servos still don't contribute (above).
+        if (padDmaDefaults && padDmaDefaults.has(claimedPad)) {
+            const dma = padDmaDefaults.get(claimedPad);
+            if (dma != null) {
+                plannedMotorStreams.add(`${dma.controller}:${dma.stream}`);
+            }
+        }
+        if (claimedAf != null) {
+            const currentAf = padCurrentAF?.get(claimedPad);
+            if (currentAf !== claimedAf) {
+                remaps.set(claimedPad, { af: claimedAf, timer: claimedTimer, channel: claimedChannel });
+            }
+        }
     }
-    return { motors, servos, score: 0 };
+
+    // F4 burst-DMA reject: STM32F4xx routes DSHOT through timer-burst
+    // DMA, and burst owns the stream across all of a timer's channels.
+    // Two motors on the same timer can't both run independent DSHOT.
+    // Caller falls back to the joint optimizer (which scores AF combos
+    // more globally) when this rejects.
+    if (analysis?.mcuFamily) {
+        const motorPicks = [];
+        for (const [motorIndex, pad] of motors) {
+            const tInfo = motorTimerByPad.get(pad);
+            if (tInfo) motorPicks.push({ motorIndex, pad, timer: tInfo.timer, channel: tInfo.channel });
+        }
+        const verdict = predictDmaConflict({ mcuFamily: analysis.mcuFamily, motorPicks });
+        if (verdict.hasConflict) return null;
+    }
+
+    return { motors, servos, score: 0, remaps };
 }
 
 /**
@@ -685,9 +864,42 @@ export function computePresetResourcePlan(analysis, preset, options = {}) {
     const optimized = pickSilkscreenOrderLayout(analysis, motorCount, usedServoIndices, {
         padDefaults: options.padDefaults,
         allowLedStrip,
+        allowAfRemap: options.allowAfRemap === true,
     });
     const effectiveMotorPicks = { ...motorUserPicks };
     const effectiveServoPicks = { ...userPicks };
+    // Pads whose final AF differs from current binding. Caller emits
+    // `timer <pad> AF<af>` for each, BEFORE the resource binds.
+    const optimizerRemaps = optimized?.remaps instanceof Map ? optimized.remaps : new Map();
+    // User-supplied AF overrides win over optimizer auto-picks. Pilot
+    // selects an alt-AF row from the Mixer-tab dropdown → caller passes
+    // padAfOverrides Map<pad, af> here. Each entry produces a
+    // `timer <pad> AF<af>` line ahead of the resource bind, identical
+    // to the optimizer's automatic remap path.
+    const userAfOverrides = options.padAfOverrides instanceof Map ? options.padAfOverrides : null;
+    if (userAfOverrides) {
+        const padCurrentAF = analysis?.padCurrentAF instanceof Map ? analysis.padCurrentAF : null;
+        const padTimerOptions = analysis?.padTimerOptions instanceof Map ? analysis.padTimerOptions : null;
+        for (const [pad, af] of userAfOverrides) {
+            if (typeof af !== "number") continue;
+            const currentAf = padCurrentAF?.get(pad);
+            if (currentAf === af) {
+                // Override matches current — no remap needed; remove
+                // any optimizer-auto remap for this pad too.
+                optimizerRemaps.delete(pad);
+                continue;
+            }
+            // Look up timer/channel for the chosen AF so the planned
+            // remap entry carries full info for downstream consumers.
+            const opts = padTimerOptions?.get(pad);
+            const opt = Array.isArray(opts) ? opts.find((o) => o.af === af) : null;
+            optimizerRemaps.set(pad, {
+                af,
+                timer: opt?.timer ?? null,
+                channel: opt?.channel ?? null,
+            });
+        }
+    }
     if (optimized) {
         for (const [idx, pad] of optimized.motors) {
             if (effectiveMotorPicks[idx] == null) effectiveMotorPicks[idx] = pad;
@@ -966,8 +1178,28 @@ export function computePresetResourcePlan(analysis, preset, options = {}) {
         bindLines.push(`resource SERVO ${servoIndex} ${pick.pad}`);
     }
 
+    // Timer-remap phase. The optimizer's `pickSilkscreenOrderLayout` may
+    // have planned an AF change for a motor pad whose current timer
+    // collides with a servo's. Emit `timer <pad> AF<n>` AFTER releases
+    // and BEFORE binds: pad must be free for the remap to apply cleanly,
+    // and the new (timer, channel) needs to be in place before the
+    // resource bind so BF wires up the right timer driver. We only
+    // emit remaps for pads that ended up in final motor or servo picks
+    // — picks the user explicitly overrode might land on the same pad
+    // (in which case the remap is still needed) but pads NOT in the
+    // final layout would be remapped for no reason if we didn't filter.
+    const finalPickPads = new Set();
+    for (const [, pick] of motorPicks) finalPickPads.add(pick.pad);
+    for (const [, pick] of picks) finalPickPads.add(pick.pad);
+    const timerRemapLines = [];
+    for (const [pad, remap] of optimizerRemaps) {
+        if (!finalPickPads.has(pad)) continue;
+        timerRemapLines.push(`timer ${pad} AF${remap.af}`);
+    }
+
     const cliLines = [];
-    const hasRealWork = realWork.length > 0 || motorRebindReleases.length > 0 || bindLines.length > 0;
+    const hasRealWork =
+        realWork.length > 0 || motorRebindReleases.length > 0 || bindLines.length > 0 || timerRemapLines.length > 0;
     if (hasRealWork) {
         // Defensive prefix goes first so phantom slot claims are cleared
         // before any observed release / rebind / bind line runs.
@@ -975,6 +1207,7 @@ export function computePresetResourcePlan(analysis, preset, options = {}) {
         for (const i of defensiveServoReleases) cliLines.push(`resource SERVO ${i} NONE`);
         cliLines.push(...realWork);
         cliLines.push(...motorRebindReleases);
+        cliLines.push(...timerRemapLines);
         cliLines.push(...bindLines);
     }
 
@@ -986,6 +1219,7 @@ export function computePresetResourcePlan(analysis, preset, options = {}) {
         usedServoIndices,
         motorsToRelease,
         servosToRelease,
+        timerRemaps: optimizerRemaps,
         warnings,
     };
 }

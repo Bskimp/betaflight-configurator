@@ -105,11 +105,25 @@ function collectSerials(txMap, rxMap, uartDmaLookup) {
     return out;
 }
 
-function deriveWarnings({ motors, servos, ledStrips, freeDmaStreams }) {
+function deriveWarnings({ motors, servos, ledStrips, freeDmaStreams, padDmaDefaults }) {
     const w = [];
 
     for (const m of motors) {
-        if (!m.bidirBurst && !m.dmaStream) {
+        // Motor has DMA when (a) timer-burst is active for its
+        // timer, (b) the resource has an explicit `dma MOTOR N <opt>`
+        // binding visible in `dma show`, OR (c) the pin has a default
+        // DMA option in the bare `dma` dump that the firmware
+        // allocates at boot. Without (c) the configurator was
+        // false-positive-warning every default-DMA motor: stock BF
+        // doesn't emit `dma MOTOR N <opt>` lines for default options,
+        // so `m.dmaStream` was null even when DMA was actually fine.
+        // Bench-confirmed on TMOTORF7X2 where motors had clean DMA
+        // via pin defaults but the warning fired anyway.
+        const hasPinDefault =
+            padDmaDefaults instanceof Map &&
+            padDmaDefaults.get(m.pad) != null &&
+            padDmaDefaults.get(m.pad).stream != null;
+        if (!m.bidirBurst && !m.dmaStream && !hasPinDefault) {
             w.push({
                 severity: "warn",
                 code: "motor_no_dma",
@@ -163,8 +177,35 @@ function deriveWarnings({ motors, servos, ledStrips, freeDmaStreams }) {
  *   spareUarts: UARTs with no function assigned AND with at least one
  *   PWM-capable pad (TX or RX). Recommender's UART-release flow can
  *   repurpose those pads as servo outputs.
+ * @param {Map<string, Array<{af, timer, channel, complementary}>>} [input.padTimerOptions]
+ *   - optional pre-discovered AF options per pad (built by caller via
+ *   `readTimerOptionsForPin` from cliOneShot). When present, surfaces
+ *   `padTimerOptions` so the optimizer can plan `timer <pin> AF<n>`
+ *   remaps. Discovery is a per-pad serial CLI roundtrip (~100ms each)
+ *   so callers populate it lazily for the optimizer's candidate pool,
+ *   not for every pad on the board.
+ * @param {string|null} [input.mcuFamily] - optional MCU family tag
+ *   ('F4'/'F7'/'H7'/'G4'/'AT32'/null) from `mcuFamilyFromName`.
+ *   Required by the optimizer's F4 burst-DMA reject path.
+ * @param {{resources: Array, pads: Array}|null} [input.dmaDump] -
+ *   optional parsed bare `dma` (no args) dump output (from
+ *   `parseDmaPinDefaults`). When present, the analyzer builds
+ *   `padDmaDefaults: Map<pad, {controller, stream, channel} | null>`
+ *   surfacing each pad's default DMA stream. Null payload means the
+ *   pin has no DMA option (e.g. F7 TIM11 channel) — motor candidates
+ *   should reject it. Source-of-truth for the optimizer's DMA
+ *   collision check + the motor_no_dma warning's correctness fix.
  */
-export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDump = [], serialPorts = [] }) {
+export function analyzeWingResources({
+    resourceShow,
+    timerShow,
+    dmaShow,
+    timerDump = [],
+    serialPorts = [],
+    padTimerOptions = null,
+    mcuFamily = null,
+    dmaDump = null,
+}) {
     const timerByKey = buildTimerLookup(timerShow);
     const dmaByKey = buildDmaLookup(dmaShow);
     const uartDmaByDirIndex = buildUartDmaLookup(dmaShow);
@@ -184,17 +225,54 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
             continue;
         }
         const p = entry.peripheral;
-        const timerHit = timerByKey.get(key(p, entry.index)) || null;
+        let timerHit = timerByKey.get(key(p, entry.index)) || null;
+        // Bitbang fallback: when motors fall back to DSHOT bit-bang,
+        // `timer show` reports the pin's slot under DSHOT_BITBANG <n>
+        // instead of MOTOR <n>, so the (MOTOR, index) keyed lookup
+        // above returns null even though the pin DOES have a timer
+        // assignment. The bare `timer` dump (timerDump) is pin-keyed
+        // and authoritative regardless of bitbang state — fall back
+        // to it so the Hardware tab's Motor/Servo rows show the
+        // actual TIMx CHy instead of `—`. Bench-confirmed on
+        // TMOTORF7X2 where M1-M4 land on TIM3 but `timer show`
+        // reports DSHOT_BITBANG 2 on TIM8.
+        if (!timerHit && Array.isArray(timerDump)) {
+            const dumpHit = timerDump.find((t) => t.pad === entry.pad);
+            if (dumpHit && dumpHit.timer != null) {
+                timerHit = { timer: dumpHit.timer, channel: dumpHit.channel, complementary: false };
+            }
+        }
         const dmaHit = dmaByKey.get(key(p, entry.index)) || null;
 
         if (p === "MOTOR") {
             const bidirBurst = timerHit?.timer != null && timupStreams.has(timerHit.timer);
+            // dmaStream fallback: BF only emits `dma MOTOR N <opt>`
+            // entries (which dmaHit reads) when a non-default option
+            // is set. Default-DMA motors get DMA via their pin's
+            // option-0 binding, surfaced via `dma pin <pad>` queries
+            // into `padDmaDefaults` upstream. When the resource-keyed
+            // dmaHit is null but the pin has a default, expose THAT
+            // as the motor's dmaStream so the Hardware tab "DMA /
+            // Mode" column shows the real stream instead of "no DMA".
+            // Pre-fix: every default-DMA motor showed "no DMA";
+            // post-fix: shows DMA1/S0 etc. matching the Pin
+            // Assignment badge.
+            let resolvedDma = dmaHit;
+            if (!resolvedDma && dmaDump && Array.isArray(dmaDump.pads)) {
+                const pinDma = dmaDump.pads.find((p2) => p2.pad === entry.pad);
+                if (pinDma && pinDma.opt !== null && pinDma.stream !== null) {
+                    resolvedDma = {
+                        controller: pinDma.controller,
+                        stream: pinDma.stream,
+                    };
+                }
+            }
             motors.push({
                 index: entry.index ?? 0,
                 pad: entry.pad,
                 timer: timerHit?.timer ?? null,
                 channel: timerHit?.channel ?? null,
-                dmaStream: dmaHit,
+                dmaStream: resolvedDma,
                 bidirBurst,
             });
         } else if (p === "SERVO") {
@@ -273,13 +351,44 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
     // at B00 — the optimizer still wants to know B00 is TIM3 CH3 so it
     // can decide whether to keep MOTOR 1 there or relocate it).
     const padTimers = new Map();
+    // padCurrentAF: pad → AF number currently bound. parseTimerDump already
+    // returns `af` per pad; the analyzer used to discard it. The timer-remap
+    // layer in wingRemapRecommender compares planned AF picks against this
+    // baseline to decide whether a `timer <pin> AF<n>` line needs emitting.
+    const padCurrentAF = new Map();
     if (Array.isArray(timerDump)) {
         for (const t of timerDump) {
             padTimers.set(t.pad, { timer: t.timer, channel: t.channel });
+            if (typeof t.af === "number") {
+                padCurrentAF.set(t.pad, t.af);
+            }
         }
     }
 
-    const warnings = deriveWarnings({ motors, servos, ledStrips, freeDmaStreams });
+    // padDmaDefaults: pad → {controller, stream, channel} for the
+    // firmware's default DMA option per pin. Null payload for pins
+    // with no DMA option (e.g. TIM11 channel pins on F7 — servo
+    // capable but DSHOT-incapable). Built from the bare `dma` (no
+    // args) dump's `dma pin <pad>` entries via parseDmaPinDefaults.
+    // The optimizer's DMA collision check + the motor_no_dma
+    // warning fix both consume this. Empty Map when caller didn't
+    // supply dmaDump (older firmware or skipped read).
+    const padDmaDefaults = new Map();
+    if (dmaDump && Array.isArray(dmaDump.pads)) {
+        for (const p of dmaDump.pads) {
+            if (p.opt === null || p.stream === null) {
+                padDmaDefaults.set(p.pad, null);
+            } else {
+                padDmaDefaults.set(p.pad, {
+                    controller: p.controller,
+                    stream: p.stream,
+                    channel: p.channel,
+                });
+            }
+        }
+    }
+
+    const warnings = deriveWarnings({ motors, servos, ledStrips, freeDmaStreams, padDmaDefaults });
 
     return {
         motors,
@@ -295,6 +404,18 @@ export function analyzeWingResources({ resourceShow, timerShow, dmaShow, timerDu
         hardwareFixedPads,
         pwmCapableFreePads,
         padTimers,
+        padCurrentAF,
+        // padTimerOptions: pad → Array<{af, timer, channel, complementary}>.
+        // Populated by caller when timer-remap planning is enabled. null
+        // (default) means optimizer falls back to "treat AF as immutable."
+        padTimerOptions: padTimerOptions instanceof Map ? padTimerOptions : null,
+        padDmaDefaults,
+        // Raw parsed `dma show` entries surfaced unchanged so the
+        // optimizer can iterate non-motor non-servo consumers when
+        // detecting motor-pick stream collisions. Read-only — modifying
+        // this from a consumer breaks downstream lookups.
+        dmaShow: Array.isArray(dmaShow) ? dmaShow : [],
+        mcuFamily,
         spareUarts,
         warnings,
     };

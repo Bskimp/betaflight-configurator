@@ -810,3 +810,531 @@ describe("pickSilkscreenOrderLayout: motor/servo timer disjoint enforcement", ()
         expect(result.motors.get(1)).toBe("B00"); // pool[2]
     });
 });
+
+// AF-remap recovery: a motor pad whose CURRENT AF lands on a timer
+// shared with a servo gets retried against `padTimerOptions`. If an
+// alternate AF lands on a free timer, the optimizer claims the pad
+// and records the remap. Bench scenario this addresses: pad's
+// firmware-default timer is camped by another consumer (LED_STRIP,
+// PPM, etc.), and the silkscreen-order allocator would otherwise
+// skip the pad outright.
+describe("pickSilkscreenOrderLayout: AF-remap recovery", () => {
+    // Compact pad-defaults pulled from the existing TMOTORF7X2 fixture
+    // shape so the new tests focus on AF semantics, not pool layout.
+    const SMALL_DEFAULTS = {
+        target: "AF_REMAP_FIXTURE",
+        motors: [
+            { index: 1, pad: "C06" },
+            { index: 2, pad: "C07" },
+            { index: 3, pad: "B00" }, // currently TIM3 — would conflict with servos
+        ],
+        ledStrips: [],
+    };
+    const SMALL_PAD_TIMERS = new Map([
+        ["C06", { timer: 3, channel: 1 }], // servo
+        ["C07", { timer: 3, channel: 2 }], // servo
+        ["B00", { timer: 3, channel: 3 }], // motor target — current AF on TIM3 (conflict)
+    ]);
+
+    it("recovers a pad via alt AF when current AF would conflict with servo timer", () => {
+        // B00's alternate AF (AF2) lands on TIM4 — disjoint from
+        // servo TIM3.
+        const padTimerOptions = new Map([
+            [
+                "B00",
+                [
+                    { af: 1, timer: 3, channel: 3, complementary: false },
+                    { af: 2, timer: 4, channel: 1, complementary: false },
+                ],
+            ],
+        ]);
+        const padCurrentAF = new Map([["B00", 1]]);
+        const a = analysis([], { padTimers: SMALL_PAD_TIMERS, padTimerOptions, padCurrentAF });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], {
+            padDefaults: SMALL_DEFAULTS,
+            allowAfRemap: true,
+        });
+
+        expect(result).not.toBeNull();
+        expect(result.motors.get(1)).toBe("B00");
+        expect(result.remaps.get("B00")).toEqual({ af: 2, timer: 4, channel: 1 });
+    });
+
+    it("does NOT remap when allowAfRemap is false (default behavior preserved)", () => {
+        const padTimerOptions = new Map([
+            [
+                "B00",
+                [
+                    { af: 1, timer: 3, channel: 3, complementary: false },
+                    { af: 2, timer: 4, channel: 1, complementary: false },
+                ],
+            ],
+        ]);
+        const a = analysis([], {
+            padTimers: SMALL_PAD_TIMERS,
+            padTimerOptions,
+            padCurrentAF: new Map([["B00", 1]]),
+        });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], { padDefaults: SMALL_DEFAULTS });
+
+        // Pool exhausted: B00 was the only motor candidate and it
+        // collides with servoTimers. Allocator returns null so caller
+        // can fall back.
+        expect(result).toBeNull();
+    });
+
+    it("skips remap when no AF option lands on a disjoint timer", () => {
+        // ALL of B00's AFs live on TIM3 (the conflict timer). No
+        // recovery possible.
+        const padTimerOptions = new Map([
+            [
+                "B00",
+                [
+                    { af: 1, timer: 3, channel: 3, complementary: false },
+                    { af: 4, timer: 3, channel: 4, complementary: false },
+                ],
+            ],
+        ]);
+        const a = analysis([], {
+            padTimers: SMALL_PAD_TIMERS,
+            padTimerOptions,
+            padCurrentAF: new Map([["B00", 1]]),
+        });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], {
+            padDefaults: SMALL_DEFAULTS,
+            allowAfRemap: true,
+        });
+        expect(result).toBeNull();
+    });
+
+    it("ignores complementary (CHnN) channels — they can't drive DSHOT", () => {
+        // Only viable alt is complementary, which the optimizer rejects.
+        const padTimerOptions = new Map([
+            [
+                "B00",
+                [
+                    { af: 1, timer: 3, channel: 3, complementary: false },
+                    { af: 3, timer: 8, channel: 2, complementary: true },
+                ],
+            ],
+        ]);
+        const a = analysis([], {
+            padTimers: SMALL_PAD_TIMERS,
+            padTimerOptions,
+            padCurrentAF: new Map([["B00", 1]]),
+        });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], {
+            padDefaults: SMALL_DEFAULTS,
+            allowAfRemap: true,
+        });
+        expect(result).toBeNull();
+    });
+
+    it("does not record a remap when the chosen AF matches current AF", () => {
+        // Pad's current binding is already disjoint from servoTimers —
+        // optimizer takes the pad as-is. No remap entry.
+        const looseTimers = new Map([
+            ["C06", { timer: 3, channel: 1 }],
+            ["C07", { timer: 3, channel: 2 }],
+            ["B00", { timer: 4, channel: 1 }], // already on TIM4 — fine
+        ]);
+        const padTimerOptions = new Map([["B00", [{ af: 2, timer: 4, channel: 1, complementary: false }]]]);
+        const a = analysis([], {
+            padTimers: looseTimers,
+            padTimerOptions,
+            padCurrentAF: new Map([["B00", 2]]),
+        });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], {
+            padDefaults: SMALL_DEFAULTS,
+            allowAfRemap: true,
+        });
+        expect(result.motors.get(1)).toBe("B00");
+        expect(result.remaps.size).toBe(0);
+    });
+
+    it("F4 burst-DMA reject: rejects layout when two motors land on same timer (mcuFamily F4)", () => {
+        // 2-motor wing where both motor candidates land on TIM4.
+        const twoMotorDefaults = {
+            target: "F4_BENCH",
+            motors: [
+                { index: 1, pad: "C06" },
+                { index: 2, pad: "C07" },
+                { index: 3, pad: "B06" }, // motor M
+                { index: 4, pad: "B08" }, // motor M
+            ],
+            ledStrips: [],
+        };
+        const sharedTim4 = new Map([
+            ["C06", { timer: 3, channel: 1 }], // servo
+            ["C07", { timer: 3, channel: 2 }], // servo
+            ["B06", { timer: 4, channel: 1 }], // motor 1 — TIM4
+            ["B08", { timer: 4, channel: 3 }], // motor 2 — TIM4 (conflict on F4)
+        ]);
+        const a = analysis([], { padTimers: sharedTim4, mcuFamily: "F4" });
+
+        const result = pickSilkscreenOrderLayout(a, 2, [1, 2], { padDefaults: twoMotorDefaults });
+        expect(result).toBeNull();
+    });
+
+    it("F4 burst-DMA: same layout passes on H7 (no shared-timer constraint)", () => {
+        const twoMotorDefaults = {
+            target: "H7_BENCH",
+            motors: [
+                { index: 1, pad: "C06" },
+                { index: 2, pad: "C07" },
+                { index: 3, pad: "B06" },
+                { index: 4, pad: "B08" },
+            ],
+            ledStrips: [],
+        };
+        const sharedTim4 = new Map([
+            ["C06", { timer: 3, channel: 1 }],
+            ["C07", { timer: 3, channel: 2 }],
+            ["B06", { timer: 4, channel: 1 }],
+            ["B08", { timer: 4, channel: 3 }],
+        ]);
+        const a = analysis([], { padTimers: sharedTim4, mcuFamily: "H7" });
+
+        const result = pickSilkscreenOrderLayout(a, 2, [1, 2], { padDefaults: twoMotorDefaults });
+        expect(result).not.toBeNull();
+        expect(result.motors.get(1)).toBe("B06");
+        expect(result.motors.get(2)).toBe("B08");
+    });
+});
+
+// DMA-aware motor placement: padDmaDefaults is surfaced for the
+// Pin Assignment "DMA: S0" badge and the analyzer's motor_no_dma
+// warning. The optimizer's motor placement does NOT reject pads
+// based on DMA stream collisions — bench-confirmed on TMOTORF7X2
+// that the soft-reject created worse outcomes than just letting
+// firmware fall back to bit-bang DSHOT for collided motors. The
+// F4 burst-DMA same-timer reject (different mechanism, harder
+// constraint) still fires.
+describe("pickSilkscreenOrderLayout: DMA-aware motor placement", () => {
+    const SMALL_DEFAULTS = {
+        target: "DMA_FIXTURE",
+        motors: [
+            { index: 1, pad: "C06" },
+            { index: 2, pad: "C07" },
+            { index: 3, pad: "B06" },
+            { index: 4, pad: "B08" },
+            { index: 5, pad: "B07" },
+        ],
+        ledStrips: [],
+    };
+    const SMALL_PAD_TIMERS = new Map([
+        ["C06", { timer: 3, channel: 1 }],
+        ["C07", { timer: 3, channel: 2 }],
+        ["B06", { timer: 4, channel: 1 }],
+        ["B08", { timer: 4, channel: 3 }],
+        ["B07", { timer: 4, channel: 2 }],
+    ]);
+
+    it("places motor on first timer-disjoint pool slot regardless of DMA stream collision", () => {
+        // B06's default DMA stream is held by a real consumer, but
+        // we no longer reject — firmware handles via bit-bang DSHOT
+        // fallback. M1 lands on B06 (first disjoint-timer slot).
+        const padDmaDefaults = new Map([
+            ["B06", { controller: 1, stream: 0, channel: 2 }],
+            ["B08", { controller: 1, stream: 7, channel: 2 }],
+        ]);
+        const dmaShow = [
+            // LED_STRIP claims DMA1 Stream 0 — same as B06's default.
+            // Soft collision: motor still picks B06, falls back to
+            // bit-bang at runtime.
+            { controller: 1, stream: 0, peripheral: "LED_STRIP", index: null },
+        ];
+        const a = analysis([], { padTimers: SMALL_PAD_TIMERS, padDmaDefaults, dmaShow });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], { padDefaults: SMALL_DEFAULTS });
+        expect(result.motors.get(1)).toBe("B06");
+    });
+
+    it("does NOT factor servo's default DMA option into motor placement", () => {
+        // Sanity check — servos never claim DMA at runtime, so even
+        // a perfectly-overlapping servo+motor stream pair is OK.
+        const padDmaDefaults = new Map([
+            ["C06", { controller: 1, stream: 4, channel: 5 }],
+            ["B06", { controller: 1, stream: 4, channel: 5 }],
+        ]);
+        const a = analysis([], { padTimers: SMALL_PAD_TIMERS, padDmaDefaults, dmaShow: [] });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [2, 3], { padDefaults: SMALL_DEFAULTS });
+        expect(result.servos.get(2)).toBe("C06");
+        expect(result.motors.get(1)).toBe("B06");
+    });
+
+    it("places second motor on next disjoint-timer slot even if streams collide with first motor", () => {
+        // 2-motor wing where both candidates share the same default
+        // stream. Soft-collision behavior accepts both — firmware
+        // resolves at runtime.
+        const padDmaDefaults = new Map([
+            ["B06", { controller: 1, stream: 0, channel: 2 }],
+            ["B08", { controller: 1, stream: 0, channel: 2 }],
+            ["B07", { controller: 1, stream: 3, channel: 2 }],
+        ]);
+        const a = analysis([], { padTimers: SMALL_PAD_TIMERS, padDmaDefaults, dmaShow: [] });
+
+        const result = pickSilkscreenOrderLayout(a, 2, [1, 2], { padDefaults: SMALL_DEFAULTS });
+        expect(result.motors.get(1)).toBe("B06");
+        expect(result.motors.get(2)).toBe("B08");
+    });
+
+    it("padDmaDefaults exposed for badge display even when not used for placement decisions", () => {
+        // Ensures the analyzer surfaces the data the Pin Assignment
+        // DMA badge consumes, regardless of whether the optimizer
+        // factored it in.
+        const padDmaDefaults = new Map([
+            ["B06", { controller: 1, stream: 0, channel: 2 }],
+            ["B08", { controller: 1, stream: 7, channel: 2 }],
+        ]);
+        const a = analysis([], { padTimers: SMALL_PAD_TIMERS, padDmaDefaults, dmaShow: [] });
+        expect(a.padDmaDefaults.get("B06")).toEqual({ controller: 1, stream: 0, channel: 2 });
+        expect(a.padDmaDefaults.get("B08")).toEqual({ controller: 1, stream: 7, channel: 2 });
+    });
+
+    it("(formerly: AF remap on DMA collision) — AF remap still works for SERVO TIMER collision (servo on motor's timer)", () => {
+        // B06 + B08 both have stream collisions. B07 not in pool. AF
+        // remap on B06 to a disjoint timer might recover. (The v1
+        // collision check rejects, then allowAfRemap path tries an
+        // alt AF — for now the alt-AF DMA is not predicted, so we
+        // accept the alt AF at face value if its timer is disjoint.)
+        // Soft-collision behavior: even when B06's stream is held
+        // by a real consumer, the optimizer no longer triggers AF
+        // remap on DMA grounds. AF remap fires only for SERVO TIMER
+        // conflicts (covered in the AF-remap recovery describe
+        // block). This test now just confirms the optimizer doesn't
+        // break under DMA collision data — it places motors in
+        // silkscreen order regardless.
+        const padDmaDefaults = new Map([
+            ["B06", { controller: 1, stream: 0, channel: 2 }],
+            ["B08", { controller: 1, stream: 7, channel: 2 }],
+        ]);
+        const dmaShow = [
+            { controller: 1, stream: 0, peripheral: "LED_STRIP", index: null },
+            { controller: 1, stream: 7, peripheral: "ADC", index: 1 },
+        ];
+        const a = analysis([], { padTimers: SMALL_PAD_TIMERS, padDmaDefaults, dmaShow });
+
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], {
+            padDefaults: SMALL_DEFAULTS,
+            allowAfRemap: true,
+        });
+        // Optimizer succeeds — no AF remap, no null return.
+        expect(result).not.toBeNull();
+        expect(result.motors.get(1)).toBe("B06");
+        expect(result.remaps.size).toBe(0);
+    });
+
+    it("identity case: no padDmaDefaults supplied (older firmware) → falls back to old behavior", () => {
+        const a = analysis([], { padTimers: SMALL_PAD_TIMERS });
+        const result = pickSilkscreenOrderLayout(a, 1, [1, 2], { padDefaults: SMALL_DEFAULTS });
+        // Pre-DMA-aware behavior: silkscreen-order pick.
+        expect(result).not.toBeNull();
+    });
+});
+
+// Alt-AF dropdown rows: candidatePadsForSlot emits one row per
+// (pad, AF) combination so the Mixer-tab dropdown can offer manual
+// AF override. computePresetResourcePlan accepts padAfOverrides
+// Map<pad, af> and merges into the timerRemaps Map so the CLI batch
+// emits `timer <pad> AF<n>` ahead of the resource bind.
+describe("candidatePadsForSlot: alt-AF expansion", () => {
+    it("emits additional entries per alt AF when padTimerOptions has multiple options", () => {
+        const a = {
+            motors: [{ index: 1, pad: "B06", timer: 4, channel: 1, dmaStream: null, bidirBurst: false }],
+            servos: [],
+            ledStrips: [],
+            serials: [],
+            freePadsCount: 0,
+            freeDmaStreams: [],
+            hardwareFixedPads: [],
+            warnings: [],
+            pwmCapableFreePads: [{ pad: "C06", timer: 3, channel: 1 }],
+            padTimers: new Map([
+                ["B06", { timer: 4, channel: 1 }],
+                ["C06", { timer: 3, channel: 1 }],
+            ]),
+            padTimerOptions: new Map([
+                [
+                    "C06",
+                    [
+                        { af: 2, timer: 3, channel: 1, complementary: false },
+                        { af: 3, timer: 8, channel: 1, complementary: false },
+                    ],
+                ],
+            ]),
+            padCurrentAF: new Map([["C06", 2]]),
+        };
+        const cands = candidatePadsForSlot(a, 2, { motorIndicesInUse: [1], currentPad: null });
+        // Default-AF entry (af === null/undefined, source = 'free-pwm')
+        // and alt-AF entry (af === 3, source = 'alt-af') for C06.
+        const c06Entries = cands.filter((c) => c.pad === "C06");
+        expect(c06Entries).toHaveLength(2);
+        const alt = c06Entries.find((c) => c.source === "alt-af");
+        expect(alt).toBeDefined();
+        expect(alt.af).toBe(3);
+        expect(alt.timer).toBe(8);
+        expect(alt.channel).toBe(1);
+    });
+
+    it("does not emit alt-AF entries for the current AF (already represented as default row)", () => {
+        const a = {
+            motors: [],
+            servos: [],
+            ledStrips: [],
+            serials: [],
+            freePadsCount: 0,
+            freeDmaStreams: [],
+            hardwareFixedPads: [],
+            warnings: [],
+            pwmCapableFreePads: [{ pad: "B07", timer: 4, channel: 2 }],
+            padTimers: new Map([["B07", { timer: 4, channel: 2 }]]),
+            padTimerOptions: new Map([
+                [
+                    "B07",
+                    // Only AF for this pin — should produce zero alt rows.
+                    [{ af: 2, timer: 4, channel: 2, complementary: false }],
+                ],
+            ]),
+            padCurrentAF: new Map([["B07", 2]]),
+        };
+        const cands = candidatePadsForSlot(a, 1, { motorIndicesInUse: [], currentPad: null });
+        const altRows = cands.filter((c) => c.source === "alt-af");
+        expect(altRows).toHaveLength(0);
+    });
+
+    it("flags complementary alts so motor dropdowns can filter them out", () => {
+        const a = {
+            motors: [],
+            servos: [],
+            ledStrips: [],
+            serials: [],
+            freePadsCount: 0,
+            freeDmaStreams: [],
+            hardwareFixedPads: [],
+            warnings: [],
+            pwmCapableFreePads: [{ pad: "B00", timer: 3, channel: 3 }],
+            padTimers: new Map([["B00", { timer: 3, channel: 3 }]]),
+            padTimerOptions: new Map([
+                [
+                    "B00",
+                    [
+                        { af: 2, timer: 3, channel: 3, complementary: false },
+                        { af: 1, timer: 1, channel: 2, complementary: true },
+                    ],
+                ],
+            ]),
+            padCurrentAF: new Map([["B00", 2]]),
+        };
+        const cands = candidatePadsForSlot(a, 1, { motorIndicesInUse: [], currentPad: null });
+        const alt = cands.find((c) => c.source === "alt-af");
+        expect(alt).toBeDefined();
+        expect(alt.complementary).toBe(true);
+    });
+});
+
+describe("computePresetResourcePlan: padAfOverrides", () => {
+    it("emits `timer <pad> AF<n>` for pilot-supplied AF override on a final-pick pad", () => {
+        const preset = {
+            mmix: [{ throttle: 1.0, roll: 0, pitch: 0, yaw: 0 }],
+            rules: [
+                // target=3 → servoIndex = target-1 = 2 (SERVO 2 resource).
+                { target: 3, input: 1, rate: 100, speed: 0, min: -100, max: 100, box: 0 },
+            ],
+        };
+        const a = {
+            motors: [{ index: 1, pad: "B06", timer: 4, channel: 1, dmaStream: null, bidirBurst: false }],
+            servos: [],
+            ledStrips: [],
+            serials: [],
+            freePadsCount: 0,
+            freeDmaStreams: [],
+            hardwareFixedPads: [],
+            warnings: [],
+            pwmCapableFreePads: [{ pad: "C06", timer: 3, channel: 1 }],
+            padTimers: new Map([
+                ["B06", { timer: 4, channel: 1 }],
+                ["C06", { timer: 3, channel: 1 }],
+            ]),
+            padTimerOptions: new Map([
+                [
+                    "C06",
+                    [
+                        { af: 2, timer: 3, channel: 1, complementary: false },
+                        { af: 3, timer: 8, channel: 1, complementary: false },
+                    ],
+                ],
+            ]),
+            padCurrentAF: new Map([["C06", 2]]),
+        };
+        const padDefaults = {
+            target: "PAD_AF_OVERRIDE_FIXTURE",
+            motors: [
+                { index: 1, pad: "B06" },
+                { index: 2, pad: "C06" },
+            ],
+            ledStrips: [],
+        };
+        const plan = computePresetResourcePlan(a, preset, {
+            padDefaults,
+            // Pin M1 to B06 explicitly so the optimizer doesn't park
+            // it on C06 (silkscreen-first picks servos before motors,
+            // which would steal C06 from the servo override below).
+            motorPicks: { 1: "B06" },
+            picks: { 2: "C06" },
+            padAfOverrides: new Map([["C06", 3]]),
+        });
+        // Expect a `timer C06 AF3` line in cliLines, ordered ahead
+        // of the resource SERVO 2 C06 bind.
+        const timerLine = plan.cliLines.find((l) => /^timer C06 AF3$/i.test(l));
+        const bindLine = plan.cliLines.find((l) => /^resource SERVO 2 C06$/i.test(l));
+        expect(timerLine).toBeDefined();
+        expect(bindLine).toBeDefined();
+        expect(plan.cliLines.indexOf(timerLine)).toBeLessThan(plan.cliLines.indexOf(bindLine));
+        expect(plan.timerRemaps.get("C06")?.af).toBe(3);
+    });
+
+    it("clears optimizer auto-remap when pilot picks the current AF (override matches default)", () => {
+        // If pilot picks an alt-AF row whose AF matches the pad's
+        // current binding (rare edge case), the override should
+        // result in NO `timer ... AF...` line — same as picking the
+        // default row.
+        const preset = {
+            mmix: [{ throttle: 1.0, roll: 0, pitch: 0, yaw: 0 }],
+            rules: [{ target: 3, input: 1, rate: 100, speed: 0, min: -100, max: 100, box: 0 }],
+        };
+        const a = {
+            motors: [],
+            servos: [],
+            ledStrips: [],
+            serials: [],
+            freePadsCount: 0,
+            freeDmaStreams: [],
+            hardwareFixedPads: [],
+            warnings: [],
+            pwmCapableFreePads: [{ pad: "C06", timer: 3, channel: 1 }],
+            padTimers: new Map([["C06", { timer: 3, channel: 1 }]]),
+            padTimerOptions: new Map([["C06", [{ af: 2, timer: 3, channel: 1, complementary: false }]]]),
+            padCurrentAF: new Map([["C06", 2]]),
+        };
+        const padDefaults = {
+            target: "EDGE",
+            motors: [{ index: 1, pad: "C06" }],
+            ledStrips: [],
+        };
+        const plan = computePresetResourcePlan(a, preset, {
+            padDefaults,
+            picks: { 2: "C06" },
+            padAfOverrides: new Map([["C06", 2]]),
+        });
+        const timerLines = plan.cliLines.filter((l) => /^timer C06/i.test(l));
+        expect(timerLines).toHaveLength(0);
+        expect(plan.timerRemaps.has("C06")).toBe(false);
+    });
+});

@@ -373,7 +373,14 @@
                                                 <tr>
                                                     <th>{{ $t("wingPinAssignMappingDefault") }}</th>
                                                     <th>{{ $t("wingPinAssignMappingPad") }}</th>
+                                                    <th>{{ $t("wingPinAssignMappingAf") }}</th>
                                                     <th>{{ $t("wingPinAssignMappingNow") }}</th>
+                                                    <th
+                                                        class="pin_assign_allowlist_col"
+                                                        :title="$t('wingPinAssignMappingPhysicalTip')"
+                                                    >
+                                                        {{ $t("wingPinAssignMappingPhysical") }}
+                                                    </th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -388,13 +395,59 @@
                                                             — TIM{{ row.timer }} CH{{ row.channel }}
                                                         </span>
                                                     </td>
+                                                    <td class="pin_assign_af_cell">
+                                                        <span
+                                                            v-if="row.currentAF !== null"
+                                                            class="pin_assign_af_current"
+                                                        >
+                                                            AF{{ row.currentAF }}
+                                                        </span>
+                                                        <span v-else class="hw_muted">—</span>
+                                                        <span
+                                                            v-if="row.altAfs.length > 0"
+                                                            class="pin_assign_af_alts"
+                                                            :title="
+                                                                row.altAfs
+                                                                    .map(
+                                                                        (a) =>
+                                                                            'AF' +
+                                                                            a.af +
+                                                                            ' → TIM' +
+                                                                            a.timer +
+                                                                            ' CH' +
+                                                                            a.channel +
+                                                                            (a.complementary ? 'N' : ''),
+                                                                    )
+                                                                    .join('\n')
+                                                            "
+                                                        >
+                                                            +{{ row.altAfs.length }} alt
+                                                        </span>
+                                                    </td>
                                                     <td>{{ row.currentLabel }}</td>
+                                                    <td class="pin_assign_allowlist_col">
+                                                        <input
+                                                            type="checkbox"
+                                                            :checked="
+                                                                !padAllowlist.has(row.pad?.toUpperCase?.() ?? row.pad)
+                                                            "
+                                                            :title="$t('wingPinAssignMappingPhysicalTip')"
+                                                            @change="togglePadInAllowlist(row.pad)"
+                                                        />
+                                                    </td>
                                                 </tr>
                                             </tbody>
                                         </table>
                                     </div>
 
                                     <template v-if="hardwareAnalysis && pinAssignmentPlan">
+                                        <div
+                                            v-if="pinAssignmentInfeasible"
+                                            class="pin_assign_infeasible_banner"
+                                            :title="$t('wingPinAssignNotEnoughPadsTip')"
+                                        >
+                                            ⚠ {{ $t("wingPinAssignNotEnoughPads") }}
+                                        </div>
                                         <table class="pin_assign_table">
                                             <thead>
                                                 <tr>
@@ -425,19 +478,65 @@
                                                                 v-for="c in row.kind === 'motor'
                                                                     ? candidatesForMotor(row.index)
                                                                     : candidatesForServo(row.index)"
-                                                                :key="c.pad"
-                                                                :value="c.pad"
+                                                                :key="c.pad + ':' + (c.af ?? '')"
+                                                                :value="c.pad + (c.af != null ? '|' + c.af : '')"
                                                             >
                                                                 {{ c.pad }}
                                                                 <template v-if="c.timer">
                                                                     — TIM{{ c.timer
                                                                     }}<template v-if="c.channel">
-                                                                        CH{{ c.channel }}</template
+                                                                        CH{{ c.channel
+                                                                        }}<template v-if="c.complementary"
+                                                                            >N</template
+                                                                        ></template
                                                                     >
+                                                                </template>
+                                                                <template v-if="c.source === 'alt-af'">
+                                                                    [AF{{ c.af }}]
                                                                 </template>
                                                                 ({{ candidateSourceLabel(c) }})
                                                             </option>
                                                         </select>
+                                                        <span
+                                                            v-if="row.timerRemap"
+                                                            class="pin_assign_timer_remap_badge"
+                                                            :title="
+                                                                $t('wingPinAssignTimerRemapTooltip', {
+                                                                    pad: row.pickedPad,
+                                                                    fromAF: row.timerRemap.fromAF ?? '?',
+                                                                    toAF: row.timerRemap.toAF,
+                                                                    timer: row.timerRemap.toTimer,
+                                                                    channel: row.timerRemap.toChannel,
+                                                                })
+                                                            "
+                                                        >
+                                                            {{
+                                                                $t("wingPinAssignTimerRemapBadge", {
+                                                                    fromAF: row.timerRemap.fromAF ?? "?",
+                                                                    toAF: row.timerRemap.toAF,
+                                                                })
+                                                            }}
+                                                        </span>
+                                                        <span
+                                                            v-if="row.dma && row.dma.kind === 'stream'"
+                                                            class="pin_assign_dma_badge"
+                                                            :title="
+                                                                $t('wingPinAssignDmaTooltip', {
+                                                                    pad: row.pickedPad,
+                                                                    controller: row.dma.controller,
+                                                                    stream: row.dma.stream,
+                                                                })
+                                                            "
+                                                        >
+                                                            {{ row.dma.label }}
+                                                        </span>
+                                                        <span
+                                                            v-else-if="row.dma && row.dma.kind === 'bitbang'"
+                                                            class="pin_assign_dma_bitbang_badge"
+                                                            :title="$t('wingPinAssignDmaBitBangTooltip')"
+                                                        >
+                                                            {{ $t("wingPinAssignDmaBitBangBadge") }}
+                                                        </span>
                                                     </td>
                                                     <td class="pin_assign_remove_cell">
                                                         <button
@@ -1757,9 +1856,14 @@ import {
     parseTimerShow,
     parseDmaShow,
     parseTimerDump,
+    parseDmaPinDefaults,
     readResourceDefaults,
+    discoverPadTimerOptions,
+    readDmaPinDefaultsConcatenated,
 } from "../../js/utils/cliOneShot.js";
 import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer.js";
+import { mcuFamilyFromName } from "../../js/utils/mcuFamily.js";
+import { loadAllowlist, saveAllowlist, applyAllowlist, togglePad } from "../../js/utils/wingPadAllowlist.js";
 import { computePresetResourcePlan, candidatePadsForSlot } from "../../js/utils/wingRemapRecommender.js";
 import { useConnectionStore } from "../../stores/connection";
 import PlaneSetupWizard from "../wing/PlaneSetupWizard.vue";
@@ -2099,6 +2203,12 @@ export default defineComponent({
                     // at connect by serial_backend.js). Used to identify unused
                     // UARTs whose pads can be repurposed as servo outputs.
                     serialPorts: FC.SERIAL_CONFIG?.ports || [],
+                    // MCU family ('F4'/'F7'/'H7'/'G4'/'AT32') decoded from
+                    // FC.MCU_INFO.name (MSP2_MCU_INFO; firmware sends a
+                    // readable string on API 1.47+). null on older firmware,
+                    // which makes the optimizer's DMA-conflict reject a
+                    // no-op — fine, the pre-remap allocator path still runs.
+                    mcuFamily: mcuFamilyFromName(FC.MCU_INFO?.name),
                 });
 
                 // Capture the original pad layout for this target on first
@@ -2108,6 +2218,94 @@ export default defineComponent({
                 // Prefers firmware `resource defaults` (wing-fork CLI) when
                 // available; falls back to a current-state snapshot on stock.
                 await ensurePadDefaultsForCurrentBoard();
+
+                // Timer-remap AF discovery. Runs `timer <pad> list` per
+                // pad in the optimizer's candidate pool to enumerate
+                // alternate (timer, channel, AF) options. Lets the
+                // optimizer recover a pad whose current AF lands on a
+                // timer that conflicts with a servo (bench-found case:
+                // MicoAir743 LED_STRIP/TIM4). ~100ms per pad serial CLI
+                // roundtrip; pool is ≤12 pads on typical wing boards so
+                // this adds ~1s to scan. Skipped silently when
+                // padDefaults isn't populated (older firmware).
+                const poolPads = (effectivePadDefaults.value?.motors ?? []).map((m) => m.pad);
+                const ledPads = (effectivePadDefaults.value?.ledStrips ?? []).map((l) => l.pad);
+                const allPoolPads = [...new Set([...poolPads, ...ledPads])];
+                if (allPoolPads.length > 0) {
+                    try {
+                        const padTimerOptions = await discoverPadTimerOptions(allPoolPads);
+                        // Re-emit the analysis ref with padTimerOptions
+                        // merged in. Vue's ref reactivity tracks the ref
+                        // value identity, not nested fields, so we
+                        // reassign rather than mutate in place.
+                        hardwareAnalysis.value = { ...hardwareAnalysis.value, padTimerOptions };
+                    } catch (afErr) {
+                        console.warn("[WingTuning] timer-options discovery failed:", afErr);
+                        // Optimizer's allowAfRemap path no-ops when
+                        // padTimerOptions is null. Continue without it.
+                    }
+
+                    // Per-pin DMA default discovery. Bare `dma` (no
+                    // args) routes to showDma() in firmware which
+                    // emits the per-stream view (`DMA1 Stream 0:
+                    // SPI_SDI 3`), NOT the per-pin format the optimizer
+                    // needs. We have to loop `dma pin <pad>` per
+                    // candidate, which DOES emit `dma pin C06 0\n
+                    // # DMA1 Stream 4 Channel 5`. Concatenated output
+                    // feeds parseDmaPinDefaults. ~100ms per pad, runs
+                    // alongside AF discovery so the cumulative scan
+                    // delay is ~2s for a 12-pad pool. Acceptable.
+                    try {
+                        const dmaRaw = await readDmaPinDefaultsConcatenated(allPoolPads);
+                        const dmaDump = parseDmaPinDefaults(dmaRaw);
+                        // Rebuild the analyzer with the new dmaDump so
+                        // padDmaDefaults gets populated and the
+                        // motor_no_dma warning fix kicks in. Reuse the
+                        // already-parsed inputs from the first call.
+                        hardwareAnalysis.value = analyzeWingResources({
+                            resourceShow: parseResourceShow(rs.lines),
+                            timerShow: parseTimerShow(ts.lines),
+                            dmaShow: parseDmaShow(ds.lines),
+                            timerDump: parseTimerDump(td.lines),
+                            serialPorts: FC.SERIAL_CONFIG?.ports || [],
+                            mcuFamily: mcuFamilyFromName(FC.MCU_INFO?.name),
+                            dmaDump,
+                            // Preserve the just-discovered AF options.
+                            padTimerOptions: hardwareAnalysis.value?.padTimerOptions ?? null,
+                        });
+                    } catch (dmaErr) {
+                        console.warn("[WingTuning] dma-pin discovery failed:", dmaErr);
+                    }
+                }
+
+                // DevTools inspector hook. Exposes the live wing
+                // state on `window.__wing` so the developer can poke
+                // it directly via console: `__wing.analysis`,
+                // `__wing.plan`, `__wing.allowlist`, etc. Vue 3's
+                // internal __vueParentComponent surface is fragile
+                // across builds, so this hook is the supported way.
+                if (typeof window !== "undefined") {
+                    window.__wing = {
+                        get analysis() {
+                            return hardwareAnalysis.value;
+                        },
+                        get plan() {
+                            return pinAssignmentPlan.value;
+                        },
+                        get padDefaults() {
+                            return padDefaults.value;
+                        },
+                        get effectivePadDefaults() {
+                            return effectivePadDefaults.value;
+                        },
+                        get allowlist() {
+                            return [...padAllowlist.value];
+                        },
+                        get rows() {
+                            return pinAssignmentRows.value;
+                        },
+                    };
+                }
             } catch (e) {
                 console.error("[WingTuning] Hardware load failed:", e);
                 hardwareError.value = e.message || String(e);
@@ -2120,6 +2318,14 @@ export default defineComponent({
         // live below wiringPresetId's declaration to avoid TDZ issues
         // (watch() subscribes eagerly at setup-time).
         const padOverrides = reactive({ servo: {}, motor: {} });
+        // padAfOverrides: pad → AF when pilot picked an alt-AF entry
+        // from the dropdown. The pinAssignmentPlan passes this into
+        // computePresetResourcePlan, which merges it into the
+        // optimizer's auto-remap Map so the CLI batch emits the
+        // right `timer <pad> AF<n>` line ahead of the resource bind.
+        // Cleared when pilot picks the default-AF entry on the same
+        // pad (override matches current → no remap needed).
+        const padAfOverrides = ref(new Map());
         // LED_STRIP pad is always a candidate (no opt-in needed) — most users
         // would rather lose the RGB than be unable to fit a servo. A notice
         // appears in the panel if a pick actually resolves to the LED pad.
@@ -2136,6 +2342,35 @@ export default defineComponent({
         // see a given board. Lets us render a "MOTOR 3 was on A03 — currently
         // SERVO 1" table after preset applies wipe the live resource map.
         const padDefaults = ref(null); // { motors: [{index, pad}], ledStrips: [{pad}] } | null
+
+        // Per-board physical-pad allowlist. Set of UPPERCASE pads
+        // pilot has marked as NOT physically broken out on this PCB.
+        // Empty Set (default) = no filtering = all silkscreen
+        // positions usable. Pilot un-checks a row in the Hardware
+        // tab to add to this Set; the optimizer / wizard / pin
+        // assignment then treat un-checked pads as nonexistent.
+        // Persisted via wingPadAllowlist (signature-keyed, falls
+        // back to manufacturer+board).
+        const padAllowlist = ref(new Set());
+
+        function allowlistIdents() {
+            return {
+                signature: typeof FC.CONFIG?.signature === "string" ? FC.CONFIG.signature : null,
+                manufacturerId: FC.CONFIG?.manufacturerId ?? null,
+                boardIdentifier: FC.CONFIG?.boardIdentifier ?? null,
+            };
+        }
+
+        // Filtered padDefaults — what the optimizer / wizard / pool
+        // discovery actually consume. Pad mapping table keeps using
+        // raw `padDefaults.value` so all silkscreen rows render with
+        // an allowlist checkbox.
+        const effectivePadDefaults = computed(() => applyAllowlist(padDefaults.value, padAllowlist.value));
+
+        function togglePadInAllowlist(pad) {
+            padAllowlist.value = togglePad(padAllowlist.value, pad);
+            saveAllowlist(allowlistIdents(), padAllowlist.value);
+        }
 
         function padDefaultsKey(target) {
             return target ? `wing.padDefaults.${target}` : null;
@@ -2162,6 +2397,12 @@ export default defineComponent({
         async function ensurePadDefaultsForCurrentBoard() {
             const target = FC.CONFIG?.boardName || FC.CONFIG?.targetName || null;
             if (!target) return;
+
+            // Load this board's pilot-defined physical-pad allowlist
+            // before any optimizer/wizard consumer reads
+            // effectivePadDefaults. Empty Set on first connect to a
+            // board (default = all pads allowed).
+            padAllowlist.value = loadAllowlist(allowlistIdents());
 
             // ALWAYS try firmware `resource defaults` first — it's
             // authoritative. Cached snapshots from earlier sessions (maybe
@@ -2269,18 +2510,42 @@ export default defineComponent({
                 currentByPad.set(l.pad, "LED_STRIP");
             }
             const padTimers = hardwareAnalysis.value.padTimers;
+            const padCurrentAF =
+                hardwareAnalysis.value.padCurrentAF instanceof Map ? hardwareAnalysis.value.padCurrentAF : null;
+            const padTimerOptions =
+                hardwareAnalysis.value.padTimerOptions instanceof Map ? hardwareAnalysis.value.padTimerOptions : null;
             const lookupTimer = (pad) => {
                 const t = padTimers instanceof Map ? padTimers.get(pad) : null;
                 return t ?? { timer: null, channel: null };
             };
+            // Surface AF discovery state per pad. `currentAF` is what
+            // the pin's bound to right now; `altAfs` lists alternate
+            // (timer, channel, AF) tuples the pad could be remapped to.
+            // Visible in the Pad mapping table so pilots can see
+            // discovery worked even when no remap is firing on the
+            // current preset.
+            const lookupAfInfo = (pad) => {
+                const currentAF = padCurrentAF?.get(pad) ?? null;
+                const allOptions = padTimerOptions?.get(pad);
+                let altAfs = [];
+                if (Array.isArray(allOptions)) {
+                    altAfs = allOptions
+                        .filter((o) => o.af !== currentAF)
+                        .map((o) => ({ af: o.af, timer: o.timer, channel: o.channel, complementary: o.complementary }));
+                }
+                return { currentAF, altAfs };
+            };
             const rows = [];
             for (const m of padDefaults.value.motors ?? []) {
                 const t = lookupTimer(m.pad);
+                const af = lookupAfInfo(m.pad);
                 rows.push({
                     defaultLabel: `MOTOR ${m.index}`,
                     pad: m.pad,
                     timer: t.timer,
                     channel: t.channel,
+                    currentAF: af.currentAF,
+                    altAfs: af.altAfs,
                     currentLabel: currentByPad.get(m.pad) || "(free)",
                 });
             }
@@ -2300,11 +2565,14 @@ export default defineComponent({
             }
             for (const [pad] of ledPads) {
                 const t = lookupTimer(pad);
+                const af = lookupAfInfo(pad);
                 rows.push({
                     defaultLabel: "LED_STRIP",
                     pad,
                     timer: t.timer,
                     channel: t.channel,
+                    currentAF: af.currentAF,
+                    altAfs: af.altAfs,
                     currentLabel: currentByPad.get(pad) || "(free)",
                 });
             }
@@ -2492,7 +2760,7 @@ export default defineComponent({
                 motorPicks: padOverrides.motor,
                 allowLedStrip: allowLedStripPad.value,
                 allowUartRelease: [...allowUartPads],
-                padDefaults: padDefaults.value,
+                padDefaults: effectivePadDefaults.value,
                 // effectiveRules reflects the user's live Function→Output
                 // Mapping edits — adding a rule expands usedServoIndices,
                 // removing one shrinks it. Pin Assignment picker stays in
@@ -2502,6 +2770,18 @@ export default defineComponent({
                 // reflect the user's 1-vs-2-motor choice without needing a
                 // separate preset entry.
                 motorCount: motorCount.value,
+                // Enable AF remap recovery: when a motor pad's current
+                // timer collides with a servo's, the optimizer picks an
+                // alternate AF whose timer is disjoint and the planner
+                // emits a `timer <pad> AF<n>` line ahead of the resource
+                // bind. No-ops cleanly when padTimerOptions is null
+                // (older firmware lacking `timer <pin> list`).
+                allowAfRemap: true,
+                // User-supplied AF overrides from the dropdown's alt-AF
+                // entries. Wins over optimizer auto-picks for the same
+                // pad. Map<pad, af> — empty by default, populated when
+                // pilot selects an `[AF<n>]` row in the dropdown.
+                padAfOverrides: padAfOverrides.value,
             });
         });
 
@@ -2509,29 +2789,83 @@ export default defineComponent({
             const plan = pinAssignmentPlan.value;
             if (!plan) return [];
             const rows = [];
+            const timerRemaps = plan.timerRemaps instanceof Map ? plan.timerRemaps : null;
+            const padCurrentAF =
+                hardwareAnalysis.value?.padCurrentAF instanceof Map ? hardwareAnalysis.value.padCurrentAF : null;
+            const padDmaDefaults =
+                hardwareAnalysis.value?.padDmaDefaults instanceof Map ? hardwareAnalysis.value.padDmaDefaults : null;
+            // Build the "AF X → AF Y" badge data when a row's picked pad
+            // has a planned remap. fromAF can be null on older firmware
+            // (timer dump didn't carry AF info) — badge falls back to
+            // showing only the new AF + timer/channel.
+            const remapForPad = (pad) => {
+                if (!pad || !timerRemaps) return null;
+                const r = timerRemaps.get(pad);
+                if (!r) return null;
+                return {
+                    fromAF: padCurrentAF?.get(pad) ?? null,
+                    toAF: r.af,
+                    toTimer: r.timer,
+                    toChannel: r.channel,
+                };
+            };
+            // DMA badge for motor rows: "DMA1/S0" if the pad has a
+            // default DMA option, "bit-bang" in red if the pad has no
+            // DMA option at all (TIM11/TIM12/TIM13/TIM14 channel pins
+            // on F7 — DSHOT-incapable). Servo rows skip this since
+            // servo PWM doesn't allocate DMA. null when padDmaDefaults
+            // wasn't populated (older firmware).
+            const dmaForMotorPad = (pad) => {
+                if (!pad || !padDmaDefaults) return null;
+                if (!padDmaDefaults.has(pad)) return null;
+                const dma = padDmaDefaults.get(pad);
+                if (dma == null) return { kind: "bitbang", label: "bit-bang" };
+                return {
+                    kind: "stream",
+                    controller: dma.controller,
+                    stream: dma.stream,
+                    label: `DMA${dma.controller}/S${dma.stream}`,
+                };
+            };
             for (const idx of plan.usedMotorIndices) {
                 const bound = (hardwareAnalysis.value?.motors ?? []).find((m) => m.index === idx);
                 const pickedFromPlan = plan.motorPicks.get(idx);
+                const pickedPad = padOverrides.motor[idx] ?? pickedFromPlan?.pad ?? bound?.pad ?? null;
                 rows.push({
                     kind: "motor",
                     index: idx,
                     label: `MOTOR ${idx}`,
                     currentPad: bound?.pad ?? null,
-                    pickedPad: padOverrides.motor[idx] ?? pickedFromPlan?.pad ?? bound?.pad ?? null,
+                    pickedPad,
+                    timerRemap: remapForPad(pickedPad),
+                    dma: dmaForMotorPad(pickedPad),
                 });
             }
             for (const idx of plan.usedServoIndices) {
                 const bound = (hardwareAnalysis.value?.servos ?? []).find((s) => s.index === idx);
                 const pickedFromPlan = plan.picks.get(idx);
+                const pickedPad = padOverrides.servo[idx] ?? pickedFromPlan?.pad ?? bound?.pad ?? null;
                 rows.push({
                     kind: "servo",
                     index: idx,
                     label: `SERVO ${idx}`,
                     currentPad: bound?.pad ?? null,
-                    pickedPad: padOverrides.servo[idx] ?? pickedFromPlan?.pad ?? bound?.pad ?? null,
+                    pickedPad,
+                    timerRemap: remapForPad(pickedPad),
+                    dma: null,
                 });
             }
             return rows;
+        });
+
+        // True when any pinAssignmentRows row has no resolved pad —
+        // typically caused by an over-restrictive allowlist or a
+        // preset whose motor+servo count exceeds the available pool.
+        // Drives the "Not enough physical pads" banner above the
+        // dropdowns.
+        const pinAssignmentInfeasible = computed(() => {
+            const rows = pinAssignmentRows.value;
+            return rows.length > 0 && rows.some((r) => !r.pickedPad);
         });
 
         const pinAssignmentExtras = computed(() => {
@@ -2559,13 +2893,19 @@ export default defineComponent({
                     if (pick?.pad) motorRebinds.set(idx, pick.pad);
                 }
             }
-            return candidatePadsForSlot(analysis, servoIndex, {
+            const cands = candidatePadsForSlot(analysis, servoIndex, {
                 motorIndicesInUse: plan?.usedMotorIndices ?? [],
                 currentPad: bound?.pad ?? null,
                 allowLedStrip: allowLedStripPad.value,
                 allowUartRelease: [...allowUartPads],
                 motorRebinds,
             });
+            // Filter dropdown options through the physical-pad
+            // allowlist. candidatePadsForSlot reads the full analyzer
+            // view (not effectivePadDefaults) so we have to apply the
+            // filter here too. Without this, un-checking a pad in the
+            // Hardware tab still left it selectable in the dropdown.
+            return filterCandidatesByAllowlist(cands);
         }
 
         function candidatesForMotor(motorIndex) {
@@ -2659,7 +2999,55 @@ export default defineComponent({
                 if (results.some((r) => r.pad === p.pad)) continue;
                 results.push({ pad: p.pad, timer: p.timer, channel: p.channel, source: "free-pwm" });
             }
-            return results;
+            // Alt-AF expansion (parallel to candidatePadsForSlot's
+            // section 7). For each pad already in results, append
+            // additional rows for every alternate AF the firmware
+            // reports — lets the pilot manually park a motor pad on
+            // a different (timer, channel) when the optimizer's auto
+            // remap doesn't fire. Complementary alts are filtered
+            // below since DSHOT can't drive them.
+            const padTimerOptions = analysis.padTimerOptions instanceof Map ? analysis.padTimerOptions : null;
+            const padCurrentAF = analysis.padCurrentAF instanceof Map ? analysis.padCurrentAF : null;
+            const motorTimerSet = new Set(
+                (analysis.motors ?? []).map((m) => m.timer).filter((t) => t !== null && t !== undefined),
+            );
+            if (padTimerOptions) {
+                const altEntries = [];
+                for (const base of results) {
+                    const opts = padTimerOptions.get(base.pad);
+                    if (!Array.isArray(opts) || opts.length === 0) continue;
+                    const currentAf = padCurrentAF?.get(base.pad);
+                    for (const opt of opts) {
+                        if (opt.af === currentAf) continue;
+                        altEntries.push({
+                            pad: base.pad,
+                            timer: opt.timer,
+                            channel: opt.channel,
+                            af: opt.af,
+                            complementary: !!opt.complementary,
+                            source: "alt-af",
+                            sharesTimerWithMotor: opt.timer !== null && motorTimerSet.has(opt.timer),
+                        });
+                    }
+                }
+                for (const e of altEntries) results.push(e);
+            }
+            // Motor rows can't drive complementary timer channels via
+            // DSHOT — drop those alt-AF rows so the dropdown doesn't
+            // offer picks that won't work.
+            const filtered = results.filter((r) => !r.complementary);
+            return filterCandidatesByAllowlist(filtered);
+        }
+
+        // Drop candidates whose pad is in the disallowed Set (pilot
+        // un-checked it in the Hardware tab's "Physical pad" column).
+        // Applied to both servo and motor candidate lists so the
+        // dropdown stays in sync with the optimizer's filtered pool.
+        function filterCandidatesByAllowlist(cands) {
+            if (!Array.isArray(cands)) return cands;
+            const disallowed = padAllowlist.value;
+            if (!(disallowed instanceof Set) || disallowed.size === 0) return cands;
+            return cands.filter((c) => c?.pad && !disallowed.has(c.pad.toUpperCase()));
         }
 
         // Remove a pin assignment row — red X button in the table. For SERVO
@@ -2722,10 +3110,24 @@ export default defineComponent({
             ];
         }
 
-        function setPadOverride(kind, index, pad) {
-            if (!pad) return;
+        function setPadOverride(kind, index, value) {
+            if (!value) return;
+            // Dropdown values encode pad + optional AF as `pad|af`
+            // so multiple alt-AF entries can coexist for one pad.
+            // Default-AF entries pass `pad` alone (no `|`).
+            const sep = value.indexOf("|");
+            const pad = sep === -1 ? value : value.slice(0, sep);
+            const afStr = sep === -1 ? "" : value.slice(sep + 1);
+            const af = afStr.length > 0 ? Number(afStr) : null;
             if (kind === "motor") padOverrides.motor[index] = pad;
             else if (kind === "servo") padOverrides.servo[index] = pad;
+            // Track the AF override on a per-pad basis. The same pad
+            // can only carry one chosen AF at a time across all rows;
+            // last writer wins, which matches the dropdown UX.
+            const next = new Map(padAfOverrides.value);
+            if (af === null) next.delete(pad);
+            else next.set(pad, af);
+            padAfOverrides.value = next;
         }
 
         // Drop-down label for a candidate. Pulls the specific MOTOR/UART/LED
@@ -3566,7 +3968,7 @@ export default defineComponent({
         // first hardware load. Wizard's "Nothing moved" → scan path
         // requires this to know which silkscreen MOTOR pads are
         // candidates to repurpose as scratch SERVO slots.
-        const wizardPadDefaults = computed(() => padDefaults.value);
+        const wizardPadDefaults = computed(() => effectivePadDefaults.value);
 
         // Apply-step preview rows (motors + LED) from the recommender.
         // computePresetResourcePlan returns `motorPicks` (NOT `motors`):
@@ -3855,6 +4257,9 @@ export default defineComponent({
             candidateSourceLabel,
             padMappingRows,
             padDefaults,
+            padAllowlist,
+            togglePadInAllowlist,
+            pinAssignmentInfeasible,
             applyingPinAssignment,
             applyPinAssignment,
             loading,
@@ -4364,6 +4769,67 @@ button {
     width: 100%;
     max-width: 380px;
 }
+/* Timer-remap indicator. Teal so it's distinct from the red remove
+ * button and the LED/UART notice yellows — pilots scanning the panel
+ * see at a glance that the planned CLI batch will retune this pad's
+ * alternate function before binding. */
+.pin_assign_timer_remap_badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    background: #1e3a3a;
+    border: 1px solid #2f5f5f;
+    color: #6fd2d2;
+    border-radius: 3px;
+    font-size: 0.78em;
+    font-family: monospace;
+    vertical-align: middle;
+    cursor: help;
+}
+/* DMA stream indicator on motor rows. Green = healthy DMA. Red =
+ * bit-bang fallback (motor still runs but software-driven). Sibling
+ * to the timer-remap badge so pilots can scan a single visual row
+ * for "is this motor's wiring going to work cleanly?" */
+.pin_assign_dma_badge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 6px;
+    background: #1e3a1e;
+    border: 1px solid #2f5f2f;
+    color: #6fd26f;
+    border-radius: 3px;
+    font-size: 0.78em;
+    font-family: monospace;
+    vertical-align: middle;
+    cursor: help;
+}
+.pin_assign_dma_bitbang_badge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 6px;
+    background: #3a1e1e;
+    border: 1px solid #5f2f2f;
+    color: #d26f6f;
+    border-radius: 3px;
+    font-size: 0.78em;
+    font-family: monospace;
+    vertical-align: middle;
+    cursor: help;
+}
+/* Not-enough-pads banner. Yellow/orange to signal "user attention
+ * required" — distinct from the red bit-bang badge (which is
+ * informational, not blocking) and the existing LED/UART notice
+ * yellows (which are advisory). */
+.pin_assign_infeasible_banner {
+    margin: 8px 0;
+    padding: 8px 12px;
+    background: #3a3015;
+    border: 1px solid #6f5f25;
+    color: #e6c66d;
+    border-radius: 3px;
+    font-size: 0.92em;
+    cursor: help;
+}
 .pin_assign_table td.pin_assign_remove_cell {
     width: 30px;
     text-align: right;
@@ -4490,6 +4956,41 @@ button {
     color: #888;
     font-weight: normal;
     border-bottom: 1px solid #333;
+}
+/* AF column: current AF in normal weight, alt-AF count as a small
+ * teal pill matching the timer-remap badge family. Hovering the pill
+ * surfaces the full alt-AF list via the title attribute — pilots can
+ * confirm that runtime AF discovery (timer <pin> list) ran without
+ * needing devtools. */
+.pin_assign_mapping_table .pin_assign_af_cell {
+    white-space: nowrap;
+}
+.pin_assign_af_current {
+    font-family: monospace;
+    color: #ddd;
+}
+.pin_assign_af_alts {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 5px;
+    background: #1e3a3a;
+    border: 1px solid #2f5f5f;
+    color: #6fd2d2;
+    border-radius: 3px;
+    font-size: 0.78em;
+    font-family: monospace;
+    cursor: help;
+}
+/* Physical-pad allowlist column. Default-checked; un-checking
+ * removes the pad from the optimizer pool. Tight cell so the
+ * existing layout doesn't break. */
+.pin_assign_mapping_table .pin_assign_allowlist_col {
+    text-align: center;
+    width: 80px;
+}
+.pin_assign_allowlist_col input[type="checkbox"] {
+    cursor: pointer;
+    margin: 0;
 }
 
 .hw_cli_preview {

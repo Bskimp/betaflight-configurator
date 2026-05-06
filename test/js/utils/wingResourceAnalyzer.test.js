@@ -230,4 +230,75 @@ describe("analyzeWingResources edge cases", () => {
         expect(r.freePadsCount).toBe(2);
         expect(r.hardwareFixedPads).toHaveLength(1);
     });
+
+    describe("padDmaDefaults + motor_no_dma warning fix", () => {
+        // Bench-confirmed format: bare `dma` dump on TMOTORF7X2.
+        const TMOTORF7X2_DMA_DUMP = {
+            resources: [],
+            pads: [
+                { pad: "B06", opt: 0, controller: 1, stream: 0, channel: 2 },
+                { pad: "B08", opt: 0, controller: 1, stream: 7, channel: 2 },
+                { pad: "B09", opt: null, controller: null, stream: null, channel: null },
+            ],
+        };
+
+        it("populates padDmaDefaults Map from dmaDump.pads", () => {
+            const r = analyzeWingResources({
+                resourceShow: [],
+                timerShow: [],
+                dmaShow: [],
+                dmaDump: TMOTORF7X2_DMA_DUMP,
+            });
+            expect(r.padDmaDefaults.get("B06")).toEqual({ controller: 1, stream: 0, channel: 2 });
+            expect(r.padDmaDefaults.get("B08")).toEqual({ controller: 1, stream: 7, channel: 2 });
+            // null payload for no-DMA pins (TIM11 etc).
+            expect(r.padDmaDefaults.get("B09")).toBeNull();
+        });
+
+        it("suppresses motor_no_dma warning when pin has default DMA option", () => {
+            // Motor on B06: no `dma MOTOR 1 <opt>` resource binding,
+            // but pin's default option (0) lands on DMA1 S0. Pre-fix
+            // this fired motor_no_dma falsely; post-fix it's silent.
+            const resourceShow = [{ pad: "B06", peripheral: "MOTOR", index: 1 }];
+            const r = analyzeWingResources({
+                resourceShow,
+                timerShow: [{ timer: 4, channel: 1, complementary: false, peripheral: "MOTOR", index: 1 }],
+                dmaShow: [],
+                dmaDump: TMOTORF7X2_DMA_DUMP,
+            });
+            const w = r.warnings.find((x) => x.code === "motor_no_dma");
+            expect(w).toBeUndefined();
+        });
+
+        it("still warns when pin has no DMA option at all (e.g. TIM11)", () => {
+            const resourceShow = [{ pad: "B09", peripheral: "MOTOR", index: 1 }];
+            const r = analyzeWingResources({
+                resourceShow,
+                timerShow: [],
+                dmaShow: [],
+                dmaDump: TMOTORF7X2_DMA_DUMP,
+            });
+            const w = r.warnings.find((x) => x.code === "motor_no_dma");
+            expect(w).toBeDefined();
+        });
+
+        it("still warns when no dmaDump supplied (older firmware)", () => {
+            // Without dmaDump, can't confirm pin has DMA — fall back
+            // to today's "warn unless m.dmaStream" behavior.
+            const resourceShow = [{ pad: "A01", peripheral: "MOTOR", index: 1 }];
+            const r = analyzeWingResources({
+                resourceShow,
+                timerShow: [{ timer: 2, channel: 2, complementary: false, peripheral: "MOTOR", index: 1 }],
+                dmaShow: [],
+            });
+            const w = r.warnings.find((x) => x.code === "motor_no_dma");
+            expect(w).toBeDefined();
+        });
+
+        it("padDmaDefaults defaults to empty Map when dmaDump absent", () => {
+            const r = analyzeWingResources({ resourceShow: [], timerShow: [], dmaShow: [] });
+            expect(r.padDmaDefaults).toBeInstanceOf(Map);
+            expect(r.padDmaDefaults.size).toBe(0);
+        });
+    });
 });
