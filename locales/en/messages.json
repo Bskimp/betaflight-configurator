@@ -4590,6 +4590,111 @@
         "message": "$t(eeprom_saved_ok.message)",
         "description": "Don't translate!!!"
     },
+    "servosResourceAssignments": {
+        "message": "Resource Assignments"
+    },
+    "servosResourceNotAvailable": {
+        "message": "Resource data not available. Your firmware may not support the MSP2_MOTOR_SERVO_RESOURCE command."
+    },
+    "servosMotorResources": {
+        "message": "Motor Pins"
+    },
+    "servosServoResources": {
+        "message": "Servo Pins"
+    },
+    "servosResourceIndex": {
+        "message": "Index"
+    },
+    "servosResourcePin": {
+        "message": "Pin"
+    },
+    "servosResourceMotorLabel": {
+        "message": "Motor"
+    },
+    "servosResourceServoLabel": {
+        "message": "Servo"
+    },
+    "servosResourceEditHint": {
+        "message": "Resource changes are sent immediately. Reboot the flight controller before relying on the new assignments."
+    },
+    "servosResourceSmartLoading": {
+        "message": "Loading timer and DMA candidates..."
+    },
+    "servosResourceSmartReady": {
+        "message": "Timer-aware wing candidates are available."
+    },
+    "servosResourceSmartUnavailable": {
+        "message": "Timer-aware candidates are unavailable; showing current resource pins."
+    },
+    "servosResourceSetOk": {
+        "message": "$t(eeprom_saved_ok.message) {{resource}} {{index}} -> {{pin}}"
+    },
+    "servosResourceSetFailed": {
+        "message": "Resource assignment failed"
+    },
+    "servosMixerRulesTitle": {
+        "message": "Function -> Output Mapping"
+    },
+    "servosMixerRulesDesc": {
+        "message": "Each row maps a servo input source onto an output. Multiple rules targeting the same output sum together."
+    },
+    "servosMixerOutput": {
+        "message": "Output"
+    },
+    "servosMixerInput": {
+        "message": "Input"
+    },
+    "servosMixerRate": {
+        "message": "Rate"
+    },
+    "servosMixerSpeed": {
+        "message": "Speed"
+    },
+    "servosMixerMin": {
+        "message": "Min"
+    },
+    "servosMixerMax": {
+        "message": "Max"
+    },
+    "servosMixerBox": {
+        "message": "Box"
+    },
+    "servosMixerBoxHelp": {
+        "message": "Flight-mode gate. 0 = always applied. 1-3 = rule only applies when the corresponding BOXSERVO1/2/3 mode is active."
+    },
+    "servosMixerDeleteRule": {
+        "message": "Delete rule"
+    },
+    "servosMixerNoRules": {
+        "message": "No servo mix rules. Add a rule to start."
+    },
+    "servosMixerQuickAddLabel": {
+        "message": "Add function:"
+    },
+    "servosMixerQuickAileron": {
+        "message": "Aileron pair"
+    },
+    "servosMixerQuickElevator": {
+        "message": "Elevator"
+    },
+    "servosMixerQuickRudder": {
+        "message": "Rudder"
+    },
+    "servosMixerQuickElevons": {
+        "message": "Elevons (pair)"
+    },
+    "servosMixerQuickVTail": {
+        "message": "V-Tail (pair)"
+    },
+    "servosMixerQuickRaw": {
+        "message": "Raw rule"
+    },
+    "servosMixerQuickAddHint": {
+        "message": "Function buttons append pre-configured smix rules. Aircraft helpers switch the mixer to Custom Airplane on save."
+    },
+    "servosMixerSaveFailed": {
+        "message": "Servo mixer save failed"
+    },
     "gpsHead": {
         "message": "General"
     },

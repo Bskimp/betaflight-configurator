@@ -201,6 +201,8 @@ const MSPCodes = {
     MSP2_SENSOR_CONFIG_ACTIVE: 0x300a,
     MSP2_MCU_INFO: 0x300c,
     MSP2_GYRO_SENSOR: 0x300d,
+    MSP2_MOTOR_SERVO_RESOURCE: 0x300e,
+    MSP2_SET_MOTOR_SERVO_RESOURCE: 0x300f,
     // Wing tuning (firmware `#ifdef USE_WING`, see betaflight/betaflight
     // PR #15124). Shared golden-vector test with firmware
     // `wing_msp_unittest.cc` for cross-repo wire agreement. Runtime

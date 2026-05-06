@@ -220,6 +220,7 @@ const FC = {
     MOTOR_CONFIG: null,
     MOTOR_DATA: null,
     MOTOR_OUTPUT_ORDER: null,
+    MOTOR_RESOURCES: null,
     MOTOR_TELEMETRY_DATA: null,
     MULTIPLE_MSP: null,
     PID: null,
@@ -242,6 +243,7 @@ const FC = {
     SERIAL_CONFIG: null,
     SERVO_CONFIG: null,
     SERVO_DATA: null,
+    SERVO_RESOURCES: null,
     SERVO_RULES: null,
     TRANSPONDER: null,
     TUNING_SLIDERS: null,
@@ -351,6 +353,8 @@ const FC = {
 
         this.SERVO_CONFIG = [];
         this.SERVO_RULES = [];
+        this.MOTOR_RESOURCES = [];
+        this.SERVO_RESOURCES = [];
 
         this.SERIAL_CONFIG = {
             ports: [],

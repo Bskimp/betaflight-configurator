@@ -24,8 +24,18 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="(servo, index) in servoConfigs" :key="index">
-                                    <td style="text-align: center">Servo {{ index + 1 }}</td>
+                                <tr
+                                    v-for="(servo, index) in servoConfigs"
+                                    :key="index"
+                                    class="servo-config-row"
+                                    :style="servoOutputAccentStyle(index)"
+                                >
+                                    <td class="servo-name-cell">
+                                        <span class="servo-resource-label">
+                                            <span class="servo-output-dot" :style="servoOutputDotStyle(index)"></span>
+                                            Servo {{ index + 1 }}
+                                        </span>
+                                    </td>
                                     <td class="min">
                                         <UInputNumber
                                             :min="500"
@@ -71,11 +81,6 @@
                             </tbody>
                         </table>
                     </div>
-                    <div class="spacer"></div>
-                    <div class="live">
-                        <input type="checkbox" class="togglemedium" v-model="liveMode" />
-                        <span>{{ $t("servosLiveMode") }}</span>
-                    </div>
                 </div>
 
                 <!-- Upgrade required message -->
@@ -86,18 +91,33 @@
 
             <div class="spacer"></div>
 
-            <!-- Servo visualization bars -->
-            <div class="grid-row" v-if="isSupported">
-                <div class="grid-col col6">
-                    <div class="gui_box servoblock">
-                        <div class="spacer">
+            <!-- Servo visualization bars and resource assignments -->
+            <div class="grid-row grid-box col2 max-[1055px]:!grid-cols-1" v-if="isSupported">
+                <div class="col-span-1">
+                    <div class="gui_box grey servoblock">
+                        <div class="gui_box_titlebar">
+                            <div class="spacer_box_title">{{ $t("servosText") }}</div>
+                        </div>
+                        <div class="spacer_box">
                             <div class="servos">
-                                <div class="title2">{{ $t("servosText") }}</div>
                                 <ul class="titles">
-                                    <li v-for="i in 8" :key="i" :title="$t(`servoNumber${i}`)">{{ i }}</li>
+                                    <li
+                                        v-for="i in 8"
+                                        :key="i"
+                                        class="servo-output-title"
+                                        :style="servoOutputAccentStyle(i - 1)"
+                                        :title="$t(`servoNumber${i}`)"
+                                    >
+                                        {{ i }}
+                                    </li>
                                 </ul>
                                 <div class="bar-wrapper">
-                                    <div v-for="i in 8" :key="i" :class="`m-block servo-${i - 1}`">
+                                    <div
+                                        v-for="i in 8"
+                                        :key="i"
+                                        :class="`m-block servo-${i - 1}`"
+                                        :style="servoOutputAccentStyle(i - 1)"
+                                    >
                                         <div class="meter-bar">
                                             <div class="indicator" :style="getBarStyle(servoData[i - 1] || 1500)">
                                                 <div class="label"></div>
@@ -108,6 +128,147 @@
                                 </div>
                             </div>
                             <div class="clear-both"></div>
+                            <div class="live resource-live">
+                                <input type="checkbox" class="togglemedium" v-model="liveMode" />
+                                <span>{{ $t("servosLiveMode") }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <ServoFunctionMapper
+                        :rules="servoMixRules"
+                        :output-options="servoMixOutputOptions"
+                        :input-labels="servoMixInputLabels"
+                        :box-labels="servoMixBoxLabels"
+                        :quick-add-templates="servoMixTemplates"
+                        :max-rules="maxServoRules"
+                        :mixer-mode="mixerMode"
+                        :loading="saving"
+                        :title="$t('servosMixerRulesTitle')"
+                        :description="$t('servosMixerRulesDesc')"
+                        :output-label="$t('servosMixerOutput')"
+                        :input-label="$t('servosMixerInput')"
+                        :rate-label="$t('servosMixerRate')"
+                        :speed-label="$t('servosMixerSpeed')"
+                        :min-label="$t('servosMixerMin')"
+                        :max-label="$t('servosMixerMax')"
+                        :box-label="$t('servosMixerBox')"
+                        :box-help="$t('servosMixerBoxHelp')"
+                        :delete-title="$t('servosMixerDeleteRule')"
+                        :no-rules-text="$t('servosMixerNoRules')"
+                        :quick-add-label="$t('servosMixerQuickAddLabel')"
+                        :quick-add-hint="$t('servosMixerQuickAddHint')"
+                        @add-template="addServoMixTemplate"
+                        @remove-rule="removeServoMixRule"
+                    />
+                </div>
+
+                <div class="col-span-1">
+                    <div class="gui_box grey resource-block">
+                        <div class="gui_box_titlebar">
+                            <div class="spacer_box_title">{{ $t("servosResourceAssignments") }}</div>
+                        </div>
+                        <div class="spacer_box">
+                            <div class="note" v-if="!hasResourceData">
+                                <p>{{ $t("servosResourceNotAvailable") }}</p>
+                            </div>
+                            <template v-else>
+                                <p class="resource-status" v-if="smartResourceLoading">
+                                    {{ $t("servosResourceSmartLoading") }}
+                                </p>
+                                <p class="resource-status hw_muted" v-else-if="smartResourceAnalysis">
+                                    {{ $t("servosResourceSmartReady") }}
+                                </p>
+                                <p class="resource-status hw_muted" v-else-if="smartResourceError">
+                                    {{ $t("servosResourceSmartUnavailable") }}
+                                </p>
+                                <div class="resource-grid">
+                                    <div class="resource-section">
+                                        <h4>{{ $t("servosMotorResources") }}</h4>
+                                        <table class="resource-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{{ $t("servosResourceIndex") }}</th>
+                                                    <th>{{ $t("servosResourcePin") }}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="motor in motorResources" :key="motor.index">
+                                                    <td>{{ $t("servosResourceMotorLabel") }} {{ motor.index + 1 }}</td>
+                                                    <td>
+                                                        <select
+                                                            class="resource-select"
+                                                            :value="motor.pin"
+                                                            @change="onMotorPinChange(motor.index, $event)"
+                                                        >
+                                                            <option value="NONE">NONE</option>
+                                                            <option
+                                                                v-for="option in resourcePinOptions('motor', motor)"
+                                                                :key="option.value"
+                                                                :value="option.value"
+                                                            >
+                                                                {{ option.label }}
+                                                            </option>
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="resource-section">
+                                        <h4>{{ $t("servosServoResources") }}</h4>
+                                        <table class="resource-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{{ $t("servosResourceIndex") }}</th>
+                                                    <th>{{ $t("servosResourcePin") }}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr
+                                                    v-for="servo in servoResources"
+                                                    :key="servo.index"
+                                                    class="servo-resource-row"
+                                                    :class="{
+                                                        'servo-resource-row--inactive': resourceSlotInactive(
+                                                            servo.index,
+                                                        ),
+                                                    }"
+                                                    :style="resourceAccentStyle(servo.index)"
+                                                >
+                                                    <td>
+                                                        <span class="servo-resource-label">
+                                                            <span
+                                                                class="servo-output-dot"
+                                                                :style="resourceDotStyle(servo.index)"
+                                                            ></span>
+                                                            {{ $t("servosResourceServoLabel") }} {{ servo.index + 1 }}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <select
+                                                            class="resource-select"
+                                                            :value="servo.pin"
+                                                            @change="onServoPinChange(servo.index, $event)"
+                                                        >
+                                                            <option value="NONE">NONE</option>
+                                                            <option
+                                                                v-for="option in resourcePinOptions('servo', servo)"
+                                                                :key="option.value"
+                                                                :value="option.value"
+                                                            >
+                                                                {{ option.label }}
+                                                            </option>
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="note">
+                                    <p>{{ $t("servosResourceEditHint") }}</p>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -134,8 +295,51 @@ import { mspHelper } from "../../js/msp/MSPHelper";
 import { gui_log } from "../../js/gui_log";
 import { i18n } from "../../js/localization";
 import WikiButton from "../elements/WikiButton.vue";
+import ServoFunctionMapper from "../servos/ServoFunctionMapper.vue";
 import { useInterval } from "../../composables/useInterval";
 import { useTimeout } from "../../composables/useTimeout";
+import { parseDmaShow, parseResourceShow, parseTimerDump, parseTimerShow, readCli } from "../../js/utils/cliOneShot";
+import { analyzeWingResources } from "../../js/utils/wingResourceAnalyzer";
+import { mcuFamilyFromName } from "../../js/utils/mcuFamily";
+import { RESOURCE_NONE, resourceOptions, stableResourcePins } from "../../js/utils/motorServoResourceCandidates";
+import {
+    AIRCRAFT_SERVO_MIX_TEMPLATES,
+    MAX_SERVO_RULES,
+    SERVO_MIX_BOX_LABELS,
+    SERVO_MIX_INPUT_LABELS,
+    cloneServoMixRules,
+    padServoMixRulesToMax,
+    pwmSlotToServoIndex,
+    servoMixTargetOptions,
+    servoOutputAccentStyle as buildServoOutputAccentStyle,
+    servoOutputColor as buildServoOutputColor,
+} from "../../js/utils/servoMixerModel";
+
+const INACTIVE_ACCENT_STYLE = {
+    "--servo-output-accent": "var(--surface-500)",
+    "--servo-output-accent-bg": "transparent",
+};
+const INACTIVE_DOT_STYLE = { backgroundColor: "var(--surface-500)" };
+
+// For the Resource Assignments table: PWM-slot index N from the firmware
+// drives a logical servoIndex_e per the active mixer (see firmware
+// writeServos() switch). Color the row by that logical index so the dot
+// matches the live bar / smix-mapper color of the servo it actually drives.
+function computeResourceAccentStyle(slotIndex, mixerMode) {
+    const idx = pwmSlotToServoIndex(slotIndex, mixerMode);
+    if (idx === null) return INACTIVE_ACCENT_STYLE;
+    return buildServoOutputAccentStyle(idx);
+}
+
+function computeResourceDotStyle(slotIndex, mixerMode) {
+    const idx = pwmSlotToServoIndex(slotIndex, mixerMode);
+    if (idx === null) return INACTIVE_DOT_STYLE;
+    return { backgroundColor: buildServoOutputColor(idx) };
+}
+
+function isResourceSlotInactive(slotIndex, mixerMode) {
+    return pwmSlotToServoIndex(slotIndex, mixerMode) === null;
+}
 
 // Calculate bar style for servo visualization
 function getBarStyle(value) {
@@ -162,12 +366,23 @@ export default defineComponent({
     components: {
         BaseTab,
         WikiButton,
+        ServoFunctionMapper,
     },
     setup() {
         const isSupported = ref(false);
         const liveMode = ref(false);
+        const saving = ref(false);
         const servoConfigs = reactive([]);
         const servoData = reactive([]);
+        const servoMixRules = reactive([]);
+        const motorResources = reactive([]);
+        const servoResources = reactive([]);
+        const initialResourcePins = ref([]);
+        const hasResourceData = ref(false);
+        const smartResourceAnalysis = ref(null);
+        const smartResourceLoading = ref(false);
+        const smartResourceError = ref(null);
+        const mixerMode = ref(0);
 
         const { addInterval } = useInterval();
         const { addTimeout } = useTimeout();
@@ -175,11 +390,39 @@ export default defineComponent({
         // Calculate aux channels from RC active channels
         const totalChannels = computed(() => FC.RC?.active_channels || 8);
         const auxChannelCount = computed(() => Math.max(0, totalChannels.value - 4));
+        const servoMixOutputOptions = computed(() => servoMixTargetOptions(mixerMode.value));
+        const availablePins = computed(() =>
+            stableResourcePins(motorResources, servoResources, initialResourcePins.value),
+        );
+        const wingBuild = computed(() => {
+            const opts = FC.CONFIG?.buildOptions;
+            return Array.isArray(opts) && opts.includes("USE_WING");
+        });
 
         // Generate rate options from 100 to -100
         const rateOptions = [];
         for (let i = 100; i > -101; i--) {
             rateOptions.push(i);
+        }
+
+        function servoOutputAccentStyle(outputIndex) {
+            return buildServoOutputAccentStyle(outputIndex);
+        }
+
+        function servoOutputDotStyle(outputIndex) {
+            return { backgroundColor: buildServoOutputColor(outputIndex) };
+        }
+
+        function resourceAccentStyle(slotIndex) {
+            return computeResourceAccentStyle(slotIndex, mixerMode.value);
+        }
+
+        function resourceDotStyle(slotIndex) {
+            return computeResourceDotStyle(slotIndex, mixerMode.value);
+        }
+
+        function resourceSlotInactive(slotIndex) {
+            return isResourceSlotInactive(slotIndex, mixerMode.value);
         }
 
         // Handle channel forward checkbox (only one per servo)
@@ -200,8 +443,7 @@ export default defineComponent({
             }
         }
 
-        // Update FC.SERVO_CONFIG from local state and send to FC
-        function updateServos(saveToEeprom) {
+        function syncServoConfigsToFc() {
             const SERVO_MIN = 500;
             const SERVO_MAX = 2500;
 
@@ -225,8 +467,32 @@ export default defineComponent({
                 src.middle = middle;
                 src.max = max;
             }
+        }
 
-            // Send to FC
+        function sendServoConfigurationsToFc() {
+            return new Promise((resolve, reject) => {
+                try {
+                    mspHelper.sendServoConfigurations(resolve);
+                } catch (err) {
+                    reject(err);
+                }
+            });
+        }
+
+        function sendServoMixRulesToFc() {
+            return new Promise((resolve, reject) => {
+                try {
+                    mspHelper.sendServoMixRules(resolve);
+                } catch (err) {
+                    reject(err);
+                }
+            });
+        }
+
+        // Update FC.SERVO_CONFIG from local state and send to FC
+        function updateServos(saveToEeprom) {
+            syncServoConfigsToFc();
+
             mspHelper.sendServoConfigurations(() => {
                 if (saveToEeprom) {
                     mspHelper.writeConfiguration(false, () => {
@@ -237,8 +503,119 @@ export default defineComponent({
         }
 
         // Save button handler
-        function saveServoConfig() {
-            updateServos(true);
+        async function saveServoConfig() {
+            if (saving.value) return;
+
+            saving.value = true;
+            try {
+                syncServoConfigsToFc();
+
+                const nextMixerMode = mixerMode.value || FC.MIXER_CONFIG?.mixer;
+                if (nextMixerMode && FC.MIXER_CONFIG?.mixer !== nextMixerMode) {
+                    FC.MIXER_CONFIG.mixer = nextMixerMode;
+                    await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
+                }
+
+                await sendServoConfigurationsToFc();
+
+                FC.SERVO_RULES = padServoMixRulesToMax(servoMixRules);
+                await sendServoMixRulesToFc();
+
+                await new Promise((resolve) => {
+                    mspHelper.writeConfiguration(false, () => {
+                        gui_log(i18n.getMessage("servosEepromSave"));
+                        resolve();
+                    });
+                });
+            } catch (e) {
+                console.error("Failed to save servo configuration", e);
+                gui_log(i18n.getMessage("servosMixerSaveFailed"));
+            } finally {
+                saving.value = false;
+            }
+        }
+
+        function addServoMixTemplate(templateId) {
+            const template = AIRCRAFT_SERVO_MIX_TEMPLATES.find((item) => item.id === templateId);
+            if (!template || servoMixRules.length + template.rules.length > MAX_SERVO_RULES) return;
+
+            if (template.mixerMode) {
+                mixerMode.value = template.mixerMode;
+            }
+
+            for (const rule of template.rules) {
+                servoMixRules.push({ ...rule });
+            }
+        }
+
+        function removeServoMixRule(index) {
+            servoMixRules.splice(index, 1);
+        }
+
+        function resourcePinOptions(kind, resource) {
+            return resourceOptions({
+                kind,
+                resource,
+                motorResources,
+                hardwareAnalysis: smartResourceAnalysis.value,
+                fallbackPins: availablePins.value,
+                allowLedStrip: true,
+            });
+        }
+
+        function syncResourceState(resourceType, resources, index, pin, ioTag) {
+            const resource = resources.find((item) => item.index === index);
+            if (resource) {
+                resource.pin = pin;
+                resource.ioTag = ioTag;
+            }
+
+            const fcResources = resourceType === 0 ? FC.MOTOR_RESOURCES : FC.SERVO_RESOURCES;
+            const fcResource = fcResources?.find?.((item) => item.index === index);
+            if (fcResource) {
+                fcResource.pin = pin;
+                fcResource.ioTag = ioTag;
+            }
+            initialResourcePins.value = stableResourcePins(motorResources, servoResources, initialResourcePins.value);
+        }
+
+        function onResourcePinChange(resourceType, resources, index, event) {
+            const resource = resources.find((item) => item.index === index);
+            if (!resource) return;
+
+            const previousPin = resource.pin || RESOURCE_NONE;
+            const newPin = event.target.value || RESOURCE_NONE;
+            const ioTag = newPin === RESOURCE_NONE ? 0 : mspHelper.pinToIoTag(newPin);
+            if (newPin !== RESOURCE_NONE && ioTag === 0) {
+                event.target.value = previousPin;
+                gui_log(i18n.getMessage("servosResourceSetFailed"));
+                return;
+            }
+
+            const labelKey = resourceType === 0 ? "servosResourceMotorLabel" : "servosResourceServoLabel";
+            mspHelper.setMotorServoResource(resourceType, index, ioTag, (response) => {
+                if (response?.crcError || response?.unsupported) {
+                    event.target.value = previousPin;
+                    gui_log(i18n.getMessage("servosResourceSetFailed"));
+                    return;
+                }
+                syncResourceState(resourceType, resources, index, newPin, ioTag);
+                gui_log(
+                    i18n.getMessage("servosResourceSetOk", {
+                        resource: i18n.getMessage(labelKey),
+                        index: index + 1,
+                        pin: newPin,
+                    }),
+                );
+            });
+        }
+
+        function onMotorPinChange(index, event) {
+            onResourcePinChange(0, motorResources, index, event);
+        }
+
+        function onServoPinChange(index, event) {
+            onResourcePinChange(1, servoResources, index, event);
         }
 
         // Pull servo data for visualization
@@ -261,14 +638,66 @@ export default defineComponent({
 
             try {
                 await MSP.promise(MSPCodes.MSP_SERVO_CONFIGURATIONS);
+                await MSP.promise(MSPCodes.MSP_MIXER_CONFIG);
                 await MSP.promise(MSPCodes.MSP_SERVO_MIX_RULES);
                 await MSP.promise(MSPCodes.MSP_RC);
                 await MSP.promise(MSPCodes.MSP_BOXNAMES);
+
+                try {
+                    await MSP.promise(MSPCodes.MSP2_MOTOR_SERVO_RESOURCE);
+                    loadResourceData();
+                } catch {
+                    hasResourceData.value = false;
+                }
+
                 initializeUI();
+                loadSmartResourceAnalysis();
             } catch (e) {
                 console.error("Failed to load servo configs", e);
                 isSupported.value = false;
                 GUI.content_ready(); // Ensure tab doesn't hang
+            }
+        }
+
+        function loadResourceData() {
+            motorResources.length = 0;
+            servoResources.length = 0;
+
+            for (const resource of FC.MOTOR_RESOURCES ?? []) {
+                motorResources.push({ ...resource });
+            }
+            for (const resource of FC.SERVO_RESOURCES ?? []) {
+                servoResources.push({ ...resource });
+            }
+
+            initialResourcePins.value = stableResourcePins(motorResources, servoResources);
+            hasResourceData.value = motorResources.length > 0 || servoResources.length > 0;
+        }
+
+        async function loadSmartResourceAnalysis() {
+            if (!wingBuild.value || !hasResourceData.value || smartResourceLoading.value) return;
+
+            smartResourceLoading.value = true;
+            smartResourceError.value = null;
+            try {
+                const resourceShow = await readCli("resource show");
+                const timerShow = await readCli("timer show");
+                const dmaShow = await readCli("dma show");
+                const timerDump = await readCli("timer");
+
+                smartResourceAnalysis.value = analyzeWingResources({
+                    resourceShow: parseResourceShow(resourceShow.lines),
+                    timerShow: parseTimerShow(timerShow.lines),
+                    dmaShow: parseDmaShow(dmaShow.lines),
+                    timerDump: parseTimerDump(timerDump.lines),
+                    serialPorts: FC.SERIAL_CONFIG?.ports || [],
+                    mcuFamily: mcuFamilyFromName(FC.MCU_INFO?.name),
+                });
+            } catch (e) {
+                smartResourceAnalysis.value = null;
+                smartResourceError.value = e.message || String(e);
+            } finally {
+                smartResourceLoading.value = false;
             }
         }
 
@@ -282,6 +711,7 @@ export default defineComponent({
             }
 
             isSupported.value = true;
+            mixerMode.value = FC.MIXER_CONFIG?.mixer || 0;
 
             // Clear and populate reactive servoConfigs array
             servoConfigs.length = 0;
@@ -295,6 +725,11 @@ export default defineComponent({
                         indexOfChannelToForward: FC.SERVO_CONFIG[i].indexOfChannelToForward,
                     });
                 }
+            }
+
+            servoMixRules.length = 0;
+            for (const rule of cloneServoMixRules(FC.SERVO_RULES)) {
+                servoMixRules.push(rule);
             }
 
             // Start servo data polling for visualization
@@ -315,14 +750,38 @@ export default defineComponent({
         return {
             isSupported,
             liveMode,
+            saving,
             servoConfigs,
             servoData,
+            servoMixRules,
+            servoMixInputLabels: SERVO_MIX_INPUT_LABELS,
+            servoMixBoxLabels: SERVO_MIX_BOX_LABELS,
+            servoMixTemplates: AIRCRAFT_SERVO_MIX_TEMPLATES,
+            servoMixOutputOptions,
+            maxServoRules: MAX_SERVO_RULES,
+            mixerMode,
+            motorResources,
+            servoResources,
+            hasResourceData,
+            smartResourceAnalysis,
+            smartResourceLoading,
+            smartResourceError,
+            resourcePinOptions,
             totalChannels,
             auxChannelCount,
             rateOptions,
             getBarStyle,
+            servoOutputAccentStyle,
+            servoOutputDotStyle,
+            resourceAccentStyle,
+            resourceDotStyle,
+            resourceSlotInactive,
             setChannelForward,
             onServoChange,
+            addServoMixTemplate,
+            removeServoMixRule,
+            onMotorPinChange,
+            onServoPinChange,
             saveServoConfig,
         };
     },
@@ -331,8 +790,10 @@ export default defineComponent({
 
 <style lang="less">
 .bar-wrapper {
-    display: flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
 }
 
 .tab-servos {
@@ -521,6 +982,101 @@ export default defineComponent({
         margin-bottom: 24px;
         background-color: var(--surface-400);
     }
+    .resource-block {
+        min-height: 178px;
+    }
+    .resource-live {
+        float: none;
+        margin-top: 15px;
+        padding-top: 10px;
+        border-top: 1px solid var(--surface-400);
+    }
+    .hw_muted {
+        color: var(--text-muted, #888);
+    }
+    .resource-status {
+        margin: 0 0 10px 0;
+        font-weight: normal;
+    }
+    .resource-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-bottom: 15px;
+    }
+    .resource-section {
+        flex: 1;
+        min-width: 200px;
+        h4 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            font-weight: bold;
+        }
+    }
+    .servo-resource-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+    .servo-output-dot {
+        flex: 0 0 auto;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: var(--servo-output-accent);
+        box-shadow: 0 0 0 2px var(--servo-output-accent-bg);
+    }
+    .servo-config-row {
+        border-left: 4px solid var(--servo-output-accent);
+        background-image: linear-gradient(90deg, var(--servo-output-accent-bg), transparent 32px);
+        .servo-name-cell {
+            text-align: left;
+            padding-left: 10px;
+        }
+    }
+    .resource-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        th,
+        td {
+            border: 1px solid var(--surface-500);
+            padding: 4px 8px;
+            text-align: center;
+        }
+        th {
+            background-color: var(--surface-400);
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: var(--surface-200);
+        }
+        .servo-resource-row {
+            border-left: 4px solid var(--servo-output-accent);
+            background-image: linear-gradient(90deg, var(--servo-output-accent-bg), transparent 24px);
+
+            .resource-select {
+                border-color: var(--servo-output-accent);
+                box-shadow: inset 3px 0 0 var(--servo-output-accent);
+            }
+        }
+        .servo-resource-row--inactive {
+            opacity: 0.55;
+            .resource-select {
+                box-shadow: none;
+            }
+        }
+    }
+    .resource-select {
+        width: 100%;
+        padding: 2px 4px;
+        font-size: 12px;
+        border: 1px solid var(--surface-500);
+        border-radius: 3px;
+        background-color: var(--surface-100);
+        cursor: pointer;
+    }
     .title2 {
         padding-bottom: 2px;
         text-align: center;
@@ -528,12 +1084,21 @@ export default defineComponent({
         font-weight: 300;
     }
     .titles {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        gap: 10px;
         height: 20px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
         li {
-            float: left;
-            width: calc((100% / 9) - 10px);
-            margin-right: 10px;
+            float: none;
+            width: auto;
+            margin-right: 0;
             text-align: center;
+        }
+        .servo-output-title {
+            border-bottom: 3px solid var(--servo-output-accent);
         }
         .active {
             color: green;
@@ -542,16 +1107,18 @@ export default defineComponent({
     .servos {
         .titles {
             li {
-                float: left;
-                width: calc((100% / 8) - 10px);
-                margin-right: 10px;
+                float: none;
+                width: auto;
+                margin-right: 0;
             }
         }
         .m-block {
-            float: left;
-            width: calc((100% / 8) - 10px);
-            margin-right: 10px;
+            float: none;
+            width: auto;
+            min-width: 0;
+            margin-right: 0;
             border-radius: 3px;
+            box-shadow: inset 0 -3px 0 var(--servo-output-accent);
         }
     }
     .m-block {
@@ -643,12 +1210,19 @@ export default defineComponent({
                 }
             }
         }
+        .servos {
+            .titles {
+                li {
+                    width: auto;
+                }
+            }
+        }
         .m-block {
             width: calc((100% - 80px) / 9);
         }
         .servos {
             .m-block {
-                width: calc((100% - 70px) / 8);
+                width: auto;
             }
         }
         .servo_testing {

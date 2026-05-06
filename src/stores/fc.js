@@ -198,6 +198,11 @@ export const useFlightControllerStore = defineStore("flightController", () => {
         set: (val) => (FC.MOTOR_OUTPUT_ORDER = val),
     });
 
+    const motorResources = computed({
+        get: () => FC.MOTOR_RESOURCES,
+        set: (val) => (FC.MOTOR_RESOURCES = val),
+    });
+
     const motorTelemetryData = computed({
         get: () => FC.MOTOR_TELEMETRY_DATA,
         set: (val) => (FC.MOTOR_TELEMETRY_DATA = val),
@@ -263,6 +268,11 @@ export const useFlightControllerStore = defineStore("flightController", () => {
     const servoData = computed({
         get: () => FC.SERVO_DATA,
         set: (val) => (FC.SERVO_DATA = val),
+    });
+
+    const servoResources = computed({
+        get: () => FC.SERVO_RESOURCES,
+        set: (val) => (FC.SERVO_RESOURCES = val),
     });
 
     const ledStrip = computed({
@@ -356,6 +366,7 @@ export const useFlightControllerStore = defineStore("flightController", () => {
         motorConfig,
         motor3dConfig,
         motorOutputOrder,
+        motorResources,
         motorTelemetryData,
         advancedTuning,
         filterConfig,
@@ -370,6 +381,7 @@ export const useFlightControllerStore = defineStore("flightController", () => {
         serialConfig,
         servoConfig,
         servoData,
+        servoResources,
         ledStrip,
         vtxConfig,
         apiVersion,
