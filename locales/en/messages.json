@@ -210,7 +210,7 @@
         "description": "Don't translate!!!"
     },
     "language_ca": {
-        "message": "Catal\u00e0",
+        "message": "Català",
         "description": "Don't translate!!!"
     },
     "language_da": {
@@ -226,7 +226,7 @@
         "description": "Don't translate!!!"
     },
     "language_es": {
-        "message": "Espa\u00f1ol",
+        "message": "Español",
         "description": "Don't translate!!!"
     },
     "language_eu": {
@@ -234,7 +234,7 @@
         "description": "Don't translate!!!"
     },
     "language_fr": {
-        "message": "Fran\u00e7ais",
+        "message": "Français",
         "description": "Don't translate!!!"
     },
     "language_gl": {
@@ -246,11 +246,11 @@
         "description": "Don't translate!!!"
     },
     "language_ja": {
-        "message": "\u65E5\u672C\u8A9E",
+        "message": "日本語",
         "description": "Don't translate!!!"
     },
     "language_ko": {
-        "message": "\ud55c\uad6d\uc5b4",
+        "message": "한국어",
         "description": "Don't translate!!!"
     },
     "language_nl": {
@@ -258,11 +258,11 @@
         "description": "Don't translate!!!"
     },
     "language_pt": {
-        "message": "Portugu\u00EAs",
+        "message": "Português",
         "description": "Don't translate!!!"
     },
     "language_pt_BR": {
-        "message": "Portugu\u00EAs Brasileiro",
+        "message": "Português Brasileiro",
         "description": "Don't translate!!!"
     },
     "language_pl": {
@@ -270,22 +270,21 @@
         "description": "Don't translate!!!"
     },
     "language_ru": {
-        "message": "\u0420\u0443\u0441\u0441\u043A\u0438\u0439",
+        "message": "Русский",
         "description": "Don't translate!!!"
     },
     "language_uk": {
-        "message": "\u0423\u043A\u0440\u0430\u0457\u043D\u0441\u044C\u043A\u0430",
+        "message": "Українська",
         "description": "Don't translate!!!"
     },
     "language_zh_CN": {
-        "message": "\u7b80\u4f53\u4e2d\u6587",
+        "message": "简体中文",
         "description": "Don't translate!!!"
     },
     "language_zh_TW": {
-        "message": "\u7e41\u9ad4\u4e2d\u6587",
+        "message": "繁體中文",
         "description": "Don't translate!!!"
     },
-
     "sensorDataFlashNotFound": {
         "message": "No dataflash <br>chip found",
         "description": "Text of the dataflash image in the header of the page."
@@ -450,7 +449,6 @@
     "tabAuxiliary": {
         "message": "Modes"
     },
-
     "logActionHide": {
         "message": "Hide Log"
     },
@@ -470,7 +468,6 @@
     "serialErrorParityError": {
         "message": "Serial connection error: bad parity"
     },
-
     "serialPortOpened": {
         "message": "Serial port <span class=\"message-positive\">successfully</span> opened with ID: $1"
     },
@@ -1637,7 +1634,6 @@
     "configurationSensorAlignmentCustom": {
         "message": "Custom"
     },
-
     "configurationAccelTrims": {
         "message": "Accelerometer Trim"
     },
@@ -2047,7 +2043,6 @@
     "pidTuningNonProfilePidSettings": {
         "message": "Profile independent PID Controller Settings"
     },
-
     "pidTuningAntiGravity": {
         "message": "Anti Gravity"
     },
@@ -2212,7 +2207,7 @@
         "message": "This parameter determines the stick-acceleration effect within the derivative component.<br> A value of 0 is the old Measurement method where D only tracks the gyro. A value of 1 is the old Error method, which uses equal gyro and stick tracking ratio.<br> Lower values give a slower, smoother stick response, while higher values provide more stick acceleration response.<br>Note that RC interpolation is recommended when using higher values to prevent control kicks making noise."
     },
     "pidTuningDtermSetpointTransitionWarning": {
-        "message": "<span class=\"message-negative\"><strong>$t(warningTitle.message):<\/strong> The use of a D Setpoint transition greater than 0 and less than 0.1 is highly discouraged. Doing so may lead instability and reduced stick responsiveness as the sticks cross the centre point.<\/span>"
+        "message": "<span class=\"message-negative\"><strong>$t(warningTitle.message):</strong> The use of a D Setpoint transition greater than 0 and less than 0.1 is highly discouraged. Doing so may lead instability and reduced stick responsiveness as the sticks cross the centre point.</span>"
     },
     "pidTuningFeedforwardGroup": {
         "message": "Feed-<br>forward"
@@ -5669,7 +5664,6 @@
     "osdSetupUploadingFontEnd": {
         "message": "Uploaded all {{length}} characters to the OSD"
     },
-
     "osdSetupSave": {
         "message": "Save"
     },
@@ -6745,7 +6739,6 @@
         "message": "RSSI dBm",
         "description": "Text of the RSSI dBm alarm"
     },
-
     "osdWarningTextArmingDisabled": {
         "message": "Arming disabled",
         "description": "One of the warnings that can be selected to be shown in the OSD"
@@ -6880,14 +6873,12 @@
         "message": "Warns if the CPU LOAD of the flight controller is too high",
         "description": "Description of one of the warnings that can be selected to be shown in the OSD"
     },
-
     "osdWarningTextUnknown": {
         "message": "Unknown $1"
     },
     "osdWarningUnknown": {
         "message": "Unknown warning (details to be added in a future release)"
     },
-
     "osdSectionHelpElements": {
         "message": "Enable or disable OSD elements."
     },
@@ -7239,7 +7230,6 @@
         "message": "Sends ESC data to the FC via DShot telemetry.  Required by RPM Filtering and dynamic idle. <br> <br>Note: Requires a compatible ESC with appropriate firmware, eg JESC, Jazzmac, BLHeli-32.",
         "description": "Description of the Bidirectional DShot feature of the ESC/Motor"
     },
-
     "configurationGyroFrequency": {
         "message": "Gyro update frequency"
     },
@@ -8158,5 +8148,83 @@
     },
     "sectionUserPasskeys": {
         "message": "User Passkeys"
+    },
+    "servosResourceSmartLoading": {
+        "message": "Loading timer and DMA candidates..."
+    },
+    "servosResourceSmartReady": {
+        "message": "Timer-aware wing candidates are available."
+    },
+    "servosResourceSmartUnavailable": {
+        "message": "Timer-aware candidates are unavailable; showing current resource pins."
+    },
+    "servosResourceSetOk": {
+        "message": "$t(eeprom_saved_ok.message) {{resource}} {{index}} -> {{pin}}"
+    },
+    "servosResourceSetFailed": {
+        "message": "Resource assignment failed"
+    },
+    "servosMixerRulesTitle": {
+        "message": "Function -> Output Mapping"
+    },
+    "servosMixerRulesDesc": {
+        "message": "Each row maps a servo input source onto an output. Multiple rules targeting the same output sum together."
+    },
+    "servosMixerOutput": {
+        "message": "Output"
+    },
+    "servosMixerInput": {
+        "message": "Input"
+    },
+    "servosMixerRate": {
+        "message": "Rate"
+    },
+    "servosMixerSpeed": {
+        "message": "Speed"
+    },
+    "servosMixerMin": {
+        "message": "Min"
+    },
+    "servosMixerMax": {
+        "message": "Max"
+    },
+    "servosMixerBox": {
+        "message": "Box"
+    },
+    "servosMixerBoxHelp": {
+        "message": "Flight-mode gate. 0 = always applied. 1-3 = rule only applies when the corresponding BOXSERVO1/2/3 mode is active."
+    },
+    "servosMixerDeleteRule": {
+        "message": "Delete rule"
+    },
+    "servosMixerNoRules": {
+        "message": "No servo mix rules. Add a rule to start."
+    },
+    "servosMixerQuickAddLabel": {
+        "message": "Add function:"
+    },
+    "servosMixerQuickAileron": {
+        "message": "Aileron pair"
+    },
+    "servosMixerQuickElevator": {
+        "message": "Elevator"
+    },
+    "servosMixerQuickRudder": {
+        "message": "Rudder"
+    },
+    "servosMixerQuickElevons": {
+        "message": "Elevons (pair)"
+    },
+    "servosMixerQuickVTail": {
+        "message": "V-Tail (pair)"
+    },
+    "servosMixerQuickRaw": {
+        "message": "Raw rule"
+    },
+    "servosMixerQuickAddHint": {
+        "message": "Function buttons append pre-configured smix rules. Aircraft helpers switch the mixer to Custom Airplane on save."
+    },
+    "servosMixerSaveFailed": {
+        "message": "Servo mixer save failed"
     }
 }

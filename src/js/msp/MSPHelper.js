@@ -280,10 +280,24 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     break;
                 case MSPCodes.MSP2_MOTOR_SERVO_RESOURCE:
                     {
-                        FC.MOTOR_RESOURCES = [];
-                        FC.SERVO_RESOURCES = [];
+                        const payloadLength = data.byteLength;
+                        if (payloadLength < 2) {
+                            console.warn(
+                                `MSP2_MOTOR_SERVO_RESOURCE: unexpected data length ${payloadLength} (expected counts)`,
+                            );
+                            break;
+                        }
                         const motorCount = data.readU8();
                         const servoCount = data.readU8();
+                        const expectedLength = 2 + motorCount + servoCount;
+                        if (payloadLength < expectedLength) {
+                            console.warn(
+                                `MSP2_MOTOR_SERVO_RESOURCE: unexpected data length ${payloadLength} (expected ${expectedLength})`,
+                            );
+                            break;
+                        }
+                        FC.MOTOR_RESOURCES = [];
+                        FC.SERVO_RESOURCES = [];
                         for (let i = 0; i < motorCount; i++) {
                             const ioTag = data.readU8();
                             FC.MOTOR_RESOURCES.push({
@@ -3008,7 +3022,7 @@ MspHelper.prototype.ioTagToPin = function (ioTag) {
     }
     const portId = (ioTag >> 4) - 1;
     const pinNumber = ioTag & 0x0f;
-    if (portId < 0 || portId > 25) {
+    if (portId < 0 || portId > 14) {
         return "INVALID";
     }
     const portLetter = String.fromCharCode("A".charCodeAt(0) + portId);
@@ -3029,7 +3043,7 @@ MspHelper.prototype.pinToIoTag = function (pinName) {
     const portId = match[1].toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
     const pinNumber = parseInt(match[2], 10);
     // Validate bounds: portId 0-25 (A-Z), pinNumber 0-15 (4-bit encoding)
-    if (portId < 0 || portId > 25 || pinNumber < 0 || pinNumber > 15) {
+    if (portId < 0 || portId > 14 || pinNumber < 0 || pinNumber > 15) {
         return 0;
     }
     return ((portId + 1) << 4) | pinNumber;

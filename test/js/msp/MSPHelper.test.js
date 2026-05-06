@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import MspHelper from "../../../src/js/msp/MSPHelper";
 import MSPCodes from "../../../src/js/msp/MSPCodes";
 import "../../../src/js/injected_methods";
@@ -77,6 +77,40 @@ describe("MspHelper", () => {
             expect(new Uint16Array(FC.MOTOR_DATA).slice(0, motorCount)).toEqual(motorBytes);
             expect(FC.MOTOR_DATA.slice(motorCount, 8)).toContain(undefined);
         });
+        it("handles MSP2_MOTOR_SERVO_RESOURCE correctly", () => {
+            mspHelper.process_data({
+                code: MSPCodes.MSP2_MOTOR_SERVO_RESOURCE,
+                dataView: new DataView(new Uint8Array([2, 2, 0x18, 0x00, 0x23, 0x00]).buffer),
+                crcError: false,
+                callbacks: [],
+            });
+
+            expect(FC.MOTOR_RESOURCES).toEqual([
+                { index: 0, ioTag: 0x18, pin: "A08" },
+                { index: 1, ioTag: 0x00, pin: "NONE" },
+            ]);
+            expect(FC.SERVO_RESOURCES).toEqual([
+                { index: 0, ioTag: 0x23, pin: "B03" },
+                { index: 1, ioTag: 0x00, pin: "NONE" },
+            ]);
+        });
+        it("keeps existing resource assignments on malformed MSP2_MOTOR_SERVO_RESOURCE payloads", () => {
+            FC.MOTOR_RESOURCES = [{ index: 0, ioTag: 0x18, pin: "A08" }];
+            FC.SERVO_RESOURCES = [{ index: 0, ioTag: 0x23, pin: "B03" }];
+            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+            mspHelper.process_data({
+                code: MSPCodes.MSP2_MOTOR_SERVO_RESOURCE,
+                dataView: new DataView(new Uint8Array([2, 2, 0x18]).buffer),
+                crcError: false,
+                callbacks: [],
+            });
+
+            expect(warnSpy).toHaveBeenCalled();
+            expect(FC.MOTOR_RESOURCES).toEqual([{ index: 0, ioTag: 0x18, pin: "A08" }]);
+            expect(FC.SERVO_RESOURCES).toEqual([{ index: 0, ioTag: 0x23, pin: "B03" }]);
+            warnSpy.mockRestore();
+        });
         it("handles MSP_BOARD_INFO correctly for API version", () => {
             FC.CONFIG.apiVersion = API_VERSION_1_47;
             let infoBuffer = [];
@@ -118,6 +152,26 @@ describe("MspHelper", () => {
             expect(FC.CONFIG.configurationState).toEqual(0xbb);
             expect(FC.CONFIG.sampleRateHz).toEqual(0xbaab);
             expect(FC.CONFIG.configurationProblems).toEqual(0xdeadbeef);
+        });
+    });
+    describe("resource pin ioTag conversion", () => {
+        it("converts ioTags and pin names", () => {
+            expect(mspHelper.ioTagToPin(0x00)).toBe("NONE");
+            expect(mspHelper.ioTagToPin(0x18)).toBe("A08");
+            expect(mspHelper.ioTagToPin(0x23)).toBe("B03");
+            expect(mspHelper.ioTagToPin(0xff)).toBe("O15");
+
+            expect(mspHelper.pinToIoTag("NONE")).toBe(0);
+            expect(mspHelper.pinToIoTag("A08")).toBe(0x18);
+            expect(mspHelper.pinToIoTag("b03")).toBe(0x23);
+            expect(mspHelper.pinToIoTag("O15")).toBe(0xff);
+        });
+
+        it("rejects pins outside the 8-bit ioTag encoding range", () => {
+            expect(mspHelper.pinToIoTag("A16")).toBe(0);
+            expect(mspHelper.pinToIoTag("P00")).toBe(0);
+            expect(mspHelper.pinToIoTag("not-a-pin")).toBe(0);
+            expect(mspHelper.ioTagToPin(0x100)).toBe("INVALID");
         });
     });
 });
