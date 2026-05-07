@@ -89,8 +89,56 @@ export function candidateSourceLabel(candidate) {
     return "";
 }
 
-function labelForCandidate(candidate) {
-    const parts = [candidate.pad];
+// Builds `pad → "M<n>"` / `pad → "LED_STRIP"` lookup from the analyzer's
+// padDefaults block. Gated on `source === "firmware"` — when source is
+// "scan" or "fallback" the silkscreen attribution is heuristic, so we
+// suppress the prefix entirely rather than show a wrong M<n> label and
+// have the pilot trust it. The padDefaults.source banner (#7) makes
+// this gate visible to the user.
+function buildSilkscreenMap(hardwareAnalysis) {
+    const map = new Map();
+    const padDefaults = hardwareAnalysis?.padDefaults;
+    if (!padDefaults || padDefaults.source !== "firmware") return map;
+    for (const motor of padDefaults.motors ?? []) {
+        if (motor?.pad && Number.isFinite(motor.index)) {
+            map.set(normalizePin(motor.pad), `M${motor.index}`);
+        }
+    }
+    for (const led of padDefaults.ledStrips ?? []) {
+        if (led?.pad) {
+            map.set(normalizePin(led.pad), "LED_STRIP");
+        }
+    }
+    return map;
+}
+
+// Builds the set of pads broken out to silkscreen as motors or LED strip
+// (the same pool pickOptimalPadLayout draws from). Default-on filter:
+// candidates outside the pool are dropped from the dropdown unless expert
+// mode is enabled. Pool inclusion is independent of `padDefaults.source`
+// — even a scan-derived map tells us which pads the board breaks out;
+// only the silkscreen LABEL is suppressed when source != "firmware".
+function buildPadPool(hardwareAnalysis) {
+    const pool = new Set();
+    const padDefaults = hardwareAnalysis?.padDefaults;
+    if (!padDefaults) return pool;
+    for (const motor of padDefaults.motors ?? []) {
+        if (motor?.pad) pool.add(normalizePin(motor.pad));
+    }
+    for (const led of padDefaults.ledStrips ?? []) {
+        if (led?.pad) pool.add(normalizePin(led.pad));
+    }
+    return pool;
+}
+
+function padDisplayLabel(pin, silkscreenMap) {
+    if (!(silkscreenMap instanceof Map)) return pin;
+    const silkscreen = silkscreenMap.get(normalizePin(pin));
+    return silkscreen ? `${silkscreen} (${pin})` : pin;
+}
+
+function labelForCandidate(candidate, silkscreenMap = null) {
+    const parts = [padDisplayLabel(candidate.pad, silkscreenMap)];
     if (candidate.timer != null) {
         parts.push(`TIM${candidate.timer}${candidate.channel != null ? ` CH${candidate.channel}` : ""}`);
     }
@@ -104,29 +152,38 @@ function labelForCandidate(candidate) {
     return parts.join(" - ");
 }
 
-function addCurrentOption(options, seen, currentPin, padTimers) {
+function addCurrentOption(options, seen, currentPin, padTimers, silkscreenMap = null) {
     if (currentPin && currentPin !== RESOURCE_NONE) {
         const timer = timerSuffixForPin(currentPin, padTimers);
-        const label = timer ? `${currentPin} - ${timer} - current` : `${currentPin} - current`;
+        const head = padDisplayLabel(currentPin, silkscreenMap);
+        const label = timer ? `${head} - ${timer} - current` : `${head} - current`;
         addOption(options, seen, { pin: currentPin, label, source: "existing" });
     }
 }
 
-// Returns "MOTOR N" / "SERVO N" if `pin` is currently bound to one of those
-// resources (excluding the resource being edited so we don't shadow the
-// "- current" label). Used to annotate bare fallback options so pilots see
-// what they'd be releasing if they pick that pad.
-function describeCurrentAssignment(pin, kind, resource, motorResources, servoResources) {
-    const editingMotor = kind === "motor";
-    for (const m of motorResources ?? []) {
-        if (normalizePin(m?.pin) === pin && !(editingMotor && m.index === resource?.index)) {
+// Returns "MOTOR N" / "SERVO N" / "LED_STRIP" / "UARTn TX|RX" if `pin` is
+// currently bound to that peripheral (excluding the resource being edited
+// so we don't shadow the "- current" label). Used to annotate fallback
+// options so pilots see what they'd be releasing if they pick that pad.
+function describeCurrentAssignment(pin, ctx) {
+    if (!ctx) return null;
+    const editingMotor = ctx.kind === "motor";
+    for (const m of ctx.motorResources ?? []) {
+        if (normalizePin(m?.pin) === pin && !(editingMotor && m.index === ctx.resource?.index)) {
             return `MOTOR ${m.index + 1}`;
         }
     }
-    for (const s of servoResources ?? []) {
-        if (normalizePin(s?.pin) === pin && !(!editingMotor && s.index === resource?.index)) {
+    for (const s of ctx.servoResources ?? []) {
+        if (normalizePin(s?.pin) === pin && !(!editingMotor && s.index === ctx.resource?.index)) {
             return `SERVO ${s.index + 1}`;
         }
+    }
+    for (const led of ctx.ledStrips ?? []) {
+        if (normalizePin(led?.pad) === pin) return "LED_STRIP";
+    }
+    for (const serial of ctx.serials ?? []) {
+        if (normalizePin(serial?.txPad) === pin) return `UART${serial.index} TX`;
+        if (normalizePin(serial?.rxPad) === pin) return `UART${serial.index} RX`;
     }
     return null;
 }
@@ -145,11 +202,10 @@ function timerSuffixForPin(pin, padTimers) {
 function addFallbackOptions(options, seen, fallbackPins, ctx) {
     for (const pin of fallbackPins ?? []) {
         const normalized = normalizePin(pin);
-        const assignment = ctx
-            ? describeCurrentAssignment(normalized, ctx.kind, ctx.resource, ctx.motorResources, ctx.servoResources)
-            : null;
+        const assignment = describeCurrentAssignment(normalized, ctx);
         const timer = timerSuffixForPin(normalized, ctx?.padTimers);
-        const parts = [normalized];
+        const head = padDisplayLabel(normalized, ctx?.silkscreenMap);
+        const parts = [head];
         if (timer) parts.push(timer);
         if (assignment) parts.push(assignment);
         addOption(options, seen, {
@@ -162,34 +218,49 @@ function addFallbackOptions(options, seen, fallbackPins, ctx) {
 function genericOptions(currentPin, fallbackPins, ctx) {
     const options = [];
     const seen = new Set();
-    addCurrentOption(options, seen, currentPin, ctx?.padTimers);
+    addCurrentOption(options, seen, currentPin, ctx?.padTimers, ctx?.silkscreenMap);
     addFallbackOptions(options, seen, fallbackPins, ctx);
     return options;
 }
 
-function motorOptions({ resource, motorResources, servoResources, hardwareAnalysis, fallbackPins }) {
+function motorOptions({ resource, motorResources, servoResources, hardwareAnalysis, fallbackPins, expertMode }) {
     const currentPin = normalizePin(resource?.pin);
     const padTimers = hardwareAnalysis?.padTimers instanceof Map ? hardwareAnalysis.padTimers : null;
-    const ctx = { kind: "motor", resource, motorResources, servoResources, padTimers };
+    const silkscreenMap = buildSilkscreenMap(hardwareAnalysis);
+    const padPool = buildPadPool(hardwareAnalysis);
+    const poolFilter = !expertMode && padPool.size > 0;
+    const ledStrips = hardwareAnalysis?.ledStrips ?? [];
+    const serials = hardwareAnalysis?.serials ?? [];
+    const ctx = {
+        kind: "motor",
+        resource,
+        motorResources,
+        servoResources,
+        padTimers,
+        silkscreenMap,
+        ledStrips,
+        serials,
+    };
     const options = [];
     const seen = new Set();
-    addCurrentOption(options, seen, currentPin, padTimers);
+    addCurrentOption(options, seen, currentPin, padTimers, silkscreenMap);
     if (!hardwareAnalysis) return genericOptions(currentPin, fallbackPins, ctx);
 
     const existing = (hardwareAnalysis.motors ?? []).find((motor) => motor.index === resource.index + 1);
     if (existing?.pad) {
         addOption(options, seen, {
             pin: existing.pad,
-            label: labelForCandidate({ ...existing, source: "existing" }),
+            label: labelForCandidate({ ...existing, source: "existing" }, silkscreenMap),
             source: "existing",
             timer: existing.timer,
             channel: existing.channel,
         });
     }
     for (const pad of hardwareAnalysis.pwmCapableFreePads ?? []) {
+        if (poolFilter && !padPool.has(normalizePin(pad.pad))) continue;
         addOption(options, seen, {
             pin: pad.pad,
-            label: labelForCandidate({ ...pad, source: "free-pwm" }),
+            label: labelForCandidate({ ...pad, source: "free-pwm" }, silkscreenMap),
             source: "free-pwm",
             timer: pad.timer,
             channel: pad.channel,
@@ -207,13 +278,28 @@ function servoOptions({
     fallbackPins,
     allowLedStrip,
     allowUartRelease,
+    expertMode,
 }) {
     const currentPin = normalizePin(resource?.pin);
     const padTimers = hardwareAnalysis?.padTimers instanceof Map ? hardwareAnalysis.padTimers : null;
-    const ctx = { kind: "servo", resource, motorResources, servoResources, padTimers };
+    const silkscreenMap = buildSilkscreenMap(hardwareAnalysis);
+    const padPool = buildPadPool(hardwareAnalysis);
+    const poolFilter = !expertMode && padPool.size > 0;
+    const ledStrips = hardwareAnalysis?.ledStrips ?? [];
+    const serials = hardwareAnalysis?.serials ?? [];
+    const ctx = {
+        kind: "servo",
+        resource,
+        motorResources,
+        servoResources,
+        padTimers,
+        silkscreenMap,
+        ledStrips,
+        serials,
+    };
     const options = [];
     const seen = new Set();
-    addCurrentOption(options, seen, currentPin, padTimers);
+    addCurrentOption(options, seen, currentPin, padTimers, silkscreenMap);
     if (!hardwareAnalysis) return genericOptions(currentPin, fallbackPins, ctx);
 
     const servoIndex = resource.index + 1;
@@ -225,10 +311,26 @@ function servoOptions({
     });
 
     for (const candidate of candidates) {
+        // Drop candidates that share a timer with an in-use motor unless
+        // expert mode is on. Saving such a pick silently steals the timer
+        // and bricks the motor — mirrors pickOptimalPadLayout's reject rule.
+        // The "existing" source is preserved so a user already on a
+        // shared-timer pad still sees their current row.
+        if (!expertMode && candidate.sharesTimerWithMotor === true && candidate.source !== "existing") {
+            continue;
+        }
+        // Silkscreen-pool filter: drop candidates whose pad isn't broken
+        // out as a motor or LED-strip pad on this board (the pool
+        // pickOptimalPadLayout draws from). Existing-source candidates
+        // are exempt so a user currently on an off-pool pad still sees
+        // their row.
+        if (poolFilter && candidate.source !== "existing" && !padPool.has(normalizePin(candidate.pad))) {
+            continue;
+        }
         addOption(options, seen, {
             pin: candidate.pad,
             af: candidate.af,
-            label: labelForCandidate(candidate),
+            label: labelForCandidate(candidate, silkscreenMap),
             source: candidate.source,
             timer: candidate.timer,
             channel: candidate.channel,
@@ -249,6 +351,7 @@ export function resourceOptions({
     fallbackPins = [],
     allowLedStrip = true,
     allowUartRelease = [],
+    expertMode = false,
 }) {
     if (kind === "servo") {
         return servoOptions({
@@ -259,7 +362,8 @@ export function resourceOptions({
             fallbackPins,
             allowLedStrip,
             allowUartRelease,
+            expertMode,
         });
     }
-    return motorOptions({ resource, motorResources, servoResources, hardwareAnalysis, fallbackPins });
+    return motorOptions({ resource, motorResources, servoResources, hardwareAnalysis, fallbackPins, expertMode });
 }

@@ -177,6 +177,22 @@
                                 </p>
                                 <p class="resource-status hw_muted" v-else-if="smartResourceAnalysis">
                                     {{ $t("servosResourceSmartReady") }}
+                                    <span
+                                        v-if="padDefaultsSource"
+                                        class="resource-source-chip"
+                                        :class="'resource-source-' + padDefaultsSource"
+                                        :title="
+                                            padDefaultsSource === 'firmware'
+                                                ? $t('servosResourceSrcFirmwareTip')
+                                                : $t('servosResourceSrcHeuristicTip')
+                                        "
+                                    >
+                                        {{
+                                            padDefaultsSource === "firmware"
+                                                ? $t("servosResourceSrcFirmware")
+                                                : $t("servosResourceSrcHeuristic")
+                                        }}
+                                    </span>
                                 </p>
                                 <p class="resource-status hw_muted" v-else-if="smartResourceError">
                                     {{ $t("servosResourceSmartUnavailable") }}
@@ -307,6 +323,7 @@ import {
     readCli,
 } from "../../js/utils/cliOneShot";
 import { analyzeResources } from "../../js/utils/resourceAnalyzer";
+import { isExpertModeEnabled } from "../../js/utils/isExpertModeEnabled";
 import { mcuFamilyFromName } from "../../js/utils/mcuFamily";
 import {
     RESOURCE_NONE,
@@ -406,6 +423,11 @@ export default defineComponent({
         const availablePins = computed(() =>
             stableResourcePins(motorResources, servoResources, initialResourcePins.value),
         );
+        // padDefaults.source surfaces whether the pad → silkscreen mapping
+        // is firmware-authoritative or a scan/fallback snapshot. The
+        // candidates module suppresses silkscreen prefixes when source is
+        // not "firmware"; the chip in the header tells the pilot why.
+        const padDefaultsSource = computed(() => smartResourceAnalysis.value?.padDefaults?.source ?? null);
         // Generate rate options from 100 to -100
         const rateOptions = [];
         for (let i = 100; i > -101; i--) {
@@ -568,6 +590,7 @@ export default defineComponent({
                 hardwareAnalysis: smartResourceAnalysis.value,
                 fallbackPins: availablePins.value,
                 allowLedStrip: true,
+                expertMode: isExpertModeEnabled(),
             });
         }
 
@@ -813,6 +836,7 @@ export default defineComponent({
             smartResourceAnalysis,
             smartResourceLoading,
             smartResourceError,
+            padDefaultsSource,
             resourcePinOptions,
             totalChannels,
             auxChannelCount,
@@ -1044,6 +1068,24 @@ export default defineComponent({
     .resource-status {
         margin: 0 0 10px 0;
         font-weight: normal;
+    }
+    .resource-source-chip {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 0.85em;
+        font-weight: 600;
+        cursor: help;
+    }
+    .resource-source-firmware {
+        background: var(--success-100, #d4ecd5);
+        color: var(--success-700, #2f6f33);
+    }
+    .resource-source-scan,
+    .resource-source-fallback {
+        background: var(--warning-100, #fcecc4);
+        color: var(--warning-700, #8a5a00);
     }
     .resource-grid {
         display: flex;

@@ -8153,7 +8153,19 @@
         "message": "Loading timer and DMA candidates..."
     },
     "servosResourceSmartReady": {
-        "message": "Timer-aware wing candidates are available."
+        "message": "Timer-aware pad candidates are available."
+    },
+    "servosResourceSrcFirmware": {
+        "message": "firmware-authoritative"
+    },
+    "servosResourceSrcFirmwareTip": {
+        "message": "Pad → silkscreen mapping comes from the firmware build's resource defaults; M1/M2 labels in the dropdown are authoritative."
+    },
+    "servosResourceSrcHeuristic": {
+        "message": "heuristic"
+    },
+    "servosResourceSrcHeuristicTip": {
+        "message": "Pad → silkscreen mapping was inferred from a scan or fallback snapshot, so M1/M2 labels are suppressed in the dropdown to avoid attributing the wrong silkscreen number."
     },
     "servosResourceSmartUnavailable": {
         "message": "Timer-aware candidates are unavailable; showing current resource pins."
