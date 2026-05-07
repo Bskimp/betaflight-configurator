@@ -644,6 +644,32 @@ MspHelper.prototype.process_data = function (dataHandler) {
                         FC.AUX_CONFIG_IDS.push(data.readU8());
                     }
                     break;
+                case MSPCodes.MSP_SERVO_MIX_RULES:
+                    // N rules of 7 bytes each: target, input, rate(i8), speed,
+                    // min(i8), max(i8), box. Firmware returns MAX_SERVO_RULES
+                    // entries unconditionally (16 on Betaflight). Wire format
+                    // matches the per-rule layout of MSP_SET_SERVO_MIX_RULE.
+                    if (data.byteLength % 7 === 0) {
+                        const parsedRules = [];
+                        for (let i = 0; i < data.byteLength; i += 7) {
+                            parsedRules.push({
+                                target: data.readU8(),
+                                input: data.readU8(),
+                                rate: data.read8(),
+                                speed: data.readU8(),
+                                min: data.read8(),
+                                max: data.read8(),
+                                box: data.readU8(),
+                            });
+                        }
+                        FC.SERVO_RULES = parsedRules;
+                    } else if (data.byteLength > 0) {
+                        console.warn(
+                            `MSP_SERVO_MIX_RULES: unexpected data length ${data.byteLength} (not a multiple of 7)`,
+                        );
+                    }
+                    break;
+
                 case MSPCodes.MSP_SERVO_CONFIGURATIONS:
                     FC.SERVO_CONFIG = []; // empty the array as new data is coming in
                     if (data.byteLength % 12 == 0) {
@@ -729,6 +755,10 @@ MspHelper.prototype.process_data = function (dataHandler) {
                     break;
                 case MSPCodes.MSP_SET_SERVO_CONFIGURATION:
                     console.log("Servo Configuration saved");
+                    break;
+                case MSPCodes.MSP_SET_SERVO_MIX_RULE:
+                    // Per-rule save ack; final save batched with MSP_EEPROM_WRITE
+                    // by the caller.
                     break;
                 case MSPCodes.MSP_EEPROM_WRITE:
                     console.log("Settings Saved in EEPROM");
@@ -2612,6 +2642,40 @@ MspHelper.prototype.sendServoConfigurations = function (onCompleteCallback) {
 
         MSP.send_message(MSPCodes.MSP_SET_SERVO_CONFIGURATION, buffer, false, nextFunction);
     }
+};
+
+MspHelper.prototype.sendServoMixRules = function (onCompleteCallback) {
+    let nextFunction = send_next_rule;
+    let ruleIndex = 0;
+
+    if (!FC.SERVO_RULES || FC.SERVO_RULES.length === 0) {
+        onCompleteCallback();
+        return;
+    }
+
+    function send_next_rule() {
+        const rule = FC.SERVO_RULES[ruleIndex];
+        const buffer = [];
+
+        buffer
+            .push8(ruleIndex)
+            .push8(rule.target)
+            .push8(rule.input)
+            .push8(rule.rate & 0xff)
+            .push8(rule.speed)
+            .push8(rule.min & 0xff)
+            .push8(rule.max & 0xff)
+            .push8(rule.box);
+
+        ruleIndex++;
+        if (ruleIndex === FC.SERVO_RULES.length) {
+            nextFunction = onCompleteCallback;
+        }
+
+        MSP.send_message(MSPCodes.MSP_SET_SERVO_MIX_RULE, buffer, false, nextFunction);
+    }
+
+    send_next_rule();
 };
 
 MspHelper.prototype.sendModeRanges = function (onCompleteCallback) {

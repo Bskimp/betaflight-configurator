@@ -71,8 +71,14 @@ describe("servo mixer model", () => {
         expect(allAirplaneOptions).toHaveLength(8);
         expect(planeOnlyOptions).toHaveLength(6);
         expect(planeOnlyOptions[0]).toMatchObject({ value: 2, outputIndex: 2 });
-        expect(servoMixOutputLabel(2, MIXER_IDS.CUSTOM_AIRPLANE)).toBe("S3 - Flaps");
-        expect(servoMixOutputLabel(6, MIXER_IDS.CUSTOM_AIRPLANE)).toBe("S7 - Elevator");
+        // Plain S<N> labels — no aircraft-function suffix (BF's "Flaps /
+        // Elevator / Rudder" defaults assume a default wiring most pilots
+        // don't have; pilot picks the output number whose bar physically
+        // moves their servo).
+        expect(servoMixOutputLabel(2, MIXER_IDS.CUSTOM_AIRPLANE)).toBe("S3");
+        expect(servoMixOutputLabel(6, MIXER_IDS.CUSTOM_AIRPLANE)).toBe("S7");
+        expect(servoMixOutputLabel(0)).toBe("S1");
+        expect(servoMixOutputLabel(7)).toBe("S8");
     });
 
     it("pads active rules to the firmware table size with disabled rows", () => {

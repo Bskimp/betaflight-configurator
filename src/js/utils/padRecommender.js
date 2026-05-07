@@ -284,7 +284,12 @@ export function candidatePadsForSlot(analysis, servoIndex, options = {}) {
                     complementary: !!opt.complementary,
                     dmaStream: null,
                     source: "alt-af",
-                    requiresRelease: base.requiresRelease,
+                    // Alt-AF requires a `timer <pad> AF <n>` CLI step in
+                    // addition to whatever the base entry already needed.
+                    // The caller (UI) must run requiresRelease[] commands
+                    // before the resource bind so the FC re-routes the
+                    // pad to the chosen alternate timer/channel.
+                    requiresRelease: [...(base.requiresRelease ?? []), `timer ${base.pad} AF ${opt.af}`],
                     sharesTimerWithMotor: opt.timer !== null && motorTimers.has(opt.timer),
                 });
             }

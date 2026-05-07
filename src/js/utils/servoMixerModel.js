@@ -43,71 +43,6 @@ export const SERVO_OUTPUT_COLORS = [
     "#a77cff",
 ];
 
-const GENERIC_TARGET_LABELS = {
-    0: "Gimbal Pitch",
-    1: "Gimbal Roll",
-    2: "Flaps",
-    3: "Flapperon 1 / Left Aileron",
-    4: "Flapperon 2 / Right Aileron",
-    5: "Rudder",
-    6: "Elevator",
-    7: "Throttle",
-};
-
-const TARGET_LABELS_BY_MIXER = {
-    [MIXER_IDS.TRI]: {
-        5: "Tail Servo",
-    },
-    [MIXER_IDS.CUSTOM_TRI]: {
-        5: "Tail Servo",
-    },
-    [MIXER_IDS.BICOPTER]: {
-        4: "Left Tilt",
-        5: "Right Tilt",
-    },
-    [MIXER_IDS.GIMBAL]: {
-        0: "Gimbal Pitch",
-        1: "Gimbal Roll",
-    },
-    [MIXER_IDS.FLYING_WING]: {
-        3: "Left Elevon",
-        4: "Right Elevon",
-        7: "Throttle",
-    },
-    [MIXER_IDS.AIRPLANE]: {
-        2: "Flaps",
-        3: "Aileron 1",
-        4: "Aileron 2",
-        5: "Rudder",
-        6: "Elevator",
-        7: "Throttle",
-    },
-    [MIXER_IDS.CUSTOM_AIRPLANE]: {
-        2: "Flaps",
-        3: "Aileron 1",
-        4: "Aileron 2",
-        5: "Rudder",
-        6: "Elevator",
-        7: "Throttle",
-    },
-    [MIXER_IDS.HELI_120_CCPM]: {
-        0: "Heli Left",
-        1: "Heli Right",
-        2: "Heli Top",
-        3: "Heli Rudder",
-    },
-    [MIXER_IDS.DUALCOPTER]: {
-        4: "Left Tilt",
-        5: "Right Tilt",
-    },
-    [MIXER_IDS.SINGLECOPTER]: {
-        3: "Servo 1",
-        4: "Servo 2",
-        5: "Servo 3",
-        6: "Servo 4",
-    },
-};
-
 function hexToRgba(hex, alpha) {
     const value = hex.replace("#", "");
     const r = Number.parseInt(value.slice(0, 2), 16);
@@ -161,13 +96,18 @@ export function pwmSlotToServoIndex(slotIndex, mixerMode) {
     return map[slotIndex];
 }
 
-export function servoMixOutputLabel(target, mixerMode) {
+// Servo output labels are based on firmware servoIndex_e (S1-S8), matching
+// what the live bars and the top servo-config table show. We deliberately
+// don't surface BF's "Flaps / Aileron / Rudder / Elevator" suffix on these
+// labels: those names assume a default airframe wiring that most pilots
+// don't actually have, and the firmware/wiki disagree on which target ID
+// maps to which function across versions. Plain S1-S8 always matches the
+// bar that physically responds — pilot wires their plane, picks the output
+// number whose bar moves their servo.
+export function servoMixOutputLabel(target /* mixerMode kept for caller compat */) {
     const targetId = Number(target);
-    const outputIndex = servoMixOutputIndexForTarget(targetId, mixerMode);
-    const outputLabel = Number.isInteger(outputIndex) ? `S${outputIndex + 1}` : `Target ${targetId}`;
-    const contextLabel = TARGET_LABELS_BY_MIXER[mixerMode]?.[targetId] || GENERIC_TARGET_LABELS[targetId];
-
-    return contextLabel ? `${outputLabel} - ${contextLabel}` : outputLabel;
+    const outputIndex = servoMixOutputIndexForTarget(targetId);
+    return Number.isInteger(outputIndex) ? `S${outputIndex + 1}` : `Target ${targetId}`;
 }
 
 export function servoMixTargetOptions(mixerMode, { planeOnly = false } = {}) {

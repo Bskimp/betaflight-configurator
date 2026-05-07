@@ -298,10 +298,22 @@ import WikiButton from "../elements/WikiButton.vue";
 import ServoFunctionMapper from "../servos/ServoFunctionMapper.vue";
 import { useInterval } from "../../composables/useInterval";
 import { useTimeout } from "../../composables/useTimeout";
-import { parseDmaShow, parseResourceShow, parseTimerDump, parseTimerShow, readCli } from "../../js/utils/cliOneShot";
+import {
+    discoverPadTimerOptions,
+    parseDmaShow,
+    parseResourceShow,
+    parseTimerDump,
+    parseTimerShow,
+    readCli,
+} from "../../js/utils/cliOneShot";
 import { analyzeResources } from "../../js/utils/resourceAnalyzer";
 import { mcuFamilyFromName } from "../../js/utils/mcuFamily";
-import { RESOURCE_NONE, resourceOptions, stableResourcePins } from "../../js/utils/motorServoResourceCandidates";
+import {
+    RESOURCE_NONE,
+    parseResourceOptionValue,
+    resourceOptions,
+    stableResourcePins,
+} from "../../js/utils/motorServoResourceCandidates";
 import {
     AIRCRAFT_SERVO_MIX_TEMPLATES,
     MAX_SERVO_RULES,
@@ -552,6 +564,7 @@ export default defineComponent({
                 kind,
                 resource,
                 motorResources,
+                servoResources,
                 hardwareAnalysis: smartResourceAnalysis.value,
                 fallbackPins: availablePins.value,
                 allowLedStrip: true,
@@ -574,12 +587,17 @@ export default defineComponent({
             initialResourcePins.value = stableResourcePins(motorResources, servoResources, initialResourcePins.value);
         }
 
-        function onResourcePinChange(resourceType, resources, index, event) {
+        async function onResourcePinChange(resourceType, resources, index, event) {
             const resource = resources.find((item) => item.index === index);
             if (!resource) return;
 
             const previousPin = resource.pin || RESOURCE_NONE;
-            const newPin = event.target.value || RESOURCE_NONE;
+            const rawValue = event.target.value || RESOURCE_NONE;
+            // Option values are encoded `pin` (default AF) or `pin@AFn`
+            // (alternate AF). When AF is set we run the `timer <pin> AF n`
+            // CLI command before the MSP resource bind so the FC switches
+            // the pad to the chosen alternate timer/channel.
+            const { pin: newPin, af: altAf } = parseResourceOptionValue(rawValue);
             const ioTag = newPin === RESOURCE_NONE ? 0 : mspHelper.pinToIoTag(newPin);
             if (newPin !== RESOURCE_NONE && ioTag === 0) {
                 event.target.value = previousPin;
@@ -588,6 +606,18 @@ export default defineComponent({
             }
 
             const labelKey = resourceType === 0 ? "servosResourceMotorLabel" : "servosResourceServoLabel";
+
+            if (altAf != null && newPin !== RESOURCE_NONE) {
+                try {
+                    await readCli(`timer ${newPin} AF ${altAf}`);
+                } catch (e) {
+                    console.error("Failed to set alternate AF", e);
+                    event.target.value = previousPin;
+                    gui_log(i18n.getMessage("servosResourceSetFailed"));
+                    return;
+                }
+            }
+
             mspHelper.setMotorServoResource(resourceType, index, ioTag, (response) => {
                 if (response?.crcError || response?.unsupported) {
                     event.target.value = previousPin;
@@ -683,7 +713,7 @@ export default defineComponent({
                 const dmaShow = await readCli("dma show");
                 const timerDump = await readCli("timer");
 
-                smartResourceAnalysis.value = analyzeResources({
+                const analysis = analyzeResources({
                     resourceShow: parseResourceShow(resourceShow.lines),
                     timerShow: parseTimerShow(timerShow.lines),
                     dmaShow: parseDmaShow(dmaShow.lines),
@@ -691,6 +721,25 @@ export default defineComponent({
                     serialPorts: FC.SERIAL_CONFIG?.ports || [],
                     mcuFamily: mcuFamilyFromName(FC.MCU_INFO?.name),
                 });
+                smartResourceAnalysis.value = analysis;
+
+                // Per-pad alternate-AF discovery. Loops `timer <pad>` for
+                // every PWM-capable pad on the board (~100ms each, pool is
+                // typically <=12 so ~1s total). Result feeds the candidate
+                // dropdown so pilots can park a pad on a non-default timer
+                // without dropping to CLI. Skipped silently on firmware that
+                // doesn't expose `timer <pad>`.
+                const altAfPool = analysis.padTimers instanceof Map ? [...analysis.padTimers.keys()] : [];
+                if (altAfPool.length > 0) {
+                    try {
+                        const padTimerOptions = await discoverPadTimerOptions(altAfPool);
+                        smartResourceAnalysis.value = { ...analysis, padTimerOptions };
+                    } catch (afErr) {
+                        console.warn("Servos: alt-AF discovery failed", afErr);
+                        // Fall through with analysis already set; alt-AF
+                        // dropdown entries simply won't appear.
+                    }
+                }
             } catch (e) {
                 smartResourceAnalysis.value = null;
                 smartResourceError.value = e.message || String(e);
