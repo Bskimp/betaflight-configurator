@@ -744,7 +744,53 @@ export default defineComponent({
                     serialPorts: FC.SERIAL_CONFIG?.ports || [],
                     mcuFamily: mcuFamilyFromName(FC.MCU_INFO?.name),
                 });
-                smartResourceAnalysis.value = analysis;
+
+                // Read the firmware-default silkscreen mapping via the
+                // bare `resource` CLI command. Output format is
+                // "resource MOTOR 1 C06" / "resource LED_STRIP 1 A08"
+                // — the dump-style branch of parseResourceShow. This is
+                // the safe READ; do NOT call `resource defaults` (that
+                // RESETS the FC and wipes any user remap).
+                let padDefaults = null;
+                try {
+                    const defaultsDump = await readCli("resource");
+                    const bindings = parseResourceShow(defaultsDump?.lines ?? []);
+                    if (Array.isArray(bindings) && bindings.length > 0) {
+                        padDefaults = {
+                            source: "firmware",
+                            motors: bindings
+                                .filter((b) => b.peripheral === "MOTOR" && b.index != null)
+                                .map((b) => ({ index: b.index, pad: b.pad })),
+                            ledStrips: bindings
+                                .filter((b) => b.peripheral === "LED_STRIP")
+                                .map((b) => ({ pad: b.pad })),
+                        };
+                    }
+                } catch (defErr) {
+                    console.warn("Servos: padDefaults firmware lookup failed", defErr);
+                }
+                // Snapshot fallback when bare `resource` returns nothing
+                // (older firmware that didn't separate dump/show output).
+                // Source is tagged "snapshot" so the silkscreen-prefix
+                // gate in motorServoResourceCandidates suppresses M<n>
+                // labels — we can't be sure current bindings equal the
+                // silkscreen-authoritative ones. The pool filter and the
+                // heuristic chip still light up.
+                if (!padDefaults) {
+                    const motorBindings = (analysis.motors ?? [])
+                        .filter((m) => m?.pad && Number.isFinite(m.index))
+                        .map((m) => ({ index: m.index, pad: m.pad }));
+                    const ledBindings = (analysis.ledStrips ?? []).filter((l) => l?.pad).map((l) => ({ pad: l.pad }));
+                    if (motorBindings.length > 0 || ledBindings.length > 0) {
+                        padDefaults = {
+                            source: "snapshot",
+                            motors: motorBindings,
+                            ledStrips: ledBindings,
+                        };
+                    }
+                }
+
+                smartResourceAnalysis.value = padDefaults ? { ...analysis, padDefaults } : analysis;
 
                 // Per-pad alternate-AF discovery. Loops `timer <pad>` for
                 // every PWM-capable pad on the board (~100ms each, pool is
@@ -756,7 +802,9 @@ export default defineComponent({
                 if (altAfPool.length > 0) {
                     try {
                         const padTimerOptions = await discoverPadTimerOptions(altAfPool);
-                        smartResourceAnalysis.value = { ...analysis, padTimerOptions };
+                        smartResourceAnalysis.value = padDefaults
+                            ? { ...analysis, padDefaults, padTimerOptions }
+                            : { ...analysis, padTimerOptions };
                     } catch (afErr) {
                         console.warn("Servos: alt-AF discovery failed", afErr);
                         // Fall through with analysis already set; alt-AF
