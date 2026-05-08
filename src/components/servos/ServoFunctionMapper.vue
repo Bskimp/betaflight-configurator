@@ -113,7 +113,6 @@
             </div>
 
             <div class="rule_actions">
-                <span class="quick_add_label">{{ quickAddLabel }}</span>
                 <button
                     v-for="tpl in quickAddTemplates"
                     :key="tpl.id"
@@ -269,29 +268,58 @@ export default defineComponent({
 <style lang="less" scoped>
 .servo-function-mapper {
     .table_overflow {
-        overflow-x: auto;
+        overflow-x: visible;
     }
 
     .servo-mixer-table {
-        min-width: 820px;
+        width: 100%;
         margin-bottom: 10px;
+        table-layout: fixed;
 
         th,
         td {
             text-align: center;
+            padding: 2px 3px;
+        }
+
+        th:nth-child(1),
+        td:nth-child(1) {
+            width: 28px;
+        }
+
+        th:nth-child(4),
+        td:nth-child(4),
+        th:nth-child(5),
+        td:nth-child(5),
+        th:nth-child(6),
+        td:nth-child(6),
+        th:nth-child(7),
+        td:nth-child(7) {
+            width: 60px;
+        }
+
+        th:nth-child(8),
+        td:nth-child(8) {
+            width: 78px;
+        }
+
+        th:nth-child(9),
+        td:nth-child(9) {
+            width: 40px;
         }
 
         input,
         select {
             width: 100%;
+            min-width: 0;
             min-height: 29px;
             border: 1px solid var(--surface-500);
             border-radius: 5px;
             background-color: var(--surface-100);
+            box-sizing: border-box;
         }
 
         input {
-            max-width: 5.5em;
             text-align: right;
         }
 
@@ -302,8 +330,8 @@ export default defineComponent({
 
         .output-cell {
             display: grid;
-            grid-template-columns: 12px minmax(130px, 1fr);
-            gap: 8px;
+            grid-template-columns: 12px minmax(90px, 1fr);
+            gap: 6px;
             align-items: center;
         }
 
@@ -320,11 +348,10 @@ export default defineComponent({
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 8px;
+        gap: 4px;
         margin-top: 10px;
     }
 
-    .quick_add_label,
     .rule_count {
         font-weight: normal;
     }
@@ -340,7 +367,9 @@ export default defineComponent({
     }
 
     .quick_add_button {
-        padding: 0 12px;
+        padding: 0 8px;
+        font-size: 0.9em;
+        white-space: nowrap;
     }
 
     .rule_delete {
