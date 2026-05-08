@@ -325,6 +325,7 @@ import {
 import { analyzeResources } from "../../js/utils/resourceAnalyzer";
 import { isExpertModeEnabled } from "../../js/utils/isExpertModeEnabled";
 import { mcuFamilyFromName } from "../../js/utils/mcuFamily";
+import { lookupTargetDefaults } from "../../js/utils/targetDefaults";
 import {
     RESOURCE_NONE,
     parseResourceOptionValue,
@@ -745,29 +746,36 @@ export default defineComponent({
                     mcuFamily: mcuFamilyFromName(FC.MCU_INFO?.name),
                 });
 
-                // Read the firmware-default silkscreen mapping via the
-                // bare `resource` CLI command. Output format is
+                // padDefaults priority chain:
+                //   tier 0 — bundled target-defaults.json lookup (canonical,
+                //            FC-state-independent; works after remap)
+                //   tier 1 — bare `resource` CLI read (firmware-confirmed)
+                //   tier 2 — snapshot from analyzer (last resort)
+                let padDefaults = lookupTargetDefaults(FC.CONFIG?.boardName);
+
+                // Tier 1: bare `resource` CLI command. Output format is
                 // "resource MOTOR 1 C06" / "resource LED_STRIP 1 A08"
                 // — the dump-style branch of parseResourceShow. This is
                 // the safe READ; do NOT call `resource defaults` (that
                 // RESETS the FC and wipes any user remap).
-                let padDefaults = null;
-                try {
-                    const defaultsDump = await readCli("resource");
-                    const bindings = parseResourceShow(defaultsDump?.lines ?? []);
-                    if (Array.isArray(bindings) && bindings.length > 0) {
-                        padDefaults = {
-                            source: "firmware",
-                            motors: bindings
-                                .filter((b) => b.peripheral === "MOTOR" && b.index != null)
-                                .map((b) => ({ index: b.index, pad: b.pad })),
-                            ledStrips: bindings
-                                .filter((b) => b.peripheral === "LED_STRIP")
-                                .map((b) => ({ pad: b.pad })),
-                        };
+                if (!padDefaults) {
+                    try {
+                        const defaultsDump = await readCli("resource");
+                        const bindings = parseResourceShow(defaultsDump?.lines ?? []);
+                        if (Array.isArray(bindings) && bindings.length > 0) {
+                            padDefaults = {
+                                source: "firmware",
+                                motors: bindings
+                                    .filter((b) => b.peripheral === "MOTOR" && b.index != null)
+                                    .map((b) => ({ index: b.index, pad: b.pad })),
+                                ledStrips: bindings
+                                    .filter((b) => b.peripheral === "LED_STRIP")
+                                    .map((b) => ({ pad: b.pad })),
+                            };
+                        }
+                    } catch (defErr) {
+                        console.warn("Servos: padDefaults firmware lookup failed", defErr);
                     }
-                } catch (defErr) {
-                    console.warn("Servos: padDefaults firmware lookup failed", defErr);
                 }
                 // Snapshot fallback when bare `resource` returns nothing
                 // (older firmware that didn't separate dump/show output).
@@ -1119,21 +1127,37 @@ export default defineComponent({
     }
     .resource-source-chip {
         display: inline-block;
-        margin-left: 6px;
-        padding: 1px 6px;
-        border-radius: 3px;
-        font-size: 0.85em;
-        font-weight: 600;
+        margin-left: 8px;
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 0.95em;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
         cursor: help;
+        border: 1px solid transparent;
+        vertical-align: middle;
     }
     .resource-source-firmware {
-        background: var(--success-100, #d4ecd5);
-        color: var(--success-700, #2f6f33);
+        background: #16a34a;
+        color: #ffffff;
+        border-color: #15803d;
     }
+    .resource-source-snapshot,
     .resource-source-scan,
     .resource-source-fallback {
-        background: var(--warning-100, #fcecc4);
-        color: var(--warning-700, #8a5a00);
+        background: #f59e0b;
+        color: #1f2937;
+        border-color: #d97706;
+    }
+    .save_btn .save {
+        background: #ffbb00;
+        color: #1f1f1f;
+        font-weight: 700;
+        border: 1px solid #c98f00;
+    }
+    .save_btn .save:hover {
+        background: #ffc933;
     }
     .resource-grid {
         display: flex;

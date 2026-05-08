@@ -75,23 +75,32 @@ export function candidatePadsForSlot(analysis, servoIndex, options = {}) {
     // Assignment edit.
     const motorRebinds = options.motorRebinds instanceof Map ? options.motorRebinds : null;
 
-    // Partition motors: in-use (pads off-limits) vs. releasable. A motor
-    // that's "in use but moving" (motorRebinds entry differs from current
-    // pad) gets BOTH treatments: its old pad is releasable, its new pad
-    // is claimed.
+    // Partition motors three ways:
+    //   - in-use & static:   pad off-limits (inUseMotorPads)
+    //   - in-use & moving:   old pad releasable as motor-release (real
+    //                        cost, label "releases MOTOR N"); new pad
+    //                        claimed
+    //   - not in MSP2 use:   firmware-bound but dormant. Emit as a
+    //                        free-pwm candidate (label "free") with
+    //                        a requiresRelease line so save still
+    //                        clears the firmware-level resource entry.
+    //                        Avoids the foot-gun where the dropdown
+    //                        suggests "releases MOTOR N" for a motor
+    //                        that isn't even active.
     const inUseMotorPads = new Set();
-    const releasableMotors = [];
+    const activeReleasableMotors = [];
+    const dormantMotors = [];
     for (const m of analysis.motors ?? []) {
         if (motorIndicesInUse.has(m.index)) {
             const rebindPad = motorRebinds?.get(m.index) ?? null;
             if (rebindPad && rebindPad !== m.pad) {
-                releasableMotors.push(m);
+                activeReleasableMotors.push(m);
                 inUseMotorPads.add(rebindPad);
             } else {
                 inUseMotorPads.add(m.pad);
             }
         } else {
-            releasableMotors.push(m);
+            dormantMotors.push(m);
         }
     }
 
@@ -160,7 +169,7 @@ export function candidatePadsForSlot(analysis, servoIndex, options = {}) {
     //    keeps the dropdown's "— TIMn CHn" suffix present regardless of
     //    which CLI view gave us the pad.
     const padTimers = analysis.padTimers instanceof Map ? analysis.padTimers : null;
-    for (const m of releasableMotors) {
+    for (const m of activeReleasableMotors) {
         if (claimedPads.has(m.pad)) continue;
         const fallback = padTimers?.get(m.pad);
         push({
@@ -169,6 +178,25 @@ export function candidatePadsForSlot(analysis, servoIndex, options = {}) {
             channel: m.channel ?? fallback?.channel ?? null,
             dmaStream: m.dmaStream ?? null,
             source: "motor-release",
+            requiresRelease: [`resource MOTOR ${m.index} NONE`],
+            sharesTimerWithMotor: m.timer !== null && m.timer !== undefined && motorTimers.has(m.timer),
+        });
+    }
+
+    // 2.5. Dormant-motor pads — pads firmware-bound to motors that aren't
+    //      active in the MSP2 motor list. Functionally free; emit as
+    //      free-pwm with a release line so save clears the firmware-level
+    //      binding. Label reads "free" instead of "releases MOTOR N"
+    //      since there's no real motor to lose.
+    for (const m of dormantMotors) {
+        if (claimedPads.has(m.pad)) continue;
+        const fallback = padTimers?.get(m.pad);
+        push({
+            pad: m.pad,
+            timer: m.timer ?? fallback?.timer ?? null,
+            channel: m.channel ?? fallback?.channel ?? null,
+            dmaStream: m.dmaStream ?? null,
+            source: "free-pwm",
             requiresRelease: [`resource MOTOR ${m.index} NONE`],
             sharesTimerWithMotor: m.timer !== null && m.timer !== undefined && motorTimers.has(m.timer),
         });

@@ -7,14 +7,12 @@
 //   node scripts/sync-unified-targets.mjs
 //
 // Reads:  https://github.com/betaflight/unified-targets/configs/default/*.config
-// Writes: src/data/target-defaults.unified.json
+// Writes: src/data/target-defaults.json
 //
 // The output is committed to the configurator repo so end users don't
 // need network access at install time. Re-run before each release (or
 // after a notable upstream silkscreen-revision change) and review the
-// JSON diff in the PR. The companion firmware-source fallback script
-// (see plans/target-defaults-canonical-padDefaults.md) backfills any
-// targets that don't appear in unified-targets.
+// JSON diff in the PR.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -27,7 +25,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const CACHE_DIR = resolve(REPO_ROOT, ".cache/unified-targets");
 const CONFIGS_DIR = resolve(CACHE_DIR, "configs/default");
-const OUTPUT_FILE = resolve(REPO_ROOT, "src/data/target-defaults.unified.json");
+const OUTPUT_FILE = resolve(REPO_ROOT, "src/data/target-defaults.json");
 const REPO_URL = "https://github.com/betaflight/unified-targets.git";
 
 function run(cmd, args, opts = {}) {

@@ -55,16 +55,40 @@ describe("candidatePadsForSlot", () => {
         expect(cands[2].sharesTimerWithMotor).toBe(true);
     });
 
-    it("includes releasable-motor pads with a requiresRelease hint", () => {
+    it("emits dormant-motor pads as free-pwm with a requiresRelease hint", () => {
+        // Motor 2 is firmware-bound to B01 but NOT in MSP2 use. Picking B01
+        // for a servo costs nothing in MSP2-land — dropdown should label it
+        // "free", not "releases MOTOR 2", so the user isn't misled into
+        // thinking they're losing a working motor. The requiresRelease line
+        // is still emitted so save clears the firmware-level binding.
         const a = analysis([
             { index: 1, pad: "B00", timer: 3, channel: 3, dmaStream: null, bidirBurst: true },
             { index: 2, pad: "B01", timer: 3, channel: 4, dmaStream: null, bidirBurst: true },
         ]);
         const cands = candidatePadsForSlot(a, 2, { motorIndicesInUse: [1] });
-        const motorRelease = cands.find((c) => c.source === "motor-release");
-        expect(motorRelease).toBeDefined();
-        expect(motorRelease.pad).toBe("B01");
-        expect(motorRelease.requiresRelease).toEqual(["resource MOTOR 2 NONE"]);
+        const dormant = cands.find((c) => c.pad === "B01");
+        expect(dormant).toBeDefined();
+        expect(dormant.source).toBe("free-pwm");
+        expect(dormant.requiresRelease).toEqual(["resource MOTOR 2 NONE"]);
+        // Sanity: no motor-release candidate when no motor is actively rebinding.
+        expect(cands.find((c) => c.source === "motor-release")).toBeUndefined();
+    });
+
+    it("emits motor-release for an active motor being rebound to a different pad", () => {
+        // Motor 1 is actively in MSP2 use AND scheduled to move from B00 to A03.
+        // Its old pad B00 becomes a real motor-release candidate (label
+        // "releases MOTOR 1") because losing the binding has real cost.
+        const a = analysis([{ index: 1, pad: "B00", timer: 3, channel: 3, dmaStream: null, bidirBurst: true }], {
+            pwmCapableFreePads: [{ pad: "A03", timer: 2, channel: 4 }],
+        });
+        const cands = candidatePadsForSlot(a, 2, {
+            motorIndicesInUse: [1],
+            motorRebinds: new Map([[1, "A03"]]),
+        });
+        const release = cands.find((c) => c.source === "motor-release");
+        expect(release).toBeDefined();
+        expect(release.pad).toBe("B00");
+        expect(release.requiresRelease).toEqual(["resource MOTOR 1 NONE"]);
     });
 
     it("excludes LED_STRIP and unopted UART pads by default", () => {
@@ -144,7 +168,13 @@ describe("candidatePadsForSlot", () => {
         expect(cands.map((c) => c.pad)).toContain("A05");
     });
 
-    it("combined ranking: existing → motor-release → free-pwm → LED → UART", () => {
+    it("combined ranking: existing → free-pwm (dormant motor + true free) → LED → UART", () => {
+        // Dormant motors (firmware-bound but not in MSP2 use) emit as
+        // free-pwm. They sit ahead of true free PWM pads in the ranking
+        // because the per-source loops emit dormant motors first, but
+        // both share the "free" label so the user sees them as
+        // interchangeable. See the separate motor-release test for the
+        // case where an active motor is being rebound.
         const a = analysis(
             [
                 { index: 1, pad: "B00", timer: 3, channel: 3, dmaStream: null, bidirBurst: true },
@@ -166,8 +196,8 @@ describe("candidatePadsForSlot", () => {
         });
         expect(cands.map((c) => c.source)).toEqual([
             "existing", // B07
-            "motor-release", // B04 (M2 not in use) — preferred to keep silkscreen labels intuitive
-            "free-pwm", // A03
+            "free-pwm", // B04 (M2 firmware-bound but dormant)
+            "free-pwm", // A03 (true free PWM pad)
             "led-strip", // A09
             "uart-release", // B10
         ]);
