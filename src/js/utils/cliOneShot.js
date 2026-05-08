@@ -77,21 +77,6 @@ export function readCli(command, opts = {}) {
     });
 }
 
-/**
- * Run multiple CLI commands sequentially. Stops on first failure.
- *
- * @param {string[]} commands
- * @returns {Promise<Array<{command: string, lines: string[], raw: string}>>}
- */
-export async function readCliBatch(commands, opts = {}) {
-    const results = [];
-    for (const cmd of commands) {
-        const out = await readCli(cmd, opts);
-        results.push({ command: cmd, ...out });
-    }
-    return results;
-}
-
 // ─── parsers ─────────────────────────────────────────────────────
 
 // Peripheral line body: "FREE" or "NAME" or "NAME INDEX".
@@ -242,25 +227,6 @@ export function parseDmaShow(input) {
 }
 
 /**
- * Parse a single `resource <NAME> <INDEX> <PAD>` line from the
- * dump/write form (e.g. in `diff` output or `resource` listing).
- * Still useful for round-trip: we'll emit this same form when we
- * apply an auto-computed remap.
- *
- * @param {string} line
- * @returns {{kind: string, index: number, pad: string}|null}
- */
-export function parseResourceDumpLine(line) {
-    const m = /^\s*resource\s+([A-Z][A-Z0-9_]*)\s+(\d+)\s+(\S+)/i.exec(line);
-    if (!m) return null;
-    return {
-        kind: m[1].toUpperCase(),
-        index: Number(m[2]),
-        pad: m[3].toUpperCase(),
-    };
-}
-
-/**
  * Parse the full `timer` dump output (NOT `timer show`). Returns
  * the set of pads that have a timer AF declared — these are the
  * PWM-capable pads on the board, whether currently claimed or not.
@@ -352,141 +318,6 @@ export async function readTimerOptionsForPin(pad, opts = {}) {
 }
 
 /**
- * Parse the bare `dma` (no args) dump output. Single CLI roundtrip
- * surfaces both:
- *   - resource-bound non-default DMA options
- *     (`dma ADC 1 1` + `# ADC 1: DMA2 Stream 4 Channel 0`)
- *   - per-pin default DMA options
- *     (`dma pin C06 0` + `#  DMA1 Stream 4 Channel 5`)
- *   - per-pin no-DMA markers
- *     (`dma pin B09 NONE`) — pin can drive servo PWM but not DSHOT.
- *
- * Per-pin entries are the optimizer's primary input: they answer
- * "if a motor lands on this pad, what DMA stream will the firmware
- * try to allocate?" Cross-referencing against `parseDmaShow` (the
- * per-stream view) tells us whether that stream is already claimed.
- *
- * @param {string[]|string} input
- * @returns {{
- *   resources: Array<{peripheral: string, index: number, opt: number, controller: number, stream: number, channel: number}>,
- *   pads: Array<{pad: string, opt: number|null, controller: number|null, stream: number|null, channel: number|null}>,
- * }}
- *   - `pads` entries with opt=null are the "NONE" cases — caller
- *     treats them as motor-ineligible.
- */
-export function parseDmaPinDefaults(input) {
-    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
-    const resources = [];
-    const pads = [];
-    let pending = null;
-    for (const line of lines) {
-        // `dma pin <pad> NONE` — pin has no DMA option at all.
-        const noneMatch = /^\s*dma\s+pin\s+(\S+)\s+NONE\s*$/i.exec(line);
-        if (noneMatch) {
-            if (pending) {
-                if (pending.kind === "pad") pads.push(pending.entry);
-                else resources.push(pending.entry);
-                pending = null;
-            }
-            pads.push({
-                pad: noneMatch[1].toUpperCase(),
-                opt: null,
-                controller: null,
-                stream: null,
-                channel: null,
-            });
-            continue;
-        }
-        // `dma pin <pad> <opt>` — pin has a DMA option, expect a
-        // comment line next with the actual stream/channel.
-        const padMatch = /^\s*dma\s+pin\s+(\S+)\s+(\d+)\s*$/i.exec(line);
-        if (padMatch) {
-            if (pending) {
-                if (pending.kind === "pad") pads.push(pending.entry);
-                else resources.push(pending.entry);
-            }
-            pending = {
-                kind: "pad",
-                entry: {
-                    pad: padMatch[1].toUpperCase(),
-                    opt: Number(padMatch[2]),
-                    controller: null,
-                    stream: null,
-                    channel: null,
-                },
-            };
-            continue;
-        }
-        // `dma <PERIPHERAL> <index> <opt>` — non-default resource
-        // DMA option (e.g. `dma ADC 1 1`).
-        const resMatch = /^\s*dma\s+([A-Z][A-Z0-9_]*)\s+(\d+)\s+(\d+)\s*$/i.exec(line);
-        if (resMatch) {
-            if (pending) {
-                if (pending.kind === "pad") pads.push(pending.entry);
-                else resources.push(pending.entry);
-            }
-            pending = {
-                kind: "resource",
-                entry: {
-                    peripheral: resMatch[1].toUpperCase(),
-                    index: Number(resMatch[2]),
-                    opt: Number(resMatch[3]),
-                    controller: null,
-                    stream: null,
-                    channel: null,
-                },
-            };
-            continue;
-        }
-        // Comment line carrying the stream info for the pending
-        // entry. Two formats observed:
-        //   `# <PERIPHERAL> <index>: DMA<n> Stream <m> Channel <p>`
-        //   `#  DMA<n> Stream <m> Channel <p>`  (pin-keyed, no header)
-        if (pending) {
-            const cm = /DMA(\d+)\s+Stream\s+(\d+)\s+Channel\s+(\d+)/i.exec(line);
-            if (cm) {
-                pending.entry.controller = Number(cm[1]);
-                pending.entry.stream = Number(cm[2]);
-                pending.entry.channel = Number(cm[3]);
-            }
-        }
-    }
-    if (pending) {
-        if (pending.kind === "pad") pads.push(pending.entry);
-        else resources.push(pending.entry);
-    }
-    return { resources, pads };
-}
-
-/**
- * Issue `dma pin <pad>` per pad (no `list` suffix — we want the
- * pin's CURRENT default option + stream, not the list of all
- * available options). Concatenates responses into a single string
- * suitable for parseDmaPinDefaults. Bare `dma` (no args) calls
- * showDma() in firmware which gives the wrong format (per-stream
- * not per-pin), so we have to loop.
- *
- * @param {string[]} pads
- * @param {object} [opts]
- * @returns {Promise<string>} concatenated raw output, ready to feed
- *   into parseDmaPinDefaults
- */
-export async function readDmaPinDefaultsConcatenated(pads, opts = {}) {
-    if (!Array.isArray(pads)) return "";
-    const chunks = [];
-    const seen = new Set();
-    for (const pad of pads) {
-        if (typeof pad !== "string" || pad.length === 0) continue;
-        const upper = pad.toUpperCase();
-        if (seen.has(upper)) continue;
-        seen.add(upper);
-        const { raw } = await readCli(`dma pin ${upper}`, opts);
-        if (raw) chunks.push(raw);
-    }
-    return chunks.join("\n");
-}
-
-/**
  * Discover available timer/AF options for a list of pads. Issues
  * `timer <pad> list` serially for each pad and returns a Map keyed
  * by pad.
@@ -515,35 +346,4 @@ export async function discoverPadTimerOptions(pads, opts = {}) {
         out.set(upper, await readTimerOptionsForPin(upper, opts));
     }
     return out;
-}
-
-// ─── convenience readers for the wing-fork `defaults` subcommands ─────
-//
-// The wing-fork firmware exposes `resource defaults` / `timer defaults` /
-// `dma defaults` which emit the same format as `show` but with values
-// read from the compile-time defaults (via backupAndResetConfigs +
-// existing show path in cli.c). Lets the configurator know the board's
-// silkscreen-default pin assignments regardless of what's currently
-// applied — essential for the Mixer-tab Pin Assignment panel's
-// "MOTOR 3 default → currently SERVO 2" mapping to stay accurate on
-// first-visit after any preset apply.
-//
-// If the firmware is stock BF (no `defaults` subcommand), the command
-// will print an error and the parser returns []. Callers should treat
-// an empty result as "defaults unavailable, fall back to first-current
-// snapshot".
-
-export async function readResourceDefaults(opts = {}) {
-    const { lines } = await readCli("resource defaults", opts);
-    return parseResourceShow(lines);
-}
-
-export async function readTimerDefaults(opts = {}) {
-    const { lines } = await readCli("timer defaults", opts);
-    return parseTimerShow(lines);
-}
-
-export async function readDmaDefaults(opts = {}) {
-    const { lines } = await readCli("dma defaults", opts);
-    return parseDmaShow(lines);
 }

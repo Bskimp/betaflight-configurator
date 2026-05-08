@@ -21,6 +21,7 @@
     "android:sync": "vite build && node capacitor.config.generator.mjs && npx cap sync android",
     "android:release": "vite build && node capacitor.config.generator.mjs && npx cap build android --release",
     "format": "prettier --write {src,test}/**/*.{js,vue,css,less}",
+    "build:targets": "node scripts/sync-unified-targets.mjs",
     "storybook": "start-storybook -p 6006",
     "prepare": "husky"
   },

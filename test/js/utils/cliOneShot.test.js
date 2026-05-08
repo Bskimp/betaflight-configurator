@@ -8,10 +8,8 @@ import {
     parseResourceShow,
     parseTimerShow,
     parseDmaShow,
-    parseResourceDumpLine,
     parseTimerDump,
     parseTimerOptions,
-    parseDmaPinDefaults,
 } from "../../../src/js/utils/cliOneShot.js";
 
 // Trimmed `resource show` output from bench.
@@ -187,38 +185,6 @@ timer A08 AF1
     });
 });
 
-describe("parseResourceDumpLine", () => {
-    it("parses dump form", () => {
-        expect(parseResourceDumpLine("resource MOTOR 1 B07")).toEqual({
-            kind: "MOTOR",
-            index: 1,
-            pad: "B07",
-        });
-    });
-
-    it("parses NONE (released slot) in dump form", () => {
-        expect(parseResourceDumpLine("resource MOTOR 8 NONE")).toEqual({
-            kind: "MOTOR",
-            index: 8,
-            pad: "NONE",
-        });
-    });
-
-    it("parses underscore peripheral names", () => {
-        expect(parseResourceDumpLine("resource LED_STRIP 1 A08")).toEqual({
-            kind: "LED_STRIP",
-            index: 1,
-            pad: "A08",
-        });
-    });
-
-    it("returns null on non-matching lines", () => {
-        expect(parseResourceDumpLine("# comment")).toBeNull();
-        expect(parseResourceDumpLine("")).toBeNull();
-        expect(parseResourceDumpLine("B07: MOTOR 1")).toBeNull();
-    });
-});
-
 // `timer <pin> list` lists every available (timer, channel, AF) for a
 // pin per the firmware's DEF_TIM table. Output format from cli.c
 // cliTimer() "list" branch — see firmware src/main/cli/cli.c:7244.
@@ -266,81 +232,5 @@ PIN NOT USED ON BOARD.
         const lines = TIMER_LIST_FIXTURE_H743_PE9.trim().split(/\r?\n/);
         expect(parseTimerOptions(lines)).toHaveLength(2);
         expect(parseTimerOptions(TIMER_LIST_FIXTURE_H743_PE9)).toHaveLength(2);
-    });
-});
-
-// Bare `dma` (no args) dump on TMOTORF7X2 wing-main firmware. Mixes
-// resource-bound non-default options (`dma ADC 1 1`), per-pin default
-// options (`dma pin C06 0` + comment), and per-pin no-DMA markers
-// (`dma pin B09 NONE` — TIM11 channel pins are servo-capable but
-// DSHOT-incapable). Real bench output, not a contrived fixture.
-const DMA_DUMP_FIXTURE_TMOTORF7X2 = `
-dma ADC 1 1
-# ADC 1: DMA2 Stream 4 Channel 0
-dma pin C06 0
-#  DMA1 Stream 4 Channel 5
-dma pin C07 0
-#  DMA1 Stream 5 Channel 5
-dma pin B00 0
-#  DMA1 Stream 7 Channel 5
-dma pin B06 0
-#  DMA1 Stream 0 Channel 2
-dma pin B08 0
-#  DMA1 Stream 7 Channel 2
-dma pin B09 NONE
-dma pin A08 0
-#  DMA2 Stream 6 Channel 0
-`;
-
-describe("parseDmaPinDefaults", () => {
-    it("returns empty resources/pads on empty input", () => {
-        const out = parseDmaPinDefaults("");
-        expect(out).toEqual({ resources: [], pads: [] });
-    });
-
-    it("captures per-pin default options with stream info from the comment line", () => {
-        const out = parseDmaPinDefaults(DMA_DUMP_FIXTURE_TMOTORF7X2);
-        const c06 = out.pads.find((p) => p.pad === "C06");
-        expect(c06).toEqual({ pad: "C06", opt: 0, controller: 1, stream: 4, channel: 5 });
-        const a08 = out.pads.find((p) => p.pad === "A08");
-        expect(a08).toEqual({ pad: "A08", opt: 0, controller: 2, stream: 6, channel: 0 });
-    });
-
-    it("flags pads with no DMA option as opt=null", () => {
-        const out = parseDmaPinDefaults(DMA_DUMP_FIXTURE_TMOTORF7X2);
-        const b09 = out.pads.find((p) => p.pad === "B09");
-        expect(b09).toEqual({ pad: "B09", opt: null, controller: null, stream: null, channel: null });
-    });
-
-    it("captures resource-bound non-default options", () => {
-        const out = parseDmaPinDefaults(DMA_DUMP_FIXTURE_TMOTORF7X2);
-        expect(out.resources).toHaveLength(1);
-        expect(out.resources[0]).toEqual({
-            peripheral: "ADC",
-            index: 1,
-            opt: 1,
-            controller: 2,
-            stream: 4,
-            channel: 0,
-        });
-    });
-
-    it("identifies the TMOTORF7X2 stream collision (B00 + B08 both want DMA1 S7)", () => {
-        const out = parseDmaPinDefaults(DMA_DUMP_FIXTURE_TMOTORF7X2);
-        const b00 = out.pads.find((p) => p.pad === "B00");
-        const b08 = out.pads.find((p) => p.pad === "B08");
-        expect(b00.controller).toBe(1);
-        expect(b00.stream).toBe(7);
-        expect(b08.controller).toBe(1);
-        expect(b08.stream).toBe(7);
-        // Same stream — bench-known: M2 will fall back to bit-bang
-        // when both this pin's option-0 stream is already claimed.
-        // The optimizer's collision check (Layer 2c) catches this.
-    });
-
-    it("normalizes pad names to uppercase", () => {
-        const lower = "dma pin a08 0\n#  DMA2 Stream 6 Channel 0\n";
-        const out = parseDmaPinDefaults(lower);
-        expect(out.pads[0].pad).toBe("A08");
     });
 });
