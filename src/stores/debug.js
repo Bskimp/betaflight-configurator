@@ -983,6 +983,13 @@ export const useDebugStore = defineStore("debug", () => {
         if (semver.gte(apiVersion, API_VERSION_1_47)) {
             addArrayElementAfter(result, "Gyro", "Attitude");
             addArrayElement(result, "Servo");
+            // Wing-tuning always-on debug groups (USE_WING firmware).
+            // Bit positions 16-20 match flightLogFieldSelect_e in firmware.
+            addArrayElement(result, "Wing SPA");
+            addArrayElement(result, "Wing Setpoint");
+            addArrayElement(result, "Wing S-Term");
+            addArrayElement(result, "Wing TPA");
+            addArrayElement(result, "Wing Launch");
         }
 
         return result;
