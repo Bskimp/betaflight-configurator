@@ -1742,9 +1742,13 @@
              pointer-events, so click is blocked automatically. -->
         <div class="content_toolbar toolbar_fixed_bottom" v-if="apiOk">
             <div class="btn save_btn">
-                <a class="update" href="#" :class="{ disabled: loading || saving || !dirty }" @click.prevent="save">{{
-                    $t("wingTuningSave")
-                }}</a>
+                <a
+                    class="update"
+                    href="#"
+                    :class="{ disabled: loading || saving || !currentTabDirty || activeSubTab === 'hardware' }"
+                    @click.prevent="saveCurrentSubTab"
+                    >{{ $t("wingTuningSave") }}</a
+                >
             </div>
             <div class="btn save_btn">
                 <a class="update" href="#" :class="{ disabled: loading || saving }" @click.prevent="reload">{{
@@ -3245,22 +3249,56 @@ export default defineComponent({
         });
 
         // Pin Assignment has pending pad moves when the computed plan
-        // surfaces any `resource` lines. Folded into main `dirty` so the
-        // bottom-right Save button drives both MSP + pin-apply.
+        // surfaces any `resource` lines. Surfaces inside the Mixer
+        // sub-tab's dirty signal because the panel lives on Mixer and
+        // the CLI batch (resource + mmix + preset defaults) is a
+        // Mixer-scoped operation.
         // Null-safe because pinAssignmentPlan returns null until hardware
         // analysis has loaded + a preset id is set.
         const pinAssignmentDirty = computed(() => (pinAssignmentPlan.value?.cliLines?.length ?? 0) > 0);
 
+        // Per-sub-tab dirty signals. Save is dispatched by activeSubTab
+        // so each sub-tab only commits its own MSP writes. The Mixer
+        // sub-tab owns the CLI batch (pin assignment + preset apply)
+        // because both panels live on Mixer.
+        const tuningDirty = computed(() =>
+            FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]),
+        );
+        const mixerSubTabDirty = computed(() => mixerDirty.value || motorCountDirty.value || pinAssignmentDirty.value);
+
+        // Master dirty flag — drives the global unsaved-changes indicator
+        // and the wizard's omnibus-save gate. Per-sub-tab Save buttons
+        // gate on currentTabDirty instead.
         const dirty = computed(
             () =>
-                FIELD_DEFS.some((def) => fields[def.name] !== initialFields.value[def.name]) ||
-                mixerDirty.value ||
-                motorCountDirty.value ||
+                tuningDirty.value ||
+                mixerSubTabDirty.value ||
                 launchDirty.value ||
                 gpsRescueDirty.value ||
-                autolandDirty.value ||
-                pinAssignmentDirty.value,
+                autolandDirty.value,
         );
+
+        // Only the currently-active sub-tab's dirty signal drives the
+        // Save button's enable state — saving the Tuning sub-tab must
+        // not be gated on (or write) Mixer/Launch/GPS/Autoland state.
+        // Hardware sub-tab is read-only.
+        const currentTabDirty = computed(() => {
+            switch (activeSubTab.value) {
+                case "tuning":
+                    return tuningDirty.value;
+                case "mixer":
+                    return mixerSubTabDirty.value;
+                case "launch":
+                    return launchDirty.value;
+                case "gps_rescue":
+                    return gpsRescueDirty.value;
+                case "autoland":
+                    return autolandDirty.value;
+                case "hardware":
+                default:
+                    return false;
+            }
+        });
 
         // Capability check — tab requires a USE_WING firmware build.
         // The MSP codes (MSP2_WING_TUNING / MSP2_SET_WING_TUNING) ship
@@ -3472,35 +3510,57 @@ export default defineComponent({
             }
         }
 
-        async function save() {
+        // Save flow is split per sub-tab so each Save button only commits
+        // its own MSP writes. The Mixer Save is the only one that fires the
+        // CLI batch (resource + mmix + preset defaults + reboot) — because
+        // both Mixer rules and Pin Assignment live on that sub-tab and the
+        // CLI batch is a Mixer-scoped operation. saveAll() is retained for
+        // the Plane Setup Wizard which intentionally commits everything at
+        // the end of its state machine.
+        //
+        // pauseLiveData / resumeLiveData wrap every save path because
+        // MSP_ARMING_CONFIG polling (id 110) queues behind our writes and,
+        // when a save involves a CLI reboot, those pending polls time out
+        // noisily ("MSP: data request timed-out: 110 ... QUEUE: 5"). The
+        // save itself still succeeds, but the user-visible errors spook
+        // pilots — so we silence the polling for the save window.
+
+        async function saveTuning() {
             saving.value = true;
             error.value = null;
-            // Pause the 250 ms update_live_status polling for the full save
-            // window. Without this, MSP_ARMING_CONFIG (id 110) polls queue
-            // behind our save writes, and when applyPinAssignment triggers
-            // the CLI reboot those pending polls time out noisily in the
-            // console ("MSP: data request timed-out: 110 ... QUEUE: 5"). The
-            // save itself still succeeds — the timeouts are just cleanup
-            // noise — but the user-visible errors spook pilots. resumeLiveData
-            // fires in the finally below so normal polling restarts after
-            // the save (or error) path completes.
             connectionStore.pauseLiveData();
             try {
-                // Cross-tab Save protection: if the Plane Setup Wizard is
-                // mid-flight on the mainline-fallback servo pulse path,
-                // restore any in-flight pulse `middle` values BEFORE any
-                // servo config write would otherwise persist them to
-                // EEPROM. No-op when the wizard is closed or on the
-                // wing-fork override path.
                 await wizardServoPulseCleanup();
-
-                // Wing tuning fields first (atomic, via the MSP2 pair).
                 for (const def of FIELD_DEFS) {
                     FC.WING_TUNING[def.name] = fields[def.name];
                 }
                 await MSP.promise(MSPCodes.MSP2_SET_WING_TUNING, mspHelper.crunch(MSPCodes.MSP2_SET_WING_TUNING));
+                await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+                initialFields.value = { ...fields };
+            } catch (e) {
+                console.error("[WingTuning] saveTuning failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                connectionStore.resumeLiveData();
+                saving.value = false;
+            }
+        }
 
-                // Mixer config (airframe + motor direction).
+        async function saveMixer() {
+            saving.value = true;
+            error.value = null;
+            // Capture dirty state BEFORE rebaselining initialMixerState /
+            // initialMotorCount below. If we evaluated the CLI gate after
+            // rebaseline, mixerDirty / motorCountDirty would always be
+            // false, and the documented `pinAssignmentDirty || mixerDirty
+            // || motorCountDirty` invariant would silently collapse to
+            // pinAssignmentDirty-only — which would skip mmix rewrites
+            // on a preset whose resource plan was a no-op.
+            const fireCliBatch = pinAssignmentDirty.value || mixerDirty.value || motorCountDirty.value;
+            connectionStore.pauseLiveData();
+            try {
+                await wizardServoPulseCleanup();
+
                 FC.MIXER_CONFIG.mixer = mixerState.airframe;
                 FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
                 await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
@@ -3518,9 +3578,186 @@ export default defineComponent({
                     }
                 });
 
-                // Wing auto-launch — only write if the user touched
-                // any launch field, AND swallow unknown-code errors
-                // so older firmware doesn't block other saves.
+                await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+
+                initialMixerState.value = cloneMixerState(mixerState);
+                initialMotorCount.value = motorCount.value;
+
+                // Pin Assignment + preset apply — runs LAST because the
+                // CLI batch includes `save` + reboot. The MSP writes above
+                // are already in EEPROM and persist through the reboot.
+                if (fireCliBatch) {
+                    try {
+                        const preset = pinAssignmentPreset.value;
+                        const baseCli = pinAssignmentPlan.value?.cliLines ?? [];
+                        const mmixCli = preset ? buildMmixCliLines(buildEffectiveMmix(preset, motorCount.value)) : [];
+                        // Full preset CLI batch:
+                        //   1. autoCleanCliLines  — wipes stale mmix + SERVO/MOTOR resource binds
+                        //   2. baseCli            — pin assignment plan (resource SERVO/MOTOR N <pad>)
+                        //   3. mmixCli            — preset's mmix entries
+                        //   4. planeDefaults      — universal CLI feature toggles
+                        //   5. planeTuningPoints  — rates + PIDs (10/10/5/0 P/I/D/F, yaw I=0 if DIFF_THRUST)
+                        const fullBatch = [
+                            ...autoCleanCliLines(),
+                            ...baseCli,
+                            ...mmixCli,
+                            ...planeDefaultsCliLines(),
+                            ...planeTuningStartingPoints({
+                                diffThrust: fields.yaw_type === "DIFF_THRUST",
+                                tpaMaxVoltage: fields.tpa_speed_max_voltage,
+                            }),
+                        ];
+                        if (fullBatch.length > 0) {
+                            await applyPinAssignment(fullBatch);
+                        }
+                    } catch (pinErr) {
+                        console.warn("[WingTuning] pin assignment apply failed:", pinErr);
+                    }
+                }
+            } catch (e) {
+                console.error("[WingTuning] saveMixer failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                connectionStore.resumeLiveData();
+                saving.value = false;
+            }
+        }
+
+        async function saveLaunch() {
+            if (!launchDirty.value) return;
+            saving.value = true;
+            error.value = null;
+            connectionStore.pauseLiveData();
+            try {
+                for (const def of LAUNCH_FIELD_DEFS) {
+                    FC.WING_LAUNCH[def.name] = launchFields[def.name];
+                }
+                try {
+                    await MSP.promise(MSPCodes.MSP2_SET_WING_LAUNCH, mspHelper.crunch(MSPCodes.MSP2_SET_WING_LAUNCH));
+                } catch (launchErr) {
+                    console.warn("[WingTuning] MSP2_SET_WING_LAUNCH failed:", launchErr);
+                }
+                await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+                initialLaunchFields.value = { ...launchFields };
+            } catch (e) {
+                console.error("[WingTuning] saveLaunch failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                connectionStore.resumeLiveData();
+                saving.value = false;
+            }
+        }
+
+        async function saveGpsRescue() {
+            if (!gpsRescueDirty.value) return;
+            saving.value = true;
+            error.value = null;
+            connectionStore.pauseLiveData();
+            try {
+                for (const def of GPS_RESCUE_FIELD_DEFS) {
+                    FC.WING_GPS_RESCUE[def.name] = gpsRescueFields[def.name];
+                }
+                try {
+                    await MSP.promise(
+                        MSPCodes.MSP2_SET_WING_GPS_RESCUE,
+                        mspHelper.crunch(MSPCodes.MSP2_SET_WING_GPS_RESCUE),
+                    );
+                } catch (rescueErr) {
+                    console.warn("[WingTuning] MSP2_SET_WING_GPS_RESCUE failed:", rescueErr);
+                }
+                await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+                initialGpsRescueFields.value = { ...gpsRescueFields };
+            } catch (e) {
+                console.error("[WingTuning] saveGpsRescue failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                connectionStore.resumeLiveData();
+                saving.value = false;
+            }
+        }
+
+        async function saveAutoland() {
+            if (!autolandDirty.value) return;
+            saving.value = true;
+            error.value = null;
+            connectionStore.pauseLiveData();
+            try {
+                for (const def of AUTOLAND_FIELD_DEFS) {
+                    FC.WING_AUTOLAND[def.name] = autolandFields[def.name];
+                }
+                try {
+                    await MSP.promise(
+                        MSPCodes.MSP2_SET_WING_AUTOLAND,
+                        mspHelper.crunch(MSPCodes.MSP2_SET_WING_AUTOLAND),
+                    );
+                } catch (autolandErr) {
+                    console.warn("[WingTuning] MSP2_SET_WING_AUTOLAND failed:", autolandErr);
+                }
+                await MSP.promise(MSPCodes.MSP_EEPROM_WRITE);
+                initialAutolandFields.value = { ...autolandFields };
+            } catch (e) {
+                console.error("[WingTuning] saveAutoland failed:", e);
+                error.value = e.message || String(e);
+            } finally {
+                connectionStore.resumeLiveData();
+                saving.value = false;
+            }
+        }
+
+        // User-facing dispatcher — Save button binds to this. Picks the
+        // right per-sub-tab handler based on activeSubTab so saving the
+        // Tuning sub-tab can never trigger the Mixer CLI batch / reboot.
+        async function saveCurrentSubTab() {
+            switch (activeSubTab.value) {
+                case "tuning":
+                    return saveTuning();
+                case "mixer":
+                    return saveMixer();
+                case "launch":
+                    return saveLaunch();
+                case "gps_rescue":
+                    return saveGpsRescue();
+                case "autoland":
+                    return saveAutoland();
+                case "hardware":
+                default:
+                    // Hardware is read-only; nothing to commit.
+                    return undefined;
+            }
+        }
+
+        // Omnibus save — used ONLY by the Plane Setup Wizard's
+        // wizardApplyCallback, which has just configured everything
+        // from scratch and needs a single commit covering all sub-tabs.
+        // Not user-reachable; do not bind to a button.
+        async function saveAll() {
+            saving.value = true;
+            error.value = null;
+            // Capture mixer/motor/pin dirty state pre-rebaseline so the
+            // CLI gate stays honest (see saveMixer for the explanation).
+            const fireCliBatch = pinAssignmentDirty.value || mixerDirty.value || motorCountDirty.value;
+            connectionStore.pauseLiveData();
+            try {
+                await wizardServoPulseCleanup();
+
+                for (const def of FIELD_DEFS) {
+                    FC.WING_TUNING[def.name] = fields[def.name];
+                }
+                await MSP.promise(MSPCodes.MSP2_SET_WING_TUNING, mspHelper.crunch(MSPCodes.MSP2_SET_WING_TUNING));
+
+                FC.MIXER_CONFIG.mixer = mixerState.airframe;
+                FC.MIXER_CONFIG.reverseMotorDir = mixerState.reverseMotorDir;
+                await MSP.promise(MSPCodes.MSP_SET_MIXER_CONFIG, mspHelper.crunch(MSPCodes.MSP_SET_MIXER_CONFIG));
+
+                FC.SERVO_RULES = padRulesToMax(mixerState.rules);
+                await new Promise((resolve, reject) => {
+                    try {
+                        mspHelper.sendServoMixRules(resolve);
+                    } catch (err) {
+                        reject(err);
+                    }
+                });
+
                 if (launchDirty.value) {
                     for (const def of LAUNCH_FIELD_DEFS) {
                         FC.WING_LAUNCH[def.name] = launchFields[def.name];
@@ -3535,7 +3772,6 @@ export default defineComponent({
                     }
                 }
 
-                // Wing GPS rescue — same dirty-gated, swallow-unknown pattern.
                 if (gpsRescueDirty.value) {
                     for (const def of GPS_RESCUE_FIELD_DEFS) {
                         FC.WING_GPS_RESCUE[def.name] = gpsRescueFields[def.name];
@@ -3550,7 +3786,6 @@ export default defineComponent({
                     }
                 }
 
-                // Wing autoland — same dirty-gated, swallow-unknown pattern.
                 if (autolandDirty.value) {
                     for (const def of AUTOLAND_FIELD_DEFS) {
                         FC.WING_AUTOLAND[def.name] = autolandFields[def.name];
@@ -3574,37 +3809,11 @@ export default defineComponent({
                 initialMixerState.value = cloneMixerState(mixerState);
                 initialMotorCount.value = motorCount.value;
 
-                // Pin Assignment — runs LAST because the CLI batch includes
-                // `save` + reboot. MSP writes above are already in EEPROM, so
-                // they persist through the reboot.
-                //
-                // Gate: fire the CLI batch whenever ANY preset-scoped state
-                // changed — resource plan has real work, OR the mixer state
-                // (rules, airframe) drifted, OR motorCount toggled. The
-                // configurator can't read live mmix back from the FC via
-                // MSP, so `mixerDirty || motorCountDirty` is our only
-                // signal that mmix needs rewriting. If we gated solely on
-                // pinAssignmentDirty, a preset click that happened to land
-                // on the board's existing pad layout would skip mmix and
-                // leave the FC running stale motor mix (observed on bench:
-                // Flying Wing + diff-thrust saved smix/yaw_type but NOT
-                // mmix because resource plan was a no-op).
-                const fireCliBatch = pinAssignmentDirty.value || mixerDirty.value || motorCountDirty.value;
                 if (fireCliBatch) {
                     try {
                         const preset = pinAssignmentPreset.value;
                         const baseCli = pinAssignmentPlan.value?.cliLines ?? [];
                         const mmixCli = preset ? buildMmixCliLines(buildEffectiveMmix(preset, motorCount.value)) : [];
-                        // Full preset CLI batch:
-                        //   1. autoCleanCliLines  — wipes stale mmix + SERVO/MOTOR resource binds
-                        //   2. baseCli            — pin assignment plan (resource SERVO/MOTOR N <pad>)
-                        //   3. mmixCli            — preset's mmix entries
-                        //   4. planeDefaults      — universal CLI feature toggles (anti_gravity_gain=0,
-                        //                           iterm_relax_cutoff=5, servo_pwm_rate=50, gps_use_3d_speed=ON)
-                        //   5. planeTuningPoints  — rates + PIDs (10/10/5/0 P/I/D/F, yaw I=0 if DIFF_THRUST)
-                        // Plane defaults + tuning starting points fire on every preset Save —
-                        // applying a preset is treated as a major airframe change where prior
-                        // tuning wouldn't transfer correctly anyway (per BF discussion #14032).
                         const fullBatch = [
                             ...autoCleanCliLines(),
                             ...baseCli,
@@ -3623,7 +3832,7 @@ export default defineComponent({
                     }
                 }
             } catch (e) {
-                console.error("[WingTuning] save failed:", e);
+                console.error("[WingTuning] saveAll failed:", e);
                 error.value = e.message || String(e);
             } finally {
                 connectionStore.resumeLiveData();
@@ -4024,7 +4233,11 @@ export default defineComponent({
                 airframeId,
                 motorCount: motorCount.value,
             });
-            await save();
+            // Wizard intentionally commits every sub-tab in one go —
+            // it has just configured the airframe from scratch and
+            // each sub-tab's state is now load-bearing. The user-
+            // facing Save button uses the per-sub-tab dispatcher.
+            await saveAll();
         }
 
         // Wizard early-staging hooks: fire as user picks options in
@@ -4317,7 +4530,8 @@ export default defineComponent({
             presetIds: Object.keys(PLANE_PRESETS),
             presets: PLANE_PRESETS,
             reload,
-            save,
+            currentTabDirty,
+            saveCurrentSubTab,
             onTabReady,
         };
     },
