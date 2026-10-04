@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
     MAX_SERVO_RULES,
+    SERVO_MIX_TEMPLATES,
     MIXER_IDS,
     activeServoMixRules,
     builtinServoMixRules,
     invalidServoMixRules,
     makeServoMixRule,
     padServoMixRulesToMax,
+    planServoMixTemplate,
+    presetRulesForCustomMixer,
+    presetsForCustomMixer,
     pwmSlotToServoIndex,
     servoMixOutputEnumName,
     servoOutputItems,
+    servoOutputRole,
     servoTargetToSlot,
     usesCustomServoRules,
 } from "../../../src/js/utils/servoMixerModel.js";
@@ -198,5 +203,128 @@ describe("custom rule list", () => {
             rule(2, -125, 0, 100),
         ];
         expect(invalidServoMixRules(rules)).toEqual([1, 2, 3, 4, 5]);
+    });
+});
+
+describe("servoOutputRole", () => {
+    const r = (target, input, rate = 100) => ({ target, input, rate, speed: 0, min: 0, max: 100, box: 0 });
+
+    it("names single-axis outputs", () => {
+        expect(servoOutputRole([r(2, 0), r(3, 0, -100)], 2)).toBe("aileron");
+        expect(servoOutputRole([r(4, 1)], 4)).toBe("elevator");
+        expect(servoOutputRole([r(5, 2)], 5)).toBe("rudder");
+        expect(servoOutputRole([r(7, 3)], 7)).toBe("throttle");
+        expect(servoOutputRole([r(6, 9)], 6)).toBe("aux");
+        expect(servoOutputRole([r(0, 12)], 0)).toBe("gimbal");
+    });
+
+    it("treats RC and stabilized inputs of the same axis alike", () => {
+        expect(servoOutputRole([r(2, 0), r(2, 4)], 2)).toBe("aileron");
+    });
+
+    it("names combined outputs", () => {
+        expect(servoOutputRole([r(3, 0), r(3, 1)], 3)).toBe("elevon");
+        expect(servoOutputRole([r(3, 1), r(3, 2)], 3)).toBe("vtail");
+        expect(servoOutputRole([r(3, 0), r(3, 2)], 3)).toBe("mixed");
+    });
+
+    it("ignores zero-rate rules and returns null for an unused output", () => {
+        expect(servoOutputRole([r(3, 0, 0)], 3)).toBeNull();
+        expect(servoOutputRole([r(3, 0)], 4)).toBeNull();
+    });
+});
+
+describe("planServoMixTemplate", () => {
+    const CA = MIXER_IDS.CUSTOM_AIRPLANE;
+
+    it("places template outputs on the first free physical outputs", () => {
+        // Custom Airplane: Servo 1..6 = targets 2..7.
+        const result = planServoMixTemplate([], "elevons", CA);
+        expect(result.ok).toBe(true);
+        expect(result.rules.map((r) => [r.target, r.input, r.rate])).toEqual([
+            [2, 0, 100],
+            [2, 1, 100],
+            [3, 0, -100],
+            [3, 1, 100],
+        ]);
+        expect(result.rules.every((r) => r.min === 0 && r.max === 100)).toBe(true);
+    });
+
+    it("skips outputs that already have a rule", () => {
+        const existing = [makeServoMixRule(2, 0, 100), makeServoMixRule(4, 0, 100)];
+        const result = planServoMixTemplate(existing, "ailerons", CA);
+        expect(result.rules.map((r) => r.target)).toEqual([3, 5]);
+    });
+
+    it("builds a full airplane from separate templates", () => {
+        let rules = [];
+        for (const id of ["ailerons", "elevator", "rudder"]) {
+            rules = [...rules, ...planServoMixTemplate(rules, id, CA).rules];
+        }
+        expect(rules.map((r) => [r.target, r.input])).toEqual([
+            [2, 0],
+            [3, 0],
+            [4, 1],
+            [5, 2],
+        ]);
+    });
+
+    it("refuses when there are not enough free outputs", () => {
+        // Custom Tri drives one output (target 5).
+        const result = planServoMixTemplate([], "ailerons", MIXER_IDS.CUSTOM_TRI);
+        expect(result).toEqual({
+            ok: false,
+            errorKey: "servosMixerTemplateNoFreeOutputs",
+            errorParams: { needed: 2, free: 1 },
+        });
+    });
+
+    it("refuses when the rule list would overflow", () => {
+        const full = Array.from({ length: MAX_SERVO_RULES - 1 }, () => makeServoMixRule(2, 0, 100));
+        const result = planServoMixTemplate(full, "elevons", CA);
+        expect(result.ok).toBe(false);
+        expect(result.errorKey).toBe("servosMixerTemplateTooManyRules");
+    });
+
+    it("rejects unknown templates", () => {
+        expect(planServoMixTemplate([], "nope", CA).errorKey).toBe("servosMixerTemplateUnknown");
+    });
+
+    it("has a label for every template", () => {
+        expect(SERVO_MIX_TEMPLATES.every((tpl) => tpl.labelKey && tpl.outputs.length > 0)).toBe(true);
+    });
+});
+
+describe("presetRulesForCustomMixer", () => {
+    it("offers the matching presets for each custom mixer", () => {
+        expect(presetsForCustomMixer(MIXER_IDS.CUSTOM_AIRPLANE)).toEqual([MIXER_IDS.AIRPLANE, MIXER_IDS.FLYING_WING]);
+        expect(presetsForCustomMixer(MIXER_IDS.CUSTOM_TRI)).toEqual([MIXER_IDS.TRI]);
+        expect(presetsForCustomMixer(MIXER_IDS.AIRPLANE)).toEqual([]);
+    });
+
+    it("copies Airplane unchanged, minus the throttle rule", () => {
+        const rules = presetRulesForCustomMixer(MIXER_IDS.AIRPLANE, MIXER_IDS.CUSTOM_AIRPLANE);
+        expect(rules.map((r) => [r.target, r.input, r.rate])).toEqual([
+            [3, 0, 100],
+            [4, 0, 100],
+            [5, 2, 100],
+            [6, 1, 100],
+        ]);
+    });
+
+    it("keeps Flying Wing elevons on the same physical outputs", () => {
+        // Flying Wing outputs 1/2 are targets 3/4; on Custom Airplane they are 2/3.
+        const rules = presetRulesForCustomMixer(MIXER_IDS.FLYING_WING, MIXER_IDS.CUSTOM_AIRPLANE);
+        expect(rules.map((r) => [r.target, r.input, r.rate])).toEqual([
+            [2, 0, 100],
+            [2, 1, 100],
+            [3, 0, -100],
+            [3, 1, 100],
+        ]);
+    });
+
+    it("copies Tri onto Custom Tri", () => {
+        const rules = presetRulesForCustomMixer(MIXER_IDS.TRI, MIXER_IDS.CUSTOM_TRI);
+        expect(rules.map((r) => [r.target, r.input])).toEqual([[5, 2]]);
     });
 });

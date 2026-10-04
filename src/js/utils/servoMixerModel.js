@@ -2,6 +2,10 @@
 // src/main/flight/servos.c so the tab can show which physical output each
 // rule drives and what a preset mixer does without a custom rule list.
 
+/**
+ * @typedef {{target: number, input: number, rate: number, speed: number, min: number, max: number, box: number}} ServoMixRule
+ */
+
 export const SERVO_MIX_INPUT_LABELS = [
     "STABILIZED_ROLL",
     "STABILIZED_PITCH",
@@ -349,4 +353,192 @@ export function invalidServoMixRules(rules) {
         }
     });
     return bad;
+}
+
+// --- Roles -----------------------------------------------------------------
+
+// Input source -> control axis (stabilized and RC variants of an axis match).
+function inputAxis(input) {
+    if (input === IN_ROLL || input === 4) {
+        return "roll";
+    }
+    if (input === IN_PITCH || input === 5) {
+        return "pitch";
+    }
+    if (input === IN_YAW || input === 6) {
+        return "yaw";
+    }
+    if (input === IN_THROTTLE || input === 7) {
+        return "throttle";
+    }
+    if (input >= IN_RC_AUX1 && input <= 11) {
+        return "aux";
+    }
+    return "gimbal";
+}
+
+const SINGLE_AXIS_ROLE = {
+    roll: "aileron",
+    pitch: "elevator",
+    yaw: "rudder",
+    throttle: "throttle",
+    aux: "aux",
+    gimbal: "gimbal",
+};
+
+/**
+ * What an output does, from the inputs of every non-zero rule targeting it:
+ * aileron / elevator / rudder / throttle / aux / gimbal for one axis,
+ * elevon (roll + pitch), vtail (pitch + yaw), mixed otherwise; null if unused.
+ * @param {Array<{target: number, input: number, rate: number}>} rules
+ * @param {number} target
+ * @returns {string|null}
+ */
+export function servoOutputRole(rules, target) {
+    const axes = new Set(
+        (rules ?? []).filter((rule) => rule.target === target && rule.rate !== 0).map((rule) => inputAxis(rule.input)),
+    );
+    if (axes.size === 0) {
+        return null;
+    }
+    if (axes.size === 1) {
+        return SINGLE_AXIS_ROLE[[...axes][0]];
+    }
+    if (axes.size === 2 && axes.has("pitch") && axes.has("roll")) {
+        return "elevon";
+    }
+    if (axes.size === 2 && axes.has("pitch") && axes.has("yaw")) {
+        return "vtail";
+    }
+    return "mixed";
+}
+
+// --- Quick-add templates ---------------------------------------------------
+//
+// Each template lists the outputs it needs, each as the rules driving it.
+// Outputs are placed on the first free physical outputs in order, so a
+// template never depends on the firmware servo names. Rates follow the
+// firmware presets (e.g. FLYING_WING elevons are +/-100).
+
+export const SERVO_MIX_TEMPLATES = [
+    {
+        id: "ailerons",
+        labelKey: "servosMixerTemplateAilerons",
+        outputs: [[{ input: IN_ROLL, rate: 100 }], [{ input: IN_ROLL, rate: 100 }]],
+    },
+    {
+        id: "elevator",
+        labelKey: "servosMixerTemplateElevator",
+        outputs: [[{ input: IN_PITCH, rate: 100 }]],
+    },
+    {
+        id: "rudder",
+        labelKey: "servosMixerTemplateRudder",
+        outputs: [[{ input: IN_YAW, rate: 100 }]],
+    },
+    {
+        id: "elevons",
+        labelKey: "servosMixerTemplateElevons",
+        outputs: [
+            [
+                { input: IN_ROLL, rate: 100 },
+                { input: IN_PITCH, rate: 100 },
+            ],
+            [
+                { input: IN_ROLL, rate: -100 },
+                { input: IN_PITCH, rate: 100 },
+            ],
+        ],
+    },
+    {
+        id: "vtail",
+        labelKey: "servosMixerTemplateVTail",
+        outputs: [
+            [
+                { input: IN_PITCH, rate: 100 },
+                { input: IN_YAW, rate: 100 },
+            ],
+            [
+                { input: IN_PITCH, rate: 100 },
+                { input: IN_YAW, rate: -100 },
+            ],
+        ],
+    },
+];
+
+/**
+ * Firmware servo targets the mixer drives that no rule uses yet, in
+ * physical output order.
+ */
+function freeServoTargets(rules, mixerMode, options) {
+    const used = new Set((rules ?? []).map((rule) => rule.target));
+    return servoOutputItems(mixerMode, options)
+        .filter((item) => item.slot != null && !used.has(item.target))
+        .map((item) => item.target);
+}
+
+/**
+ * Rules for template `templateId`, placed on the first free outputs, or the
+ * reason it can't be added.
+ * @returns {{ok: true, rules: ServoMixRule[]} | {ok: false, errorKey: string, errorParams: Record<string, string | number>}}
+ */
+export function planServoMixTemplate(rules, templateId, mixerMode, options = {}) {
+    const template = SERVO_MIX_TEMPLATES.find((tpl) => tpl.id === templateId);
+    if (!template) {
+        return { ok: false, errorKey: "servosMixerTemplateUnknown", errorParams: { id: templateId } };
+    }
+    const newRuleCount = template.outputs.flat().length;
+    if ((rules ?? []).length + newRuleCount > MAX_SERVO_RULES) {
+        return { ok: false, errorKey: "servosMixerTemplateTooManyRules", errorParams: { max: MAX_SERVO_RULES } };
+    }
+    const free = freeServoTargets(rules, mixerMode, options);
+    if (free.length < template.outputs.length) {
+        return {
+            ok: false,
+            errorKey: "servosMixerTemplateNoFreeOutputs",
+            errorParams: { needed: template.outputs.length, free: free.length },
+        };
+    }
+    const planned = template.outputs.flatMap((outputRules, i) =>
+        outputRules.map((rule) => makeServoMixRule(free[i], rule.input, rule.rate)),
+    );
+    return { ok: true, rules: planned };
+}
+
+// --- Copy a preset into a custom mixer ------------------------------------
+
+// Presets whose rules a custom mixer can start from.
+const PRESETS_FOR_CUSTOM_MIXER = {
+    [MIXER_IDS.CUSTOM_AIRPLANE]: [MIXER_IDS.AIRPLANE, MIXER_IDS.FLYING_WING],
+    [MIXER_IDS.CUSTOM_TRI]: [MIXER_IDS.TRI],
+};
+
+/**
+ * @param {number|null} mixerMode
+ * @returns {number[]} preset mixers whose rules `mixerMode` can start from
+ */
+export function presetsForCustomMixer(mixerMode) {
+    return PRESETS_FOR_CUSTOM_MIXER[mixerMode] ?? [];
+}
+
+/**
+ * The built-in rules of `presetMixer`, re-targeted for `customMixer` so each
+ * rule stays on the same physical output (Flying Wing's first servo output
+ * is target 3, Custom Airplane's is target 2). The stabilized-throttle rule
+ * is left out, as on the read-only built-in table.
+ * @returns {ServoMixRule[]}
+ */
+export function presetRulesForCustomMixer(presetMixer, customMixer, options = {}) {
+    const rules = [];
+    for (const rule of builtinServoMixRules(presetMixer) ?? []) {
+        if (rule.input === IN_THROTTLE) {
+            continue;
+        }
+        const slot = servoTargetToSlot(rule.target, presetMixer, options);
+        const target = slot == null ? null : pwmSlotToServoIndex(slot, customMixer, options);
+        if (target != null) {
+            rules.push({ ...rule, target });
+        }
+    }
+    return rules;
 }
