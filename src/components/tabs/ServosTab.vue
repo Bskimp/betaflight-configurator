@@ -414,6 +414,7 @@ import { useReboot } from "@/composables/useReboot";
 import { clamp } from "@/js/utils/common";
 import { isExpertModeEnabled } from "@/js/utils/isExpertModeEnabled";
 import { findCliError, isMspCliSupported, saveAndReconnect, send } from "@/composables/useMspCliSession";
+import { loadPortClaims } from "@/composables/ports/usePortClaims";
 import {
     parseDmaPinDefaults,
     parseDmaPins,
@@ -765,16 +766,8 @@ const pinGroups = computed(() => {
     ].filter((group) => group.keys.length > 0);
 });
 
-// UARTs no Ports function uses, by number (serial identifier 0 = UART1;
-// VCP, soft serial and LPUART identifiers start at 20).
-const spareUarts = computed(
-    () =>
-        new Set(
-            (FC.SERIAL_CONFIG?.ports ?? [])
-                .filter((port) => port.identifier < 20 && port.functions.length === 0)
-                .map((port) => port.identifier + 1),
-        ),
-);
+// UARTs with pins that nothing uses, by number. Filled by loadSpareUarts().
+const spareUarts = ref<Set<number>>(new Set());
 const releasableUarts = computed(() => (allowUartPins.value ? spareUarts.value : new Set<number>()));
 
 function pinOwnerLabel(key: string) {
@@ -897,13 +890,7 @@ async function loadPins() {
         // diff runs over the whole hardware config, so give it longer. Its
         // commented defaults name each pad's default role, timer and DMA.
         const diff = await send("diff hardware defaults", { timeoutMs: 10000 });
-        // Ports functions decide which UARTs are spare; without them none is.
-        try {
-            await MSP.promise(MSPCodes.MSP2_COMMON_SERIAL_CONFIG);
-        } catch (e) {
-            console.warn("Serial config unavailable; UART pins stay locked", e);
-            FC.SERIAL_CONFIG.ports = [];
-        }
+        await loadSpareUarts(resources);
         const uartPads = resources
             .filter((entry) => entry.peripheral.startsWith("SERIAL_") && spareUarts.value.has(entry.index ?? -1))
             .map((entry) => entry.pad);
@@ -920,6 +907,33 @@ async function loadPins() {
     } catch (e) {
         console.error("Failed to read motor/servo pins", e);
         pinsUnavailable.value = true;
+    }
+}
+
+// A UART is spare when nothing claims it. Newer firmware reports claims per
+// port (`peripherals`, port names "UART3"); older firmware through the Ports
+// functions of the serial config (identifier 0 = UART1, VCP and up from 20).
+// Without either, no UART is offered.
+async function loadSpareUarts(resources: ReturnType<typeof parseResourceShow>) {
+    const withPins = new Set(
+        resources
+            .filter((entry) => entry.peripheral.startsWith("SERIAL_") && entry.index != null)
+            .map((entry) => entry.index as number),
+    );
+    const claims = await loadPortClaims();
+    if (claims) {
+        spareUarts.value = new Set([...withPins].filter((uart) => !claims[`UART${uart}`]?.length));
+        return;
+    }
+    try {
+        await MSP.promise(MSPCodes.MSP2_COMMON_SERIAL_CONFIG);
+        const free = (FC.SERIAL_CONFIG?.ports ?? [])
+            .filter((port) => port.identifier < 20 && port.functions.length === 0)
+            .map((port) => port.identifier + 1);
+        spareUarts.value = new Set(free.filter((uart) => withPins.has(uart)));
+    } catch (e) {
+        console.warn("Serial port use unavailable; UART pins stay locked", e);
+        spareUarts.value = new Set();
     }
 }
 
