@@ -151,3 +151,24 @@ describe("assignPin / pinChangeLines", () => {
         ]);
     });
 });
+
+describe("buildPinModel from the `resource` dump", () => {
+    it("reads configured pins, including motors the mixer isn't running", async () => {
+        const { parseResourceShow } = await import("../../../src/js/utils/resourceCli.js");
+        const dump = [
+            "# resource",
+            "resource BEEPER 1 C13",
+            "resource MOTOR 1 B00",
+            "resource MOTOR 2 B01",
+            "resource SERVO 1 NONE",
+            "resource LED_STRIP 1 B06",
+            "resource SERIAL_TX 1 A09",
+        ];
+        const dumpModel = buildPinModel(parseResourceShow(dump), TIMERS);
+        expect([...dumpModel.assignments]).toEqual([
+            ["MOTOR 1", "B00"],
+            ["MOTOR 2", "B01"],
+        ]);
+        expect(dumpModel.otherOwners.get("B06")).toBe("LED_STRIP 1");
+    });
+});

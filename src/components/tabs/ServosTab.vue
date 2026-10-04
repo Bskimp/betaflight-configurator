@@ -808,7 +808,9 @@ async function loadPins() {
     }
     try {
         await MSP.promise(MSPCodes.MSP_MOTOR_CONFIG);
-        const resources = parseResourceShow(await send("resource show"));
+        // Plain `resource` lists the configured pins; `resource show` only
+        // lists IO in use, so it drops motors the mixer isn't running.
+        const resources = parseResourceShow(await send("resource"));
         const timers = parseTimerDump(await send("timer"));
         const model = buildPinModel(resources, timers);
         pinModel.value = model;

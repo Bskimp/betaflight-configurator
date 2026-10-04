@@ -1,5 +1,5 @@
 // Motor and servo pin assignment for the Servos tab. Pins are read from the
-// CLI (`resource show` and the `timer` dump, see resourceCli.js), edited
+// CLI (the `resource` and `timer` dumps, see resourceCli.js), edited
 // locally, and written back on Save as `resource` lines followed by `save`.
 //
 // Assignments are keyed by the CLI resource name, e.g. "MOTOR 1" or
@@ -24,7 +24,7 @@ export function parsePinKey(key) {
 }
 
 /**
- * @param {Array<{pad: string, peripheral: string, index: number|null}>} resources - parseResourceShow()
+ * @param {Array<{pad: string, peripheral: string, index: number|null}>} resources - parseResourceShow() of `resource`
  * @param {Array<{pad: string, timer: number|null, channel: number|null}>} timers - parseTimerDump()
  * @returns {{assignments: Map<string, string>, otherOwners: Map<string, string>, padTimers: Map<string, {timer: number, channel: number}>}}
  */
