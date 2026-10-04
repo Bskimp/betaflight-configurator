@@ -52,7 +52,7 @@ function decodePinValue(model, value) {
  * @param {Array<{pad: string, peripheral: string, index: number|null}>} resources - parseResourceShow() of `resource`
  * @param {Array<{pad: string, af: number, timer: number|null, channel: number|null}>} timers - parseTimerDump()
  * @param {Map<string, Array<{af: number, timer: number, channel: number, complementary: boolean}>>} [padTimerOptions] - parseTimerOptions() per pad
- * @param {{timerAfs?: Map<string, number>, dmaPins?: Map<string, string>, currentDma?: Map<string, string>, ledStripEnabled?: boolean}} [hardware]
+ * @param {{timerAfs?: Map<string, number|null>, dmaPins?: Map<string, string>, currentDma?: Map<string, string>, ledStripEnabled?: boolean}} [hardware]
  *   default AFs and DMA options of changed pads (parseTimerDefaults / parseDmaPinDefaults of
  *   `diff hardware defaults`), the current DMA options (parseDmaPins of `dma`), and whether
  *   the LED strip feature runs (only then does its pad hold a timer)
@@ -85,7 +85,8 @@ export function buildPinModel(resources, timers, padTimerOptions = new Map(), ha
     /** @type {Map<string, string>} */
     const defaultDma = new Map();
     for (const pad of afs.keys()) {
-        defaultAfs.set(pad, hardware.timerAfs?.get(pad) ?? afs.get(pad));
+        // null: no timer on the board's defaults (e.g. a UART pin given one).
+        defaultAfs.set(pad, hardware.timerAfs?.has(pad) ? hardware.timerAfs.get(pad) : afs.get(pad));
         defaultDma.set(pad, hardware.dmaPins?.get(pad) ?? hardware.currentDma?.get(pad) ?? PIN_NONE);
     }
     const dmaChanged = new Set(hardware.dmaPins?.keys() ?? []);
@@ -211,7 +212,8 @@ export function currentPinValue(model, state, key) {
 // timer channel.
 function padChoices(model, pad, kind) {
     if (kind === "MOTOR") {
-        if (!model.defaultAfs.has(pad)) {
+        // Only pads with a timer on the board's defaults have a DMA set up for DShot.
+        if (model.defaultAfs.get(pad) == null) {
             return [];
         }
         const af = model.defaultAfs.get(pad);

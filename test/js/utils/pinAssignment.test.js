@@ -429,3 +429,20 @@ describe("LED strip and UART release", () => {
         expect(pinChangeLines(m, staged)).toEqual([]);
     });
 });
+
+describe("pads with no default timer", () => {
+    it("are never offered to motors, only to servos", () => {
+        // A00 was UART4 TX; a servo gave it TIM2 CH1 and it was saved.
+        const m = buildPinModel(
+            [{ pad: "A00", peripheral: "SERVO", index: 5 }],
+            [{ pad: "A00", af: 1, timer: 2, channel: 1 }],
+            new Map(),
+            { timerAfs: new Map([["A00", null]]) },
+        );
+        const s0 = initialPinState(m);
+        const motor = pinOptions({ model: m, state: s0, key: "MOTOR 1", motorCount: 1 }).map((o) => o.pad);
+        expect(motor).not.toContain("A00");
+        const servo = pinOptions({ model: m, state: s0, key: "SERVO 1" }).map((o) => o.pad);
+        expect(servo).toContain("A00");
+    });
+});

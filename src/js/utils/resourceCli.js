@@ -227,18 +227,25 @@ export function parseTimerOptions(input) {
 }
 
 /**
- * Default timer AFs from `diff hardware defaults` ("#timer A02 AF1" above a
- * changed `timer` line). Pads not listed are on their default.
+ * Default timer AFs from `diff hardware defaults`, which prints "#timer A02
+ * AF1" above a changed `timer` line. A changed pad with no such comment had
+ * no timer on the defaults (a UART pin given one), so maps to null. Pads not
+ * listed are on their default.
  * @param {string[]|string} input
- * @returns {Map<string, number>} pad -> AF
+ * @returns {Map<string, number|null>} pad -> AF, or null for no default timer
  */
 export function parseTimerDefaults(input) {
     const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
     const defaults = new Map();
     for (const line of lines) {
-        const m = /^\s*#\s*timer\s+([A-Z]\d{2})\s+AF(\d+)\s*$/i.exec(line);
-        if (m) {
-            defaults.set(m[1].toUpperCase(), Number(m[2]));
+        const commented = /^\s*#\s*timer\s+([A-Z]\d{2})\s+AF(\d+)\s*$/i.exec(line);
+        if (commented) {
+            defaults.set(commented[1].toUpperCase(), Number(commented[2]));
+            continue;
+        }
+        const changed = /^\s*timer\s+([A-Z]\d{2})\s+(?:AF\d+|NONE)\s*$/i.exec(line);
+        if (changed && !defaults.has(changed[1].toUpperCase())) {
+            defaults.set(changed[1].toUpperCase(), null);
         }
     }
     return defaults;

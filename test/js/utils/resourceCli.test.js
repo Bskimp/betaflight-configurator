@@ -204,6 +204,12 @@ describe("parseTimerDefaults / parseDmaPinDefaults", () => {
         expect([...parseTimerDefaults(DIFF)]).toEqual([["A02", 1]]);
     });
 
+    it("maps a pad with no default timer to null", () => {
+        // A00 is a UART pin on the defaults; a servo gave it TIM2 CH1.
+        const diff = ["# timer", "timer A00 AF1", "# pin A00: TIM2 CH1 (AF1)"];
+        expect([...parseTimerDefaults(diff)]).toEqual([["A00", null]]);
+    });
+
     it("reads default DMA options of changed pins", () => {
         expect([...parseDmaPinDefaults(DIFF)]).toEqual([
             ["A02", "0"],
