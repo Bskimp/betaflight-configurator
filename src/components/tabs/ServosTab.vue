@@ -297,6 +297,39 @@
                     </template>
                 </UiBox>
 
+                <!-- Motor and servo pins, read and written through the CLI. Picks are
+                     staged; Save writes them and reboots once. -->
+                <UiBox v-if="pinModel" :title="$t('servosPinsTitle')" type="neutral" collapsible>
+                    <p class="text-sm text-muted mb-3">{{ $t("servosPinsDesc") }}</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div v-for="group in pinGroups" :key="group.kind">
+                            <h4 class="text-sm font-bold mb-2">{{ group.title }}</h4>
+                            <div class="grid items-center gap-x-2 gap-y-1" style="grid-template-columns: 5rem 1fr">
+                                <template v-for="key in group.keys" :key="key">
+                                    <div class="text-sm py-1 whitespace-nowrap">{{ pinOwnerLabel(key) }}</div>
+                                    <USelect
+                                        :model-value="stagedPins.get(key) ?? PIN_NONE"
+                                        :items="pinItems(key)"
+                                        size="xs"
+                                        class="w-full"
+                                        :ui="{ value: pinRowConflict(key) ? 'text-red-400' : undefined }"
+                                        @update:model-value="(pad: string) => onPinChange(key, pad)"
+                                    />
+                                    <div
+                                        v-if="pinRowConflict(key)"
+                                        class="col-start-2 -mt-0.5 mb-1 flex items-center gap-1 text-xs text-red-400"
+                                    >
+                                        <UIcon name="i-lucide-triangle-alert" class="size-3.5 shrink-0" />
+                                        <span>{{ pinConflictText(pinRowConflict(key)) }}</span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                    <p v-if="pinsDirty" class="text-xs text-amber-400 mt-3">{{ $t("servosPinsRebootNote") }}</p>
+                </UiBox>
+                <p v-else-if="pinsUnavailable" class="text-xs text-muted">{{ $t("servosPinsUnavailable") }}</p>
+
                 <!-- Servo visualization bars, one per physical output, showing the
                      firmware servo that output carries on the active mixer. -->
                 <UiBox :title="$t('servosText')" type="neutral" collapsible>
@@ -347,7 +380,7 @@
             <div class="flex gap-2">
                 <UButton
                     :label="$t('servosButtonSave')"
-                    :disabled="(!configHasChanged && !mixerDirty) || mixerLoadFailed"
+                    :disabled="(!configHasChanged && !mixerDirty && !pinsDirty) || mixerLoadFailed"
                     :loading="isSaving"
                     size="xs"
                     @click="saveServoConfig"
@@ -375,6 +408,18 @@ import { useTimeout } from "@/composables/useTimeout";
 import { useSaving } from "@/composables/useSaving";
 import { useReboot } from "@/composables/useReboot";
 import { clamp } from "@/js/utils/common";
+import { isExpertModeEnabled } from "@/js/utils/isExpertModeEnabled";
+import { findCliError, isMspCliSupported, saveAndReconnect, send } from "@/composables/useMspCliSession";
+import { parseResourceShow, parseTimerDump } from "@/js/utils/resourceCli";
+import {
+    PIN_NONE,
+    assignPin,
+    buildPinModel,
+    parsePinKey,
+    pinChangeLines,
+    pinOptions,
+    rowPinConflict,
+} from "@/js/utils/pinAssignment";
 import {
     SERVO_MIX_INPUT_LABELS,
     SERVO_MIX_BOX_LABELS,
@@ -420,6 +465,14 @@ const mixerDirty = ref(false);
 // Set when MSP_SERVO_MIX_RULES couldn't be parsed: the FC's rules are unknown,
 // so Save stays disabled rather than overwrite them with an empty list.
 const mixerLoadFailed = ref(false);
+
+// Motor and servo pins. pinModel holds what the FC reported; stagedPins the
+// edits, written on Save. pinsUnavailable: the CLI read failed.
+type PinModel = ReturnType<typeof buildPinModel>;
+type PinConflict = ReturnType<typeof rowPinConflict>;
+const pinModel = ref<PinModel | null>(null);
+const stagedPins = ref<Map<string, string>>(new Map());
+const pinsUnavailable = ref(false);
 
 const { addInterval } = useInterval();
 const { addTimeout } = useTimeout();
@@ -656,6 +709,127 @@ function updateServos() {
     });
 }
 
+const motorCount = computed(() => FC.MOTOR_CONFIG?.motor_count ?? 0);
+const pinLines = computed(() => (pinModel.value ? pinChangeLines(pinModel.value.assignments, stagedPins.value) : []));
+const pinsDirty = computed(() => pinLines.value.length > 0);
+
+function highestIndex(kind: string) {
+    let highest = 0;
+    for (const key of pinModel.value?.assignments.keys() ?? []) {
+        const parsed = parsePinKey(key);
+        if (parsed.kind === kind) {
+            highest = Math.max(highest, parsed.index);
+        }
+    }
+    return highest;
+}
+
+function pinKeys(kind: string, count: number) {
+    return Array.from({ length: count }, (_, i) => `${kind} ${i + 1}`);
+}
+
+// Motors the mixer runs; servo outputs the mixer drives, plus any servo
+// that already has a pin.
+const pinGroups = computed(() => {
+    const motors = motorCount.value || highestIndex("MOTOR");
+    const drivenServos = servoOutputItems(mixerMode.value, slotLayoutOptions()).filter(
+        (item) => item.slot != null,
+    ).length;
+    const servos = Math.max(drivenServos, highestIndex("SERVO"));
+    return [
+        { kind: "MOTOR", title: t("servosPinsMotors"), keys: pinKeys("MOTOR", motors) },
+        { kind: "SERVO", title: t("servosPinsServos"), keys: pinKeys("SERVO", servos) },
+    ].filter((group) => group.keys.length > 0);
+});
+
+function pinOwnerLabel(key: string) {
+    const { kind, index } = parsePinKey(key);
+    return t(kind === "MOTOR" ? "servosPinMotor" : "servosMixerOutputServo", { index });
+}
+
+function pinConflictText(conflict: PinConflict) {
+    if (!conflict) {
+        return "";
+    }
+    const name = pinOwnerLabel(conflict.with);
+    return conflict.hard
+        ? t("servosPinChannelConflict", { timer: conflict.timer, channel: conflict.channel, name })
+        : t("servosPinTimerShare", { timer: conflict.timer, name });
+}
+
+function pinItems(key: string) {
+    const model = pinModel.value;
+    if (!model) {
+        return [];
+    }
+    const options = pinOptions({
+        model,
+        assignments: stagedPins.value,
+        key,
+        motorCount: motorCount.value,
+        expertMode: isExpertModeEnabled(),
+    });
+    return options.map((option) => {
+        if (option.value === PIN_NONE) {
+            return { value: PIN_NONE, label: t("servosPinNone") };
+        }
+        const parts = [option.timer == null ? option.pad : `${option.pad} (TIM${option.timer} CH${option.channel})`];
+        if (option.owner) {
+            parts.push(t("servosPinMovesFrom", { name: pinOwnerLabel(option.owner) }));
+        }
+        if (option.conflict) {
+            parts.push(pinConflictText(option.conflict));
+        }
+        return { value: option.value, label: parts.join(" - ") };
+    });
+}
+
+function pinRowConflict(key: string) {
+    const model = pinModel.value;
+    if (!model) {
+        return null;
+    }
+    return rowPinConflict({ model, assignments: stagedPins.value, key, motorCount: motorCount.value });
+}
+
+function onPinChange(key: string, pad: string) {
+    stagedPins.value = assignPin(stagedPins.value, key, pad);
+}
+
+// Pins are read through the CLI path, which every firmware since 4.5.4
+// answers without leaving MSP. Older firmware, or a failed read, just hides
+// the panel; the rest of the tab works as before.
+async function loadPins() {
+    pinModel.value = null;
+    pinsUnavailable.value = false;
+    if (!isMspCliSupported()) {
+        pinsUnavailable.value = true;
+        return;
+    }
+    try {
+        await MSP.promise(MSPCodes.MSP_MOTOR_CONFIG);
+        const resources = parseResourceShow(await send("resource show"));
+        const timers = parseTimerDump(await send("timer"));
+        const model = buildPinModel(resources, timers);
+        pinModel.value = model;
+        stagedPins.value = new Map(model.assignments);
+    } catch (e) {
+        console.error("Failed to read motor/servo pins", e);
+        pinsUnavailable.value = true;
+    }
+}
+
+// Writes the staged pin lines; a line the CLI refuses aborts the save
+// before anything is persisted.
+async function writePinLines(lines: string[]) {
+    for (const line of lines) {
+        const error = findCliError(await send(line));
+        if (error) {
+            throw new Error(`${line}: ${error}`);
+        }
+    }
+}
+
 function saveServoConfig() {
     if (mixerLoadFailed.value) {
         return;
@@ -676,7 +850,17 @@ function saveServoConfig() {
             FC.SERVO_RULES = padServoMixRulesToMax(servoMixRules);
             await mspHelper.sendServoMixRules();
         }
-        await saveToEeprom();
+        if (pinsDirty.value) {
+            // Pin changes only apply after a reboot: write them, then one CLI
+            // save stores everything above too and restarts the FC.
+            await writePinLines(pinLines.value);
+            const result = await saveAndReconnect();
+            if (!result.ok) {
+                throw result.error;
+            }
+        } else {
+            await saveToEeprom();
+        }
         // saveToEeprom() already emits the shared "EEPROM saved" toast; servosEepromSave
         // resolved to the same string, so it's dropped here to avoid a duplicate.
         originalConfigs.value = JSON.stringify(servoConfigs);
@@ -708,6 +892,7 @@ async function loadServoData() {
         await MSP.promise(MSPCodes.MSP_SERVO_MIX_RULES);
         await MSP.promise(MSPCodes.MSP_RC);
         await MSP.promise(MSPCodes.MSP_BOXNAMES);
+        await loadPins();
         initializeUI();
     } catch (e) {
         console.error("Failed to load servo configs", e);

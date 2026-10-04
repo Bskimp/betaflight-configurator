@@ -3240,6 +3240,39 @@
     "servosMixerFromTri": {
         "message": "Same as Tri"
     },
+    "servosPinsTitle": {
+        "message": "Motor and Servo Pins"
+    },
+    "servosPinsDesc": {
+        "message": "Choose which pad drives each motor and servo. Pads are listed with their timer: motors and servos need separate timers, and two outputs can't share a timer channel."
+    },
+    "servosPinsMotors": {
+        "message": "Motors"
+    },
+    "servosPinsServos": {
+        "message": "Servos"
+    },
+    "servosPinMotor": {
+        "message": "Motor {{index}}"
+    },
+    "servosPinNone": {
+        "message": "None"
+    },
+    "servosPinMovesFrom": {
+        "message": "moves from {{name}}"
+    },
+    "servosPinTimerShare": {
+        "message": "shares TIM{{timer}} with {{name}}"
+    },
+    "servosPinChannelConflict": {
+        "message": "same timer channel as {{name}} (TIM{{timer}} CH{{channel}})"
+    },
+    "servosPinsRebootNote": {
+        "message": "Saving pin changes restarts the flight controller."
+    },
+    "servosPinsUnavailable": {
+        "message": "Pin assignment needs Betaflight 4.5.4 or newer, or the flight controller didn't answer the pin read."
+    },
     "servosMixerOutputServo": {
         "message": "Servo {{index}}"
     },
