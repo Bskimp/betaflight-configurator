@@ -3177,6 +3177,9 @@
     "servosMixerRulesInvalid": {
         "message": "Not saved: check servo mixer rule {{rules}}. Rate must not be 0 (the firmware stops at a rule with rate 0), and Min and Max must be between 0 and 100 with Min below Max."
     },
+    "servosMixerCliHint": {
+        "message": "In the CLI, smix uses firmware servo numbers instead: {{map}}."
+    },
     "servosMixerOutputServo": {
         "message": "Servo {{index}}"
     },

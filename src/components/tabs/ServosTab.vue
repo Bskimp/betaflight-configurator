@@ -109,6 +109,9 @@
                     collapsible
                 >
                     <p class="text-sm text-muted mb-2">{{ $t("servosMixerRulesDesc") }}</p>
+                    <p v-if="cliTargetMap" class="text-xs text-muted mb-2">
+                        {{ $t("servosMixerCliHint", { map: cliTargetMap }) }}
+                    </p>
 
                     <!-- Preset mixers (AIRPLANE, FLYING_WING, TRI, ...) run rules built into
                          the firmware; MSP_SERVO_MIX_RULES only returns the custom list, so
@@ -451,6 +454,14 @@ const servoMixOutputItems = computed(() =>
         label: servoOutputLabel(item.target, mixerMode.value),
         disabled: item.slot == null,
     })),
+);
+// The CLI smix command takes the firmware servo index, not the output number
+// the tab shows; spell out the mapping for the active mixer.
+const cliTargetMap = computed(() =>
+    servoOutputItems(mixerMode.value, slotLayoutOptions())
+        .filter((item) => item.slot != null)
+        .map((item) => `${t("servosMixerOutputServo", { index: (item.slot ?? 0) + 1 })} = ${item.target}`)
+        .join(", "),
 );
 const servoMixInputItems = computed(() => SERVO_MIX_INPUT_LABELS.map((label, i) => ({ value: i, label })));
 const servoMixBoxItems = computed(() => SERVO_MIX_BOX_LABELS.map((label, i) => ({ value: i, label })));
