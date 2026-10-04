@@ -3,7 +3,12 @@
 // that as a signal to update the parsers, not to weaken the tests.
 
 import { describe, it, expect } from "vitest";
-import { parseResourceDefaults, parseResourceShow, parseTimerDump } from "../../../src/js/utils/resourceCli.js";
+import {
+    parseResourceDefaults,
+    parseResourceShow,
+    parseTimerDump,
+    parseTimerOptions,
+} from "../../../src/js/utils/resourceCli.js";
 
 // Trimmed `resource show` output from bench.
 const RESOURCE_SHOW_FIXTURE = `
@@ -123,5 +128,55 @@ describe("parseResourceDefaults", () => {
             ["MOTOR 3", "B04"],
             ["SERVO 1", "NONE"],
         ]);
+    });
+});
+
+// `timer <pin> list` lists every available (timer, channel, AF) for a
+// pin per the firmware's DEF_TIM table. Output format from cli.c
+// cliTimer() "list" branch - see firmware src/main/cli/cli.c:7244.
+const TIMER_LIST_FIXTURE_F405_B07 = `
+# AF1: TIM4 CH2
+# AF2: TIM4 CH2
+# AF3: TIM8 CH2N
+`;
+
+const TIMER_LIST_FIXTURE_H743_PE9 = `
+# AF1: TIM1 CH1
+# AF3: TIM1 CH1
+`;
+
+describe("parseTimerOptions", () => {
+    it("returns [] on empty/null input", () => {
+        expect(parseTimerOptions("")).toEqual([]);
+        expect(parseTimerOptions([])).toEqual([]);
+    });
+
+    it("ignores non-AF lines", () => {
+        const noisy = `
+Some random text
+# This is a comment but not an AF line
+PIN NOT USED ON BOARD.
+`;
+        expect(parseTimerOptions(noisy)).toEqual([]);
+    });
+
+    it("parses each AF line into {af, timer, channel, complementary}", () => {
+        const out = parseTimerOptions(TIMER_LIST_FIXTURE_F405_B07);
+        expect(out).toEqual([
+            { af: 1, timer: 4, channel: 2, complementary: false },
+            { af: 2, timer: 4, channel: 2, complementary: false },
+            { af: 3, timer: 8, channel: 2, complementary: true },
+        ]);
+    });
+
+    it("flags complementary channels (CHnN suffix)", () => {
+        const out = parseTimerOptions("# AF3: TIM1 CH1N");
+        expect(out[0].complementary).toBe(true);
+    });
+
+    it("accepts both string and array input", () => {
+        const lines = TIMER_LIST_FIXTURE_H743_PE9.trim().split(/\r?\n/);
+        expect(parseTimerOptions(lines)).toHaveLength(2);
+        expect(parseTimerOptions(TIMER_LIST_FIXTURE_H743_PE9)).toHaveLength(2);
     });
 });

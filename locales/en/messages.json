@@ -3258,6 +3258,9 @@
     "servosPinDefault": {
         "message": "{{name}} pad"
     },
+    "servosPinAltTimer": {
+        "message": "alternate timer"
+    },
     "servosPinNone": {
         "message": "None"
     },

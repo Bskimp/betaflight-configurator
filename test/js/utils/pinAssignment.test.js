@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
     PIN_NONE,
-    assignPin,
     buildPadDefaults,
     buildPinModel,
+    currentPinValue,
+    initialPinState,
     pinChangeLines,
     pinOptions,
     pinTimerConflict,
     rowPinConflict,
+    selectPin,
 } from "../../../src/js/utils/pinAssignment.js";
 
 // An F405 wing: two motors on TIM3, servos on TIM1/TIM2, LED on TIM4, a
@@ -37,7 +39,29 @@ const TIMERS = [
     { pad: "B14", af: 3, timer: 1, channel: 2 }, // TIM1 CH2N: same channel as A09
 ];
 
-const model = buildPinModel(RESOURCES, TIMERS);
+// `timer <pad> list` for two pads: A15 can also be TIM8 CH1N; B00 can be
+// TIM1 CH2N or TIM8 CH2N.
+const TIMER_OPTIONS = new Map([
+    [
+        "A15",
+        [
+            { af: 1, timer: 2, channel: 1, complementary: false },
+            { af: 3, timer: 8, channel: 1, complementary: true },
+        ],
+    ],
+    [
+        "B00",
+        [
+            { af: 1, timer: 1, channel: 2, complementary: true },
+            { af: 2, timer: 3, channel: 3, complementary: false },
+            { af: 3, timer: 8, channel: 2, complementary: true },
+        ],
+    ],
+]);
+
+const model = buildPinModel(RESOURCES, TIMERS, TIMER_OPTIONS);
+const state = initialPinState(model);
+const select = (s, key, value) => selectPin(model, s, key, value);
 const pads = (options) => options.map((o) => o.value);
 
 describe("buildPinModel", () => {
@@ -52,7 +76,7 @@ describe("buildPinModel", () => {
 });
 
 describe("pinOptions", () => {
-    const base = { model, assignments: model.assignments, motorCount: 2 };
+    const base = { model, state, motorCount: 2 };
 
     it("offers free timer pads and other motor/servo pads, never peripheral pads", () => {
         const options = pinOptions({ ...base, key: "SERVO 3" });
@@ -96,8 +120,8 @@ describe("pinOptions", () => {
 
 describe("pinTimerConflict / rowPinConflict", () => {
     it("reports a motor and a servo sharing a timer on the row", () => {
-        const staged = assignPin(model.assignments, "SERVO 3", "B04");
-        expect(rowPinConflict({ model, assignments: staged, key: "SERVO 3", motorCount: 2 })).toMatchObject({
+        const staged = select(state, "SERVO 3", "B04");
+        expect(rowPinConflict({ model, state: staged, key: "SERVO 3", motorCount: 2 })).toMatchObject({
             hard: false,
             timer: 3,
             with: "MOTOR 1",
@@ -105,34 +129,34 @@ describe("pinTimerConflict / rowPinConflict", () => {
     });
 
     it("reports two outputs on one channel as hard", () => {
-        const staged = new Map(model.assignments).set("SERVO 3", "B14");
-        expect(rowPinConflict({ model, assignments: staged, key: "SERVO 3" })).toMatchObject({
+        const staged = { ...state, assignments: new Map(state.assignments).set("SERVO 3", "B14") };
+        expect(rowPinConflict({ model, state: staged, key: "SERVO 3" })).toMatchObject({
             hard: true,
             with: "SERVO 2",
         });
     });
 
     it("has no conflict for a pad without a timer", () => {
-        expect(pinTimerConflict({ model, assignments: model.assignments, key: "SERVO 1", pad: "A04" })).toBeNull();
+        expect(pinTimerConflict({ model, state, key: "SERVO 1", pad: "A04" })).toBeNull();
     });
 });
 
-describe("assignPin / pinChangeLines", () => {
+describe("selectPin / pinChangeLines", () => {
     it("moves the previous owner of a pad to NONE", () => {
-        const staged = assignPin(model.assignments, "SERVO 1", "A09");
+        const staged = select(state, "SERVO 1", "A09").assignments;
         expect(staged.get("SERVO 1")).toBe("A09");
         expect(staged.get("SERVO 2")).toBe(PIN_NONE);
         expect(model.assignments.get("SERVO 2")).toBe("A09"); // original untouched
     });
 
     it("writes nothing when nothing changed", () => {
-        expect(pinChangeLines(model.assignments, model.assignments)).toEqual([]);
+        expect(pinChangeLines(model, state)).toEqual([]);
     });
 
     it("releases every changed output before assigning", () => {
-        let staged = assignPin(model.assignments, "SERVO 1", "B04"); // takes unused MOTOR 3's pad
-        staged = assignPin(staged, "SERVO 2", "B03");
-        expect(pinChangeLines(model.assignments, staged)).toEqual([
+        let staged = select(state, "SERVO 1", "B04"); // takes unused MOTOR 3's pad
+        staged = select(staged, "SERVO 2", "B03");
+        expect(pinChangeLines(model, staged)).toEqual([
             "resource MOTOR 3 NONE",
             "resource SERVO 1 NONE",
             "resource SERVO 2 NONE",
@@ -142,9 +166,9 @@ describe("assignPin / pinChangeLines", () => {
     });
 
     it("swaps two outputs", () => {
-        let staged = assignPin(model.assignments, "SERVO 1", "A09");
-        staged = assignPin(staged, "SERVO 2", "A08");
-        expect(pinChangeLines(model.assignments, staged)).toEqual([
+        let staged = select(state, "SERVO 1", "A09");
+        staged = select(staged, "SERVO 2", "A08");
+        expect(pinChangeLines(model, staged)).toEqual([
             "resource SERVO 1 NONE",
             "resource SERVO 2 NONE",
             "resource SERVO 1 A09",
@@ -192,5 +216,60 @@ describe("buildPadDefaults", () => {
         expect(padDefaults.get("B06")).toBe("LED_STRIP 1");
         expect(padDefaults.has("A02")).toBe(false);
         expect(padDefaults.has("B05")).toBe(false);
+    });
+});
+
+describe("alternate timers (alt-AF)", () => {
+    const base = { model, state, motorCount: 2 };
+
+    it("offers a servo the other timers of a pad", () => {
+        const options = pinOptions({ ...base, key: "SERVO 3" });
+        const a15Alt = options.find((o) => o.value === "A15/AF3");
+        expect(a15Alt).toMatchObject({ pad: "A15", alt: true, timer: { timer: 8, channel: 1, complementary: true } });
+        // B00 on TIM1 CH2N is the same channel as SERVO 2 on A09, so it's not offered.
+        expect(options.find((o) => o.value === "B00/AF1")).toBeUndefined();
+        // B00 on TIM8 CH2N is free; it moves MOTOR 1 off the pad.
+        expect(options.find((o) => o.value === "B00/AF3")).toMatchObject({ owner: "MOTOR 1", conflict: null });
+    });
+
+    it("never offers alternate timers to motors", () => {
+        const options = pinOptions({ ...base, key: "MOTOR 1" });
+        expect(options.some((o) => o.alt)).toBe(false);
+    });
+
+    it("stages the AF with the pin and writes a timer line first", () => {
+        const staged = select(state, "SERVO 3", "A15/AF3");
+        expect(currentPinValue(model, staged, "SERVO 3")).toBe("A15/AF3");
+        expect(pinChangeLines(model, staged)).toEqual(["timer A15 AF3"]);
+        const moved = select(staged, "SERVO 1", "B00/AF3");
+        expect(pinChangeLines(model, moved)).toEqual([
+            "timer A15 AF3",
+            "timer B00 AF3",
+            "resource MOTOR 1 NONE",
+            "resource SERVO 1 NONE",
+            "resource SERVO 1 B00",
+        ]);
+    });
+
+    it("checks conflicts on the alternate timer", () => {
+        // SERVO 3 moves A15 to TIM8 CH1N; a servo on C08-like TIM8 CH1 would clash.
+        const staged = select(state, "SERVO 3", "A15/AF3");
+        const clash = pinTimerConflict({ model, state: staged, key: "SERVO 1", pad: "B00", af: 3 });
+        expect(clash).toBeNull(); // CH2N vs CH1N: different channel, both servos
+        expect(rowPinConflict({ model, state: staged, key: "SERVO 3", motorCount: 2 })).toBeNull();
+    });
+
+    it("returns a pad to its configured AF when its servo leaves", () => {
+        let staged = select(state, "SERVO 3", "A15/AF3");
+        staged = select(staged, "SERVO 3", "B03");
+        expect(staged.afs.get("A15")).toBe(1);
+        expect(pinChangeLines(model, staged)).toEqual(["resource SERVO 3 NONE", "resource SERVO 3 B03"]);
+    });
+
+    it("puts a pad back on its configured AF when a motor takes it", () => {
+        let staged = select(state, "SERVO 1", "B00/AF3");
+        staged = select(staged, "MOTOR 1", "B00");
+        expect(staged.afs.get("B00")).toBe(2);
+        expect(currentPinValue(model, staged, "MOTOR 1")).toBe("B00");
     });
 });

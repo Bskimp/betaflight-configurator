@@ -189,3 +189,39 @@ export function parseResourceDefaults(input) {
     }
     return defaults;
 }
+
+/**
+ * Parse `timer <pin> list` output. Lists every (timer, channel, AF)
+ * tuple the firmware's DEF_TIM table allows for that pin on this MCU
+ * - i.e. what timer remaps are physically possible. Distinct from
+ * `parseTimerDump` which only reports the pin's CURRENT binding.
+ *
+ * Example input lines (from cli.c cliTimer "list" branch):
+ *   # AF1: TIM2 CH1
+ *   # AF2: TIM5 CH1
+ *   # AF3: TIM8 CH1N
+ *
+ * The trailing "N" marks complementary channels. We capture it so
+ * callers planning DShot remaps can avoid complementary outputs
+ * (which can't drive DShot on most MCUs).
+ *
+ * @param {string[]|string} input
+ * @returns {Array<{af: number, timer: number, channel: number, complementary: boolean}>}
+ */
+export function parseTimerOptions(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const out = [];
+    for (const line of lines) {
+        const m = /^\s*#\s*AF(\d+):\s*TIM(\d+)\s+CH(\d+)(N?)\s*$/i.exec(line);
+        if (!m) {
+            continue;
+        }
+        out.push({
+            af: Number(m[1]),
+            timer: Number(m[2]),
+            channel: Number(m[3]),
+            complementary: m[4].toUpperCase() === "N",
+        });
+    }
+    return out;
+}

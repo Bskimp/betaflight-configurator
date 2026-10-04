@@ -308,7 +308,7 @@
                                 <template v-for="key in group.keys" :key="key">
                                     <div class="text-sm py-1 whitespace-nowrap">{{ pinOwnerLabel(key) }}</div>
                                     <USelect
-                                        :model-value="stagedPins.get(key) ?? PIN_NONE"
+                                        :model-value="pinModel ? currentPinValue(pinModel, pinState, key) : PIN_NONE"
                                         :items="pinItems(key)"
                                         size="xs"
                                         class="w-full"
@@ -410,16 +410,18 @@ import { useReboot } from "@/composables/useReboot";
 import { clamp } from "@/js/utils/common";
 import { isExpertModeEnabled } from "@/js/utils/isExpertModeEnabled";
 import { findCliError, isMspCliSupported, saveAndReconnect, send } from "@/composables/useMspCliSession";
-import { parseResourceDefaults, parseResourceShow, parseTimerDump } from "@/js/utils/resourceCli";
+import { parseResourceDefaults, parseResourceShow, parseTimerDump, parseTimerOptions } from "@/js/utils/resourceCli";
 import {
     PIN_NONE,
-    assignPin,
     buildPadDefaults,
     buildPinModel,
+    currentPinValue,
+    initialPinState,
     parsePinKey,
     pinChangeLines,
     pinOptions,
     rowPinConflict,
+    selectPin,
 } from "@/js/utils/pinAssignment";
 import {
     SERVO_MIX_INPUT_LABELS,
@@ -467,12 +469,13 @@ const mixerDirty = ref(false);
 // so Save stays disabled rather than overwrite them with an empty list.
 const mixerLoadFailed = ref(false);
 
-// Motor and servo pins. pinModel holds what the FC reported; stagedPins the
+// Motor and servo pins. pinModel holds what the FC reported; pinState the
 // edits, written on Save. pinsUnavailable: the CLI read failed.
 type PinModel = ReturnType<typeof buildPinModel>;
 type PinConflict = ReturnType<typeof rowPinConflict>;
 const pinModel = ref<PinModel | null>(null);
-const stagedPins = ref<Map<string, string>>(new Map());
+type PinState = ReturnType<typeof initialPinState>;
+const pinState = ref<PinState>({ assignments: new Map(), afs: new Map() });
 const pinsUnavailable = ref(false);
 // Pad -> the resource it has on the board's defaults ("MOTOR 3"), so pads stay
 // identifiable after their pins were changed or cleared.
@@ -714,7 +717,7 @@ function updateServos() {
 }
 
 const motorCount = computed(() => FC.MOTOR_CONFIG?.motor_count ?? 0);
-const pinLines = computed(() => (pinModel.value ? pinChangeLines(pinModel.value.assignments, stagedPins.value) : []));
+const pinLines = computed(() => (pinModel.value ? pinChangeLines(pinModel.value, pinState.value) : []));
 const pinsDirty = computed(() => pinLines.value.length > 0);
 
 function highestIndex(kind: string) {
@@ -780,7 +783,7 @@ function pinItems(key: string) {
     }
     const options = pinOptions({
         model,
-        assignments: stagedPins.value,
+        state: pinState.value,
         key,
         motorCount: motorCount.value,
         expertMode: isExpertModeEnabled(),
@@ -789,10 +792,15 @@ function pinItems(key: string) {
         if (option.value === PIN_NONE) {
             return { value: PIN_NONE, label: t("servosPinNone") };
         }
-        const parts = [option.timer == null ? option.pad : `${option.pad} (TIM${option.timer} CH${option.channel})`];
-        const defaultLabel = padDefaultLabel(option.value);
+        const timer = option.timer;
+        const channel = timer ? `TIM${timer.timer} CH${timer.channel}${timer.complementary ? "N" : ""}` : null;
+        const parts = [channel ? `${option.pad} (${channel})` : (option.pad ?? option.value)];
+        const defaultLabel = option.pad ? padDefaultLabel(option.pad) : null;
         if (defaultLabel) {
             parts.push(defaultLabel);
+        }
+        if (option.alt) {
+            parts.push(t("servosPinAltTimer"));
         }
         if (option.owner) {
             parts.push(t("servosPinMovesFrom", { name: pinOwnerLabel(option.owner) }));
@@ -809,11 +817,23 @@ function pinRowConflict(key: string) {
     if (!model) {
         return null;
     }
-    return rowPinConflict({ model, assignments: stagedPins.value, key, motorCount: motorCount.value });
+    return rowPinConflict({ model, state: pinState.value, key, motorCount: motorCount.value });
 }
 
-function onPinChange(key: string, pad: string) {
-    stagedPins.value = assignPin(stagedPins.value, key, pad);
+function onPinChange(key: string, value: string) {
+    if (pinModel.value) {
+        pinState.value = selectPin(pinModel.value, pinState.value, key, value);
+    }
+}
+
+// Every timer each output pad can reach (`timer <pad> list`), for the servo
+// alternate-timer choices. One short CLI read per pad.
+async function readPadTimerOptions(pads: string[]) {
+    const options = new Map<string, ReturnType<typeof parseTimerOptions>>();
+    for (const pad of pads) {
+        options.set(pad, parseTimerOptions(await send(`timer ${pad} list`)));
+    }
+    return options;
 }
 
 // Pins are read through the CLI path, which every firmware since 4.5.4
@@ -834,10 +854,11 @@ async function loadPins() {
         const timers = parseTimerDump(await send("timer"));
         // diff runs over the whole hardware config, so give it longer.
         const defaults = parseResourceDefaults(await send("diff hardware defaults", { timeoutMs: 10000 }));
-        const model = buildPinModel(resources, timers);
+        const padTimerOptions = await readPadTimerOptions(timers.map((entry) => entry.pad));
+        const model = buildPinModel(resources, timers, padTimerOptions);
         padDefaults.value = buildPadDefaults(resources, defaults);
         pinModel.value = model;
-        stagedPins.value = new Map(model.assignments);
+        pinState.value = initialPinState(model);
     } catch (e) {
         console.error("Failed to read motor/servo pins", e);
         pinsUnavailable.value = true;
