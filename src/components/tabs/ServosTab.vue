@@ -885,6 +885,10 @@ async function writePinLines(lines: string[]) {
     for (const line of lines) {
         const error = findCliError(await send(line));
         if (error) {
+            // The lines before this one already changed the FC's config (not
+            // yet saved). Re-read the pins so the panel shows what the FC
+            // holds, instead of a state a later Save would write over.
+            await loadPins();
             throw new Error(`${line}: ${error}`);
         }
     }
