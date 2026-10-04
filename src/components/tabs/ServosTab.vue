@@ -94,6 +94,10 @@
                         </div>
                     </div>
 
+                    <p v-if="cliTargetMap" class="text-xs text-muted mt-2">
+                        {{ $t("servosCliServoHint", { map: cliTargetMap }) }}
+                    </p>
+
                     <div class="flex items-center gap-2 mt-3">
                         <USwitch v-model="liveMode" size="xs" />
                         <span class="text-sm">{{ $t("servosLiveMode") }}</span>
@@ -455,8 +459,8 @@ const servoMixOutputItems = computed(() =>
         disabled: item.slot == null,
     })),
 );
-// The CLI smix command takes the firmware servo index, not the output number
-// the tab shows; spell out the mapping for the active mixer.
+// The CLI servo and smix commands take the firmware servo index, not the
+// output number the tab shows; spell out the mapping for the active mixer.
 const cliTargetMap = computed(() =>
     servoOutputItems(mixerMode.value, slotLayoutOptions())
         .filter((item) => item.slot != null)
