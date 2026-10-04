@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     PIN_NONE,
     assignPin,
+    buildPadDefaults,
     buildPinModel,
     pinChangeLines,
     pinOptions,
@@ -170,5 +171,26 @@ describe("buildPinModel from the `resource` dump", () => {
             ["MOTOR 2", "B01"],
         ]);
         expect(dumpModel.otherOwners.get("B06")).toBe("LED_STRIP 1");
+    });
+});
+
+describe("buildPadDefaults", () => {
+    it("labels pads by their default resource, even after they were cleared or moved", () => {
+        const current = [
+            { pad: "A02", peripheral: "MOTOR", index: 3 }, // moved from B04
+            { pad: "B05", peripheral: "SERVO", index: 1 }, // added, no default
+            { pad: "B06", peripheral: "LED_STRIP", index: 1 },
+        ];
+        const defaults = new Map([
+            ["MOTOR 1", "B00"], // now NONE
+            ["MOTOR 3", "B04"],
+            ["SERVO 1", "NONE"],
+        ]);
+        const padDefaults = buildPadDefaults(current, defaults);
+        expect(padDefaults.get("B00")).toBe("MOTOR 1");
+        expect(padDefaults.get("B04")).toBe("MOTOR 3");
+        expect(padDefaults.get("B06")).toBe("LED_STRIP 1");
+        expect(padDefaults.has("A02")).toBe(false);
+        expect(padDefaults.has("B05")).toBe(false);
     });
 });

@@ -165,3 +165,27 @@ export function parseTimerDump(input) {
     }
     return out;
 }
+
+/**
+ * Default pins from `diff hardware defaults`, which prints each changed
+ * resource with its default as a comment just above it:
+ *
+ *   #resource MOTOR 3 B04
+ *   resource MOTOR 3 NONE
+ *
+ * Resources not listed are still on their default.
+ *
+ * @param {string[]|string} input
+ * @returns {Map<string, string>} "MOTOR 3" -> "B04" (or "NONE")
+ */
+export function parseResourceDefaults(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const defaults = new Map();
+    for (const line of lines) {
+        const m = /^\s*#\s*resource\s+([A-Z][A-Z0-9_]*)\s+(\d+)\s+(NONE|[A-Z]\d{2})\s*$/i.exec(line);
+        if (m) {
+            defaults.set(`${m[1].toUpperCase()} ${Number(m[2])}`, m[3].toUpperCase());
+        }
+    }
+    return defaults;
+}

@@ -410,10 +410,11 @@ import { useReboot } from "@/composables/useReboot";
 import { clamp } from "@/js/utils/common";
 import { isExpertModeEnabled } from "@/js/utils/isExpertModeEnabled";
 import { findCliError, isMspCliSupported, saveAndReconnect, send } from "@/composables/useMspCliSession";
-import { parseResourceShow, parseTimerDump } from "@/js/utils/resourceCli";
+import { parseResourceDefaults, parseResourceShow, parseTimerDump } from "@/js/utils/resourceCli";
 import {
     PIN_NONE,
     assignPin,
+    buildPadDefaults,
     buildPinModel,
     parsePinKey,
     pinChangeLines,
@@ -473,6 +474,9 @@ type PinConflict = ReturnType<typeof rowPinConflict>;
 const pinModel = ref<PinModel | null>(null);
 const stagedPins = ref<Map<string, string>>(new Map());
 const pinsUnavailable = ref(false);
+// Pad -> the resource it has on the board's defaults ("MOTOR 3"), so pads stay
+// identifiable after their pins were changed or cleared.
+const padDefaults = ref<Map<string, string>>(new Map());
 
 const { addInterval } = useInterval();
 const { addTimeout } = useTimeout();
@@ -747,6 +751,18 @@ function pinOwnerLabel(key: string) {
     return t(kind === "MOTOR" ? "servosPinMotor" : "servosMixerOutputServo", { index });
 }
 
+// "Motor 3 pad" for the pad MOTOR 3 has by default; other peripherals keep
+// their CLI name.
+function padDefaultLabel(pad: string) {
+    const owner = padDefaults.value.get(pad);
+    if (!owner) {
+        return null;
+    }
+    const { kind } = parsePinKey(owner);
+    const name = kind === "MOTOR" || kind === "SERVO" ? pinOwnerLabel(owner) : kind;
+    return t("servosPinDefault", { name });
+}
+
 function pinConflictText(conflict: PinConflict) {
     if (!conflict) {
         return "";
@@ -774,6 +790,10 @@ function pinItems(key: string) {
             return { value: PIN_NONE, label: t("servosPinNone") };
         }
         const parts = [option.timer == null ? option.pad : `${option.pad} (TIM${option.timer} CH${option.channel})`];
+        const defaultLabel = padDefaultLabel(option.value);
+        if (defaultLabel) {
+            parts.push(defaultLabel);
+        }
         if (option.owner) {
             parts.push(t("servosPinMovesFrom", { name: pinOwnerLabel(option.owner) }));
         }
@@ -812,7 +832,10 @@ async function loadPins() {
         // lists IO in use, so it drops motors the mixer isn't running.
         const resources = parseResourceShow(await send("resource"));
         const timers = parseTimerDump(await send("timer"));
+        // diff runs over the whole hardware config, so give it longer.
+        const defaults = parseResourceDefaults(await send("diff hardware defaults", { timeoutMs: 10000 }));
         const model = buildPinModel(resources, timers);
+        padDefaults.value = buildPadDefaults(resources, defaults);
         pinModel.value = model;
         stagedPins.value = new Map(model.assignments);
     } catch (e) {

@@ -3,7 +3,7 @@
 // that as a signal to update the parsers, not to weaken the tests.
 
 import { describe, it, expect } from "vitest";
-import { parseResourceShow, parseTimerDump } from "../../../src/js/utils/resourceCli.js";
+import { parseResourceDefaults, parseResourceShow, parseTimerDump } from "../../../src/js/utils/resourceCli.js";
 
 // Trimmed `resource show` output from bench.
 const RESOURCE_SHOW_FIXTURE = `
@@ -102,5 +102,26 @@ timer A08 AF1
         const fixture = "timer B14 AF3\n# pin B14: TIM8 CH2N (AF3)\n";
         const parsed = parseTimerDump(fixture);
         expect(parsed).toEqual([{ pad: "B14", af: 3, timer: 8, channel: 2 }]);
+    });
+});
+
+describe("parseResourceDefaults", () => {
+    it("reads the commented defaults of changed resources", () => {
+        const diff = [
+            "# diff hardware defaults",
+            "# resource",
+            "#resource MOTOR 1 B00",
+            "resource MOTOR 1 NONE",
+            "#resource MOTOR 3 B04",
+            "resource MOTOR 3 A02",
+            "#resource SERVO 1 NONE",
+            "resource SERVO 1 B05",
+            "resource BEEPER 1 C13",
+        ];
+        expect([...parseResourceDefaults(diff)]).toEqual([
+            ["MOTOR 1", "B00"],
+            ["MOTOR 3", "B04"],
+            ["SERVO 1", "NONE"],
+        ]);
     });
 });

@@ -3255,6 +3255,9 @@
     "servosPinMotor": {
         "message": "Motor {{index}}"
     },
+    "servosPinDefault": {
+        "message": "{{name}} pad"
+    },
     "servosPinNone": {
         "message": "None"
     },

@@ -191,3 +191,30 @@ export function pinChangeLines(initial, staged) {
         ...assign.map((key) => `resource ${key} ${staged.get(key)}`),
     ];
 }
+
+/**
+ * The resource each pad belongs to on the board's defaults, e.g. B04 ->
+ * "MOTOR 3". Taken from the target config, so it usually matches the
+ * silkscreen, and stays known after the pins have been changed or cleared.
+ * @param {Array<{pad: string, peripheral: string, index: number|null}>} resources - parsed `resource` dump
+ * @param {Map<string, string>} defaults - parseResourceDefaults()
+ * @returns {Map<string, string>} pad -> "MOTOR 3"
+ */
+export function buildPadDefaults(resources, defaults) {
+    const byKey = new Map();
+    for (const entry of resources ?? []) {
+        if (entry.peripheral !== "FREE") {
+            byKey.set(entry.index == null ? entry.peripheral : `${entry.peripheral} ${entry.index}`, entry.pad);
+        }
+    }
+    for (const [key, pad] of defaults ?? []) {
+        byKey.set(key, pad);
+    }
+    const padDefaults = new Map();
+    for (const [key, pad] of byKey) {
+        if (pad !== PIN_NONE && !padDefaults.has(pad)) {
+            padDefaults.set(pad, key);
+        }
+    }
+    return padDefaults;
+}
