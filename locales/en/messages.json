@@ -3138,9 +3138,6 @@
     "servosMixerBuiltinHint": {
         "message": "This mixer drives the servos from rules built into the firmware. They are shown for reference and cannot be edited; switch to Custom Airplane or Custom Tri to use your own rules."
     },
-    "servosMixerCustomInactive": {
-        "message": "The custom rules below are saved but not used: the firmware only applies custom servo rules on Custom Airplane and Custom Tri."
-    },
     "servosMixerOutput": {
         "message": "Output"
     },

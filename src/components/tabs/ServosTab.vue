@@ -100,8 +100,14 @@
                     </div>
                 </UiBox>
 
-                <!-- Servo mixer rules (smix) -->
-                <UiBox :title="$t('servosMixerRulesTitle')" type="neutral" collapsible>
+                <!-- Servo mixer rules (smix). Only the set the firmware runs is shown:
+                     built-in rules on preset mixers, the custom list on custom mixers. -->
+                <UiBox
+                    v-if="builtinRules || editsCustomRules"
+                    :title="$t('servosMixerRulesTitle')"
+                    type="neutral"
+                    collapsible
+                >
                     <p class="text-sm text-muted mb-2">{{ $t("servosMixerRulesDesc") }}</p>
 
                     <!-- Preset mixers (AIRPLANE, FLYING_WING, TRI, ...) run rules built into
@@ -130,131 +136,130 @@
                                 <div class="text-center">{{ rule.max }}</div>
                             </template>
                         </div>
-                        <p v-if="servoMixRules.length > 0" class="text-xs text-amber-400 mt-2">
-                            {{ $t("servosMixerCustomInactive") }}
-                        </p>
                     </div>
 
-                    <div
-                        v-if="mixerLoadFailed"
-                        class="text-xs rounded p-2 mb-2 bg-red-500/10 text-red-400 border border-red-500/30"
-                    >
-                        {{ $t("servosMixerLoadFailed") }}
-                    </div>
-
-                    <div class="overflow-x-auto">
+                    <template v-if="editsCustomRules">
                         <div
-                            v-if="servoMixRules.length > 0"
-                            class="grid items-center gap-x-2 gap-y-1 min-w-0"
-                            style="
-                                grid-template-columns:
-                                    2rem 9rem 10rem minmax(4rem, 1fr) minmax(4rem, 1fr) minmax(4rem, 1fr)
-                                    minmax(4rem, 1fr) 7rem 2rem;
-                            "
+                            v-if="mixerLoadFailed"
+                            class="text-xs rounded p-2 mb-2 bg-red-500/10 text-red-400 border border-red-500/30"
                         >
-                            <div class="text-center text-xs font-bold py-1">#</div>
-                            <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerOutput") }}</div>
-                            <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerInput") }}</div>
-                            <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerRate") }}</div>
-                            <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerSpeed") }}</div>
-                            <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerMin") }}</div>
-                            <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerMax") }}</div>
-                            <div class="text-center text-xs font-bold py-1" :title="$t('servosMixerBoxHelp')">
-                                {{ $t("servosMixerBox") }}
+                            {{ $t("servosMixerLoadFailed") }}
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <div
+                                v-if="servoMixRules.length > 0"
+                                class="grid items-center gap-x-2 gap-y-1 min-w-0"
+                                style="
+                                    grid-template-columns:
+                                        2rem 9rem 10rem minmax(4rem, 1fr) minmax(4rem, 1fr) minmax(4rem, 1fr)
+                                        minmax(4rem, 1fr) 7rem 2rem;
+                                "
+                            >
+                                <div class="text-center text-xs font-bold py-1">#</div>
+                                <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerOutput") }}</div>
+                                <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerInput") }}</div>
+                                <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerRate") }}</div>
+                                <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerSpeed") }}</div>
+                                <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerMin") }}</div>
+                                <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerMax") }}</div>
+                                <div class="text-center text-xs font-bold py-1" :title="$t('servosMixerBoxHelp')">
+                                    {{ $t("servosMixerBox") }}
+                                </div>
+                                <div></div>
+
+                                <template v-for="(rule, idx) in servoMixRules" :key="idx">
+                                    <div class="text-center text-sm py-1">{{ idx + 1 }}</div>
+                                    <USelect
+                                        v-model="rule.target"
+                                        :items="servoMixOutputItems"
+                                        size="xs"
+                                        class="w-full"
+                                        @change="onMixRuleChange"
+                                    />
+                                    <USelect
+                                        v-model="rule.input"
+                                        :items="servoMixInputItems"
+                                        size="xs"
+                                        class="w-full"
+                                        @change="onMixRuleChange"
+                                    />
+                                    <UInputNumber
+                                        v-model="rule.rate"
+                                        :min="SERVO_MIX_RATE_MIN"
+                                        :max="SERVO_MIX_RATE_MAX"
+                                        size="xs"
+                                        orientation="vertical"
+                                        :format-options="{ useGrouping: false }"
+                                        class="w-full"
+                                        @change="onMixRuleChange"
+                                    />
+                                    <UInputNumber
+                                        v-model="rule.speed"
+                                        :min="0"
+                                        :max="255"
+                                        size="xs"
+                                        orientation="vertical"
+                                        :format-options="{ useGrouping: false }"
+                                        class="w-full"
+                                        @change="onMixRuleChange"
+                                    />
+                                    <UInputNumber
+                                        v-model="rule.min"
+                                        :min="SERVO_MIX_MIN"
+                                        :max="SERVO_MIX_MAX"
+                                        size="xs"
+                                        orientation="vertical"
+                                        :format-options="{ useGrouping: false }"
+                                        class="w-full"
+                                        @change="onMixRuleChange"
+                                    />
+                                    <UInputNumber
+                                        v-model="rule.max"
+                                        :min="SERVO_MIX_MIN"
+                                        :max="SERVO_MIX_MAX"
+                                        size="xs"
+                                        orientation="vertical"
+                                        :format-options="{ useGrouping: false }"
+                                        class="w-full"
+                                        @change="onMixRuleChange"
+                                    />
+                                    <USelect
+                                        v-model="rule.box"
+                                        :items="servoMixBoxItems"
+                                        size="xs"
+                                        class="w-full"
+                                        @change="onMixRuleChange"
+                                    />
+                                    <UButton
+                                        icon="i-lucide-x"
+                                        color="error"
+                                        variant="ghost"
+                                        size="xs"
+                                        :title="$t('servosMixerDeleteRule')"
+                                        @click="removeServoMixRule(idx)"
+                                    />
+                                </template>
                             </div>
-                            <div></div>
-
-                            <template v-for="(rule, idx) in servoMixRules" :key="idx">
-                                <div class="text-center text-sm py-1">{{ idx + 1 }}</div>
-                                <USelect
-                                    v-model="rule.target"
-                                    :items="servoMixOutputItems"
-                                    size="xs"
-                                    class="w-full"
-                                    @change="onMixRuleChange"
-                                />
-                                <USelect
-                                    v-model="rule.input"
-                                    :items="servoMixInputItems"
-                                    size="xs"
-                                    class="w-full"
-                                    @change="onMixRuleChange"
-                                />
-                                <UInputNumber
-                                    v-model="rule.rate"
-                                    :min="SERVO_MIX_RATE_MIN"
-                                    :max="SERVO_MIX_RATE_MAX"
-                                    size="xs"
-                                    orientation="vertical"
-                                    :format-options="{ useGrouping: false }"
-                                    class="w-full"
-                                    @change="onMixRuleChange"
-                                />
-                                <UInputNumber
-                                    v-model="rule.speed"
-                                    :min="0"
-                                    :max="255"
-                                    size="xs"
-                                    orientation="vertical"
-                                    :format-options="{ useGrouping: false }"
-                                    class="w-full"
-                                    @change="onMixRuleChange"
-                                />
-                                <UInputNumber
-                                    v-model="rule.min"
-                                    :min="SERVO_MIX_MIN"
-                                    :max="SERVO_MIX_MAX"
-                                    size="xs"
-                                    orientation="vertical"
-                                    :format-options="{ useGrouping: false }"
-                                    class="w-full"
-                                    @change="onMixRuleChange"
-                                />
-                                <UInputNumber
-                                    v-model="rule.max"
-                                    :min="SERVO_MIX_MIN"
-                                    :max="SERVO_MIX_MAX"
-                                    size="xs"
-                                    orientation="vertical"
-                                    :format-options="{ useGrouping: false }"
-                                    class="w-full"
-                                    @change="onMixRuleChange"
-                                />
-                                <USelect
-                                    v-model="rule.box"
-                                    :items="servoMixBoxItems"
-                                    size="xs"
-                                    class="w-full"
-                                    @change="onMixRuleChange"
-                                />
-                                <UButton
-                                    icon="i-lucide-x"
-                                    color="error"
-                                    variant="ghost"
-                                    size="xs"
-                                    :title="$t('servosMixerDeleteRule')"
-                                    @click="removeServoMixRule(idx)"
-                                />
-                            </template>
+                            <div v-else class="text-sm text-muted italic py-2 text-center">
+                                {{ $t("servosMixerNoRules") }}
+                            </div>
                         </div>
-                        <div v-else class="text-sm text-muted italic py-2 text-center">
-                            {{ $t("servosMixerNoRules") }}
-                        </div>
-                    </div>
 
-                    <div class="flex items-center gap-2 mt-3">
-                        <UButton
-                            :label="$t('servosMixerAddRule')"
-                            icon="i-lucide-plus"
-                            size="xs"
-                            variant="outline"
-                            :disabled="servoMixRules.length >= MAX_SERVO_RULES || mixerLoadFailed"
-                            @click="addServoMixRule"
-                        />
-                        <span class="text-xs text-muted ml-auto">
-                            {{ servoMixRules.length }} / {{ MAX_SERVO_RULES }}
-                        </span>
-                    </div>
+                        <div class="flex items-center gap-2 mt-3">
+                            <UButton
+                                :label="$t('servosMixerAddRule')"
+                                icon="i-lucide-plus"
+                                size="xs"
+                                variant="outline"
+                                :disabled="servoMixRules.length >= MAX_SERVO_RULES || mixerLoadFailed"
+                                @click="addServoMixRule"
+                            />
+                            <span class="text-xs text-muted ml-auto">
+                                {{ servoMixRules.length }} / {{ MAX_SERVO_RULES }}
+                            </span>
+                        </div>
+                    </template>
                 </UiBox>
 
                 <!-- Servo visualization bars, one per physical output, showing the
@@ -344,7 +349,6 @@ import {
     SERVO_MIX_RATE_MIN,
     SERVO_MIX_RATE_MAX,
     MAX_SERVO_RULES,
-    MIXER_IDS,
     activeServoMixRules,
     builtinServoMixRules,
     invalidServoMixRules,
@@ -424,15 +428,9 @@ const servoConfigRows = computed(() => {
         }));
 });
 
-// Custom rules only run on CUSTOM_AIRPLANE / CUSTOM_TRI. While a preset mixer
-// is active, the editable rules are labelled as on Custom Airplane.
-const customRulesMixer = computed(() => {
-    const mixer = mixerMode.value;
-    if (mixer == null || usesCustomServoRules(mixer)) {
-        return mixer;
-    }
-    return MIXER_IDS.CUSTOM_AIRPLANE;
-});
+// The custom rule list only runs on CUSTOM_AIRPLANE / CUSTOM_TRI, so it is
+// only shown and edited there.
+const editsCustomRules = computed(() => usesCustomServoRules(mixerMode.value));
 
 // Label a firmware servo target by the physical output carrying it ("Servo 1"
 // = first servo output). Targets the mixer doesn't drive keep their firmware
@@ -448,9 +446,9 @@ function servoOutputLabel(target: number, mixer: number | null) {
 // Output dropdown: driven outputs in physical order, undriven targets last
 // and disabled.
 const servoMixOutputItems = computed(() =>
-    servoOutputItems(customRulesMixer.value, slotLayoutOptions()).map((item) => ({
+    servoOutputItems(mixerMode.value, slotLayoutOptions()).map((item) => ({
         value: item.target,
-        label: servoOutputLabel(item.target, customRulesMixer.value),
+        label: servoOutputLabel(item.target, mixerMode.value),
         disabled: item.slot == null,
     })),
 );
