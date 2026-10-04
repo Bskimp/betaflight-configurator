@@ -301,6 +301,10 @@
                      staged; Save writes them and reboots once. -->
                 <UiBox v-if="pinModel" :title="$t('servosPinsTitle')" type="neutral" collapsible>
                     <p class="text-sm text-muted mb-3">{{ $t("servosPinsDesc") }}</p>
+                    <div v-if="spareUarts.size > 0" class="flex items-center gap-2 mb-3">
+                        <USwitch v-model="allowUartPins" size="xs" />
+                        <span class="text-sm">{{ $t("servosPinsAllowUart") }}</span>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div v-for="group in pinGroups" :key="group.kind">
                             <h4 class="text-sm font-bold mb-2">{{ group.title }}</h4>
@@ -426,6 +430,7 @@ import {
     currentPinValue,
     initialPinState,
     parsePinKey,
+    uartOfKey,
     pinChangeLines,
     pinOptions,
     rowPinConflict,
@@ -485,6 +490,9 @@ const pinModel = ref<PinModel | null>(null);
 type PinState = ReturnType<typeof initialPinState>;
 const pinState = ref<PinState>({ assignments: new Map(), afs: new Map() });
 const pinsUnavailable = ref(false);
+// Spare UART pins (no function set in Ports) are offered to servos only when
+// the user opts in; using one frees the whole UART.
+const allowUartPins = ref(false);
 // Pad -> the resource it has on the board's defaults ("MOTOR 3"), so pads stay
 // identifiable after their pins were changed or cleared.
 const padDefaults = ref<Map<string, string>>(new Map());
@@ -757,8 +765,27 @@ const pinGroups = computed(() => {
     ].filter((group) => group.keys.length > 0);
 });
 
+// UARTs no Ports function uses, by number (serial identifier 0 = UART1;
+// VCP, soft serial and LPUART identifiers start at 20).
+const spareUarts = computed(
+    () =>
+        new Set(
+            (FC.SERIAL_CONFIG?.ports ?? [])
+                .filter((port) => port.identifier < 20 && port.functions.length === 0)
+                .map((port) => port.identifier + 1),
+        ),
+);
+const releasableUarts = computed(() => (allowUartPins.value ? spareUarts.value : new Set<number>()));
+
 function pinOwnerLabel(key: string) {
     const { kind, index } = parsePinKey(key);
+    if (kind === "LED_STRIP") {
+        return t("servosPinLedStrip");
+    }
+    const uart = uartOfKey(key);
+    if (uart != null) {
+        return t(kind === "SERIAL_TX" ? "servosPinUartTx" : "servosPinUartRx", { index: uart });
+    }
     return t(kind === "MOTOR" ? "servosPinMotor" : "servosMixerOutputServo", { index });
 }
 
@@ -770,8 +797,8 @@ function padDefaultLabel(pad: string) {
         return null;
     }
     const { kind } = parsePinKey(owner);
-    const name = kind === "MOTOR" || kind === "SERVO" ? pinOwnerLabel(owner) : kind;
-    return t("servosPinDefault", { name });
+    const known = ["MOTOR", "SERVO", "LED_STRIP", "SERIAL_TX", "SERIAL_RX"].includes(kind);
+    return t("servosPinDefault", { name: known ? pinOwnerLabel(owner) : kind });
 }
 
 function pinConflictText(conflict: PinConflict) {
@@ -795,6 +822,7 @@ function pinItems(key: string) {
         key,
         motorCount: motorCount.value,
         expertMode: isExpertModeEnabled(),
+        releasableUarts: releasableUarts.value,
     });
     return options.map((option) => {
         if (option.value === PIN_NONE) {
@@ -811,7 +839,12 @@ function pinItems(key: string) {
             parts.push(t("servosPinAltTimer"));
         }
         if (option.owner) {
-            parts.push(t("servosPinMovesFrom", { name: pinOwnerLabel(option.owner) }));
+            const uart = uartOfKey(option.owner);
+            parts.push(
+                uart == null
+                    ? t("servosPinMovesFrom", { name: pinOwnerLabel(option.owner) })
+                    : t("servosPinFreesUart", { index: uart }),
+            );
         }
         if (option.conflict) {
             parts.push(pinConflictText(option.conflict));
@@ -864,11 +897,22 @@ async function loadPins() {
         // diff runs over the whole hardware config, so give it longer. Its
         // commented defaults name each pad's default role, timer and DMA.
         const diff = await send("diff hardware defaults", { timeoutMs: 10000 });
-        const padTimerOptions = await readPadTimerOptions(timers.map((entry) => entry.pad));
+        // Ports functions decide which UARTs are spare; without them none is.
+        try {
+            await MSP.promise(MSPCodes.MSP2_COMMON_SERIAL_CONFIG);
+        } catch (e) {
+            console.warn("Serial config unavailable; UART pins stay locked", e);
+            FC.SERIAL_CONFIG.ports = [];
+        }
+        const uartPads = resources
+            .filter((entry) => entry.peripheral.startsWith("SERIAL_") && spareUarts.value.has(entry.index ?? -1))
+            .map((entry) => entry.pad);
+        const padTimerOptions = await readPadTimerOptions([...timers.map((entry) => entry.pad), ...uartPads]);
         const model = buildPinModel(resources, timers, padTimerOptions, {
             timerAfs: parseTimerDefaults(diff),
             dmaPins: parseDmaPinDefaults(diff),
             currentDma,
+            ledStripEnabled: FC.FEATURE_CONFIG?.features?.isEnabled("LED_STRIP") ?? true,
         });
         padDefaults.value = buildPadDefaults(resources, parseResourceDefaults(diff));
         pinModel.value = model;

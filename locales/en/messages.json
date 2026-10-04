@@ -3261,6 +3261,21 @@
     "servosPinAltTimer": {
         "message": "alternate timer"
     },
+    "servosPinsAllowUart": {
+        "message": "Allow spare UART pins (using one frees that UART)"
+    },
+    "servosPinLedStrip": {
+        "message": "LED strip"
+    },
+    "servosPinUartTx": {
+        "message": "UART{{index}} TX"
+    },
+    "servosPinUartRx": {
+        "message": "UART{{index}} RX"
+    },
+    "servosPinFreesUart": {
+        "message": "frees UART{{index}}"
+    },
     "servosPinNone": {
         "message": "None"
     },
