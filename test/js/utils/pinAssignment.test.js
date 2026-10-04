@@ -69,7 +69,9 @@ describe("buildPinModel", () => {
         expect(model.assignments.get("MOTOR 1")).toBe("B00");
         expect(model.assignments.get("SERVO 3")).toBe("A15");
         expect(model.otherOwners.get("B06")).toBe("LED_STRIP");
-        expect(model.otherOwners.get("B10")).toBe("SERIAL_TX 3");
+        expect(model.assignments.get("SERIAL_TX 3")).toBe("B10");
+        expect(model.otherOwners.has("B10")).toBe(false);
+        expect(model.otherOwners.get("A04")).toBe("GYRO_CS 1");
         expect(model.otherOwners.has("B03")).toBe(false);
         expect(model.padTimers.get("B14")).toEqual({ timer: 1, channel: 2 });
     });
@@ -193,8 +195,10 @@ describe("buildPinModel from the `resource` dump", () => {
         expect([...dumpModel.assignments]).toEqual([
             ["MOTOR 1", "B00"],
             ["MOTOR 2", "B01"],
+            ["LED_STRIP 1", "B06"],
+            ["SERIAL_TX 1", "A09"],
         ]);
-        expect(dumpModel.otherOwners.get("B06")).toBe("LED_STRIP 1");
+        expect(dumpModel.otherOwners.get("C13")).toBe("BEEPER 1");
     });
 });
 
@@ -341,5 +345,87 @@ describe("motors use the default timer and DMA", () => {
     it("writes no DMA line for servos", () => {
         const staged = selectPin(fw, s0, "SERVO 2", "A03");
         expect(pinChangeLines(fw, staged)).toEqual(["resource SERVO 2 A03"]);
+    });
+});
+
+describe("LED strip and UART release", () => {
+    // LED strip on B06 (TIM4 CH1), UART3 on B10/B11 (no timer configured;
+    // B10 can be TIM2 CH3, B11 TIM2 CH4), a servo on A15 (TIM2 CH1).
+    const resources = [
+        { pad: "B00", peripheral: "MOTOR", index: 1 },
+        { pad: "A15", peripheral: "SERVO", index: 1 },
+        { pad: "B07", peripheral: "SERVO", index: 2 },
+        { pad: "B06", peripheral: "LED_STRIP", index: 1 },
+        { pad: "B10", peripheral: "SERIAL_TX", index: 3 },
+        { pad: "B11", peripheral: "SERIAL_RX", index: 3 },
+        { pad: "A09", peripheral: "SERIAL_TX", index: 1 },
+    ];
+    const timers = [
+        { pad: "B00", af: 2, timer: 3, channel: 3 },
+        { pad: "A15", af: 1, timer: 2, channel: 1 },
+        { pad: "B07", af: 2, timer: 4, channel: 2 },
+        { pad: "B06", af: 2, timer: 4, channel: 1 },
+    ];
+    const options = new Map([
+        ["B10", [{ af: 1, timer: 2, channel: 3, complementary: false }]],
+        ["B11", [{ af: 1, timer: 2, channel: 4, complementary: false }]],
+        ["A09", [{ af: 1, timer: 1, channel: 2, complementary: false }]],
+    ]);
+    const m = buildPinModel(resources, timers, options);
+    const s0 = initialPinState(m);
+    const values = (key, extra = {}) =>
+        pinOptions({ model: m, state: s0, key, motorCount: 1, ...extra }).map((o) => o.value);
+
+    it("offers the LED strip pad and moves the LED off it", () => {
+        const led = pinOptions({ model: m, state: s0, key: "SERVO 1", motorCount: 1 }).find((o) => o.pad === "B06");
+        expect(led.owner).toBe("LED_STRIP 1");
+        const staged = selectPin(m, s0, "SERVO 1", "B06");
+        expect(pinChangeLines(m, staged)).toEqual([
+            "resource LED_STRIP 1 NONE",
+            "resource SERVO 1 NONE",
+            "resource SERVO 1 B06",
+        ]);
+        // A motor isn't offered it: SERVO 2 holds TIM4 too.
+        expect(values("MOTOR 1")).not.toContain("B06");
+    });
+
+    it("treats the LED strip timer like another output's", () => {
+        // B07 shares TIM4 with the LED strip: SERVO 2 already sits there, so
+        // its row warns; a motor isn't offered B07 outside expert mode.
+        expect(rowPinConflict({ model: m, state: s0, key: "SERVO 2" })).toMatchObject({
+            hard: false,
+            timer: 4,
+            with: "LED_STRIP 1",
+        });
+        const off = buildPinModel(resources, timers, options, { ledStripEnabled: false });
+        expect(rowPinConflict({ model: off, state: initialPinState(off), key: "SERVO 2" })).toBeNull();
+    });
+
+    it("hides UART pins unless their UART is released", () => {
+        expect(values("SERVO 1")).not.toContain("B10/AF1");
+        expect(values("SERVO 1", { releasableUarts: new Set([3]) })).toContain("B11/AF1");
+        expect(values("MOTOR 1", { releasableUarts: new Set([3]) })).not.toContain("B11/AF1");
+        expect(values("SERVO 1", { releasableUarts: new Set([3]) })).not.toContain("A09/AF1");
+    });
+
+    it("frees both pins of a UART and gives its pad a timer", () => {
+        const staged = selectPin(m, s0, "SERVO 1", "B10/AF1");
+        expect(staged.assignments.get("SERIAL_RX 3")).toBe(PIN_NONE);
+        expect(pinChangeLines(m, staged)).toEqual([
+            "timer B10 AF1",
+            "resource SERIAL_RX 3 NONE",
+            "resource SERIAL_TX 3 NONE",
+            "resource SERVO 1 NONE",
+            "resource SERVO 1 B10",
+        ]);
+    });
+
+    it("gives the LED strip and a UART their pins back when the servo leaves", () => {
+        let staged = selectPin(m, s0, "SERVO 1", "B10/AF1");
+        staged = selectPin(m, staged, "SERVO 1", "A15");
+        expect(pinChangeLines(m, staged)).toEqual([]);
+        staged = selectPin(m, s0, "MOTOR 1", "B06");
+        staged = selectPin(m, staged, "MOTOR 1", "B00");
+        expect(pinChangeLines(m, staged)).toEqual([]);
     });
 });

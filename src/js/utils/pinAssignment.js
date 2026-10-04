@@ -9,6 +9,11 @@
 // (AF); a servo may move a pad to another AF ("B00/AF1"). Motors always use
 // the board's default AF and DMA option, since DShot DMA needs both: a
 // `timer` change clears the pad's DMA option, so it is restored with them.
+//
+// The LED strip and UART pins are tracked the same way ("LED_STRIP 1",
+// "SERIAL_TX 3"), so an output can take their pad: the LED strip is released
+// like any other output; a UART only when the caller allows it (spare UARTs,
+// opt-in), and always with both its pins.
 
 /**
  * @typedef {{hard: boolean, timer: number, channel: number, with: string}} PinConflict
@@ -18,7 +23,9 @@
 
 export const PIN_NONE = "NONE";
 
-const ASSIGNABLE = new Set(["MOTOR", "SERVO"]);
+const ASSIGNABLE = new Set(["MOTOR", "SERVO", "LED_STRIP", "SERIAL_TX", "SERIAL_RX"]);
+const OUTPUT_KINDS = new Set(["MOTOR", "SERVO"]);
+const UART_KINDS = new Set(["SERIAL_TX", "SERIAL_RX"]);
 
 /**
  * @param {string} key - "MOTOR 1"
@@ -45,9 +52,10 @@ function decodePinValue(model, value) {
  * @param {Array<{pad: string, peripheral: string, index: number|null}>} resources - parseResourceShow() of `resource`
  * @param {Array<{pad: string, af: number, timer: number|null, channel: number|null}>} timers - parseTimerDump()
  * @param {Map<string, Array<{af: number, timer: number, channel: number, complementary: boolean}>>} [padTimerOptions] - parseTimerOptions() per pad
- * @param {{timerAfs?: Map<string, number>, dmaPins?: Map<string, string>, currentDma?: Map<string, string>}} [hardware]
+ * @param {{timerAfs?: Map<string, number>, dmaPins?: Map<string, string>, currentDma?: Map<string, string>, ledStripEnabled?: boolean}} [hardware]
  *   default AFs and DMA options of changed pads (parseTimerDefaults / parseDmaPinDefaults of
- *   `diff hardware defaults`) and the current DMA options (parseDmaPins of `dma`)
+ *   `diff hardware defaults`), the current DMA options (parseDmaPins of `dma`), and whether
+ *   the LED strip feature runs (only then does its pad hold a timer)
  */
 export function buildPinModel(resources, timers, padTimerOptions = new Map(), hardware = {}) {
     const assignments = new Map();
@@ -81,7 +89,18 @@ export function buildPinModel(resources, timers, padTimerOptions = new Map(), ha
         defaultDma.set(pad, hardware.dmaPins?.get(pad) ?? hardware.currentDma?.get(pad) ?? PIN_NONE);
     }
     const dmaChanged = new Set(hardware.dmaPins?.keys() ?? []);
-    return { assignments, afs, otherOwners, padTimers, padTimerOptions, defaultAfs, defaultDma, dmaChanged };
+    const ledStripEnabled = hardware.ledStripEnabled ?? true;
+    return {
+        assignments,
+        afs,
+        otherOwners,
+        padTimers,
+        padTimerOptions,
+        defaultAfs,
+        defaultDma,
+        dmaChanged,
+        ledStripEnabled,
+    };
 }
 
 /**
@@ -103,11 +122,26 @@ function padTimerAt(model, pad, af) {
     return option ? { timer: option.timer, channel: option.channel, complementary: option.complementary } : null;
 }
 
-// Motors past the mixer's motor count are never started, so their pads hold
-// no timer. 0 = count unknown: treat every motor as running.
-function claimsTimer(key, motorCount) {
+// Which outputs hold a timer: servos, the LED strip while its feature runs,
+// and motors up to the mixer's motor count (later ones are never started;
+// 0 = count unknown, treat every motor as running). UART pins hold none.
+function claimsTimer(model, key, motorCount) {
     const { kind, index } = parsePinKey(key);
-    return kind !== "MOTOR" || !motorCount || index <= motorCount;
+    if (kind === "MOTOR") {
+        return !motorCount || index <= motorCount;
+    }
+    if (kind === "LED_STRIP") {
+        return model.ledStripEnabled;
+    }
+    return kind === "SERVO";
+}
+
+/**
+ * UART number of a "SERIAL_TX 3" / "SERIAL_RX 3" key, else null.
+ */
+export function uartOfKey(key) {
+    const { kind, index } = parsePinKey(key);
+    return UART_KINDS.has(kind) ? index : null;
 }
 
 function ownerOfPad(assignments, pad) {
@@ -136,7 +170,7 @@ export function pinTimerConflict({ model, state, key, pad, af = null, motorCount
     const kind = parsePinKey(key).kind;
     let soft = null;
     for (const [other, otherPad] of state.assignments) {
-        if (other === key || other === displaced || otherPad === PIN_NONE || !claimsTimer(other, motorCount)) {
+        if (other === key || other === displaced || otherPad === PIN_NONE || !claimsTimer(model, other, motorCount)) {
             continue;
         }
         const theirs = padTimerAt(model, otherPad, state.afs.get(otherPad));
@@ -158,7 +192,7 @@ export function pinTimerConflict({ model, state, key, pad, af = null, motorCount
  */
 export function rowPinConflict({ model, state, key, motorCount = 0 }) {
     const pad = state.assignments.get(key);
-    if (!pad || pad === PIN_NONE || !claimsTimer(key, motorCount)) {
+    if (!pad || pad === PIN_NONE || !claimsTimer(model, key, motorCount)) {
         return null;
     }
     return pinTimerConflict({ model, state, key, pad, af: state.afs.get(pad), motorCount });
@@ -177,11 +211,15 @@ export function currentPinValue(model, state, key) {
 // timer channel.
 function padChoices(model, pad, kind) {
     if (kind === "MOTOR") {
-        const af = model.defaultAfs.get(pad) ?? null;
+        if (!model.defaultAfs.has(pad)) {
+            return [];
+        }
+        const af = model.defaultAfs.get(pad);
         return [{ af, timer: padTimerAt(model, pad, af), alt: false }];
     }
+    // A pad without a timer yet (a UART pin) only has its timer options.
     const configured = model.padTimers.get(pad);
-    const choices = [{ af: model.afs.get(pad) ?? null, timer: configured ?? null, alt: false }];
+    const choices = configured ? [{ af: model.afs.get(pad) ?? null, timer: configured, alt: false }] : [];
     const seen = new Set(configured ? [`${configured.timer}:${configured.channel}`] : []);
     for (const option of model.padTimerOptions.get(pad) ?? []) {
         const id = `${option.timer}:${option.channel}`;
@@ -194,27 +232,41 @@ function padChoices(model, pad, kind) {
 }
 
 /**
- * Pins `key` can move to: pads with a timer that no other peripheral
- * (UART, LED strip, ...) owns, and for servos each pad's other timers. A pad
- * held by another motor or servo is offered and moves that output to NONE.
- * Choices that would share a timer channel are dropped; a motor/servo timer
- * share only shows in expert mode. The current pin is always listed.
+ * Pins `key` can move to: pads with a timer that no other peripheral owns,
+ * for servos each pad's other timers, and for servos the pins of the UARTs in
+ * `releasableUarts`. A pad held by another output or the LED strip is offered
+ * and moves that owner to NONE. Choices that would share a timer channel are
+ * dropped; outputs of different kinds sharing a timer only show in expert
+ * mode. The current pin is always listed.
+ * @param {{model: object, state: PinState, key: string, motorCount?: number, expertMode?: boolean, releasableUarts?: Set<number>}} args
  * @returns {Array<{value: string, pad: string|null, timer: PadTimer|null, alt: boolean, owner: string|null, conflict: PinConflict|null}>}
  */
-export function pinOptions({ model, state, key, motorCount = 0, expertMode = false }) {
+export function pinOptions({ model, state, key, motorCount = 0, expertMode = false, releasableUarts = new Set() }) {
     const kind = parsePinKey(key).kind;
     const currentValue = currentPinValue(model, state, key);
     const currentPad = state.assignments.get(key) ?? PIN_NONE;
     const options = [{ value: PIN_NONE, pad: null, timer: null, alt: false, owner: null, conflict: null }];
-    const pads = [...model.padTimers.keys()].sort((a, b) => a.localeCompare(b));
-    if (currentPad !== PIN_NONE && !model.padTimers.has(currentPad)) {
-        pads.push(currentPad);
+    const padSet = new Set(model.padTimers.keys());
+    if (kind === "SERVO") {
+        for (const [owner, pad] of model.assignments) {
+            if (releasableUarts.has(uartOfKey(owner)) && model.padTimerOptions.get(pad)?.length) {
+                padSet.add(pad);
+            }
+        }
     }
+    if (currentPad !== PIN_NONE) {
+        padSet.add(currentPad);
+    }
+    const pads = [...padSet].sort((a, b) => a.localeCompare(b));
     for (const pad of pads) {
         if (model.otherOwners.has(pad) && pad !== currentPad) {
             continue;
         }
         const owner = ownerOfPad(state.assignments, pad);
+        const ownerUart = owner ? uartOfKey(owner) : null;
+        if (ownerUart != null && (kind !== "SERVO" || !releasableUarts.has(ownerUart))) {
+            continue;
+        }
         for (const choice of padChoices(model, pad, kind)) {
             const value = encodePinValue(model, pad, choice.af);
             const conflict = pinTimerConflict({ model, state, key, pad, af: choice.af, motorCount, displaced: owner });
@@ -241,9 +293,10 @@ export function pinOptions({ model, state, key, motorCount = 0, expertMode = fal
 
 /**
  * `state` with `key` on the pin `value` (a pad, "B00/AF1", or PIN_NONE). Any
- * other output on that pad moves to NONE, as the firmware would leave both
- * claiming it otherwise; pads left without an output return to their
- * configured AF.
+ * other owner of that pad moves to NONE, as the firmware would leave both
+ * claiming it otherwise; a UART loses both its pins. The LED strip and UARTs
+ * get their pins back once nothing uses them, and pads left without an
+ * output return to their configured AF.
  * @returns {PinState}
  */
 export function selectPin(model, state, key, value) {
@@ -253,7 +306,7 @@ export function selectPin(model, state, key, value) {
     if (pad !== PIN_NONE) {
         for (const [other, assigned] of assignments) {
             if (other !== key && assigned === pad) {
-                assignments.set(other, PIN_NONE);
+                releaseOwner(assignments, other);
             }
         }
         if (af != null) {
@@ -261,13 +314,61 @@ export function selectPin(model, state, key, value) {
         }
     }
     assignments.set(key, pad);
-    const used = new Set(assignments.values());
-    for (const [p, configured] of model.afs) {
-        if (!used.has(p)) {
-            afs.set(p, configured);
+    restorePeripherals(model, assignments);
+    // Only motors and servos keep a pad on a chosen timer.
+    const used = new Set(
+        [...assignments].filter(([owner]) => OUTPUT_KINDS.has(parsePinKey(owner).kind)).map(([, p]) => p),
+    );
+    for (const p of afs.keys()) {
+        if (used.has(p)) {
+            continue;
+        }
+        if (model.afs.has(p)) {
+            afs.set(p, model.afs.get(p));
+        } else {
+            afs.delete(p);
         }
     }
     return { assignments, afs };
+}
+
+// Move `owner` to NONE; a UART pin takes its partner with it.
+function releaseOwner(assignments, owner) {
+    assignments.set(owner, PIN_NONE);
+    const uart = uartOfKey(owner);
+    if (uart != null) {
+        for (const kind of UART_KINDS) {
+            if (assignments.has(`${kind} ${uart}`)) {
+                assignments.set(`${kind} ${uart}`, PIN_NONE);
+            }
+        }
+    }
+}
+
+// Give the LED strip and UARTs back their configured pins once no output
+// uses them; a UART only when both its pins are free.
+function restorePeripherals(model, assignments) {
+    const used = new Set(assignments.values());
+    const groups = new Map();
+    for (const [key, pad] of model.assignments) {
+        if (OUTPUT_KINDS.has(parsePinKey(key).kind)) {
+            continue;
+        }
+        const uart = uartOfKey(key);
+        const group = uart == null ? key : `UART ${uart}`;
+        if (!groups.has(group)) {
+            groups.set(group, []);
+        }
+        groups.get(group).push([key, pad]);
+    }
+    for (const members of groups.values()) {
+        const released = members.some(([key]) => assignments.get(key) !== model.assignments.get(key));
+        if (released && members.every(([, pad]) => !used.has(pad))) {
+            for (const [key, pad] of members) {
+                assignments.set(key, pad);
+            }
+        }
+    }
 }
 
 function compareKeys(a, b) {
