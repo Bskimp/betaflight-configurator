@@ -3180,6 +3180,69 @@
     "servosMixerCliHint": {
         "message": "In the CLI, the smix command uses firmware servo numbers instead: {{map}}."
     },
+    "servosMixerRole": {
+        "message": "Role"
+    },
+    "servosMixerRole_aileron": {
+        "message": "Aileron"
+    },
+    "servosMixerRole_elevator": {
+        "message": "Elevator"
+    },
+    "servosMixerRole_rudder": {
+        "message": "Rudder"
+    },
+    "servosMixerRole_throttle": {
+        "message": "Throttle"
+    },
+    "servosMixerRole_aux": {
+        "message": "Aux"
+    },
+    "servosMixerRole_gimbal": {
+        "message": "Gimbal"
+    },
+    "servosMixerRole_elevon": {
+        "message": "Elevon"
+    },
+    "servosMixerRole_vtail": {
+        "message": "V-tail"
+    },
+    "servosMixerRole_mixed": {
+        "message": "Mixed"
+    },
+    "servosMixerTemplateAilerons": {
+        "message": "Ailerons"
+    },
+    "servosMixerTemplateElevator": {
+        "message": "Elevator"
+    },
+    "servosMixerTemplateRudder": {
+        "message": "Rudder"
+    },
+    "servosMixerTemplateElevons": {
+        "message": "Elevons"
+    },
+    "servosMixerTemplateVTail": {
+        "message": "V-tail"
+    },
+    "servosMixerTemplateUnknown": {
+        "message": "Servo mixer template \"{{id}}\" not found."
+    },
+    "servosMixerTemplateTooManyRules": {
+        "message": "Not added: it would take the servo mixer past {{max}} rules."
+    },
+    "servosMixerTemplateNoFreeOutputs": {
+        "message": "Not added: it needs {{needed}} free servo outputs and {{free}} are left. Remove a rule first."
+    },
+    "servosMixerFromAirplane": {
+        "message": "Same as Airplane"
+    },
+    "servosMixerFromFlyingWing": {
+        "message": "Same as Flying Wing"
+    },
+    "servosMixerFromTri": {
+        "message": "Same as Tri"
+    },
     "servosMixerOutputServo": {
         "message": "Servo {{index}}"
     },

@@ -124,10 +124,11 @@
                         <p class="text-xs text-muted mb-1">{{ $t("servosMixerBuiltinHint") }}</p>
                         <div
                             class="grid items-center gap-x-2 gap-y-1 min-w-0 text-sm"
-                            style="grid-template-columns: 2rem 9rem 10rem repeat(4, minmax(4rem, 1fr))"
+                            style="grid-template-columns: 2rem 9rem 6rem 10rem repeat(4, minmax(4rem, 1fr))"
                         >
                             <div class="text-center text-xs font-bold py-1">#</div>
                             <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerOutput") }}</div>
+                            <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerRole") }}</div>
                             <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerInput") }}</div>
                             <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerRate") }}</div>
                             <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerSpeed") }}</div>
@@ -136,6 +137,9 @@
                             <template v-for="(rule, idx) in builtinRules" :key="'builtin' + idx">
                                 <div class="text-center text-muted py-1">{{ idx + 1 }}</div>
                                 <div class="truncate">{{ servoOutputLabel(rule.target, mixerMode) }}</div>
+                                <div class="text-center text-muted truncate">
+                                    {{ servoRoleLabel(builtinRules, rule.target) }}
+                                </div>
                                 <div class="truncate">{{ SERVO_MIX_INPUT_LABELS[rule.input] }}</div>
                                 <div class="text-center">{{ rule.rate }}</div>
                                 <div class="text-center">{{ rule.speed }}</div>
@@ -159,12 +163,13 @@
                                 class="grid items-center gap-x-2 gap-y-1 min-w-0"
                                 style="
                                     grid-template-columns:
-                                        2rem 9rem 10rem minmax(4rem, 1fr) minmax(4rem, 1fr) minmax(4rem, 1fr)
+                                        2rem 9rem 6rem 10rem minmax(4rem, 1fr) minmax(4rem, 1fr) minmax(4rem, 1fr)
                                         minmax(4rem, 1fr) 7rem 2rem;
                                 "
                             >
                                 <div class="text-center text-xs font-bold py-1">#</div>
                                 <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerOutput") }}</div>
+                                <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerRole") }}</div>
                                 <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerInput") }}</div>
                                 <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerRate") }}</div>
                                 <div class="text-center text-xs font-bold py-1">{{ $t("servosMixerSpeed") }}</div>
@@ -184,6 +189,9 @@
                                         class="w-full"
                                         @change="onMixRuleChange"
                                     />
+                                    <div class="text-center text-sm text-muted truncate">
+                                        {{ servoRoleLabel(servoMixRules, rule.target) }}
+                                    </div>
                                     <USelect
                                         v-model="rule.input"
                                         :items="servoMixInputItems"
@@ -253,7 +261,7 @@
                             </div>
                         </div>
 
-                        <div class="flex items-center gap-2 mt-3">
+                        <div class="flex flex-wrap items-center gap-2 mt-3">
                             <UButton
                                 :label="$t('servosMixerAddRule')"
                                 icon="i-lucide-plus"
@@ -261,6 +269,26 @@
                                 variant="outline"
                                 :disabled="servoMixRules.length >= MAX_SERVO_RULES || mixerLoadFailed"
                                 @click="addServoMixRule"
+                            />
+                            <UButton
+                                v-for="preset in presetChoices"
+                                :key="'preset' + preset.mixer"
+                                :label="preset.label"
+                                icon="i-lucide-copy"
+                                size="xs"
+                                variant="outline"
+                                :disabled="mixerLoadFailed"
+                                @click="copyPresetRules(preset.mixer)"
+                            />
+                            <UButton
+                                v-for="tpl in servoMixTemplates"
+                                :key="tpl.id"
+                                :label="$t(tpl.labelKey)"
+                                icon="i-lucide-plus"
+                                size="xs"
+                                variant="outline"
+                                :disabled="mixerLoadFailed"
+                                @click="addServoMixTemplate(tpl.id)"
                             />
                             <span class="text-xs text-muted ml-auto">
                                 {{ servoMixRules.length }} / {{ MAX_SERVO_RULES }}
@@ -356,6 +384,12 @@ import {
     SERVO_MIX_RATE_MIN,
     SERVO_MIX_RATE_MAX,
     MAX_SERVO_RULES,
+    MIXER_IDS,
+    SERVO_MIX_TEMPLATES,
+    planServoMixTemplate,
+    presetRulesForCustomMixer,
+    presetsForCustomMixer,
+    servoOutputRole,
     activeServoMixRules,
     builtinServoMixRules,
     invalidServoMixRules,
@@ -479,6 +513,43 @@ const builtinRules = computed(
         builtinServoMixRules(mixerMode.value)?.filter((rule) => rule.input !== SERVO_MIX_INPUT_STABILIZED_THROTTLE) ??
         null,
 );
+
+function servoRoleLabel(rules: ServoRule[], target: number) {
+    const role = servoOutputRole(rules, target);
+    return role ? t(`servosMixerRole_${role}`) : "";
+}
+
+// Quick-add templates are aircraft surfaces, so they are offered on Custom
+// Airplane only.
+const servoMixTemplates = computed(() => (mixerMode.value === MIXER_IDS.CUSTOM_AIRPLANE ? SERVO_MIX_TEMPLATES : []));
+
+function addServoMixTemplate(id: string) {
+    const result = planServoMixTemplate(servoMixRules, id, mixerMode.value, slotLayoutOptions());
+    if (!result.ok) {
+        gui_log(t(result.errorKey, result.errorParams));
+        return;
+    }
+    servoMixRules.push(...result.rules);
+    mixerDirty.value = true;
+}
+
+const PRESET_LABEL_KEYS: Record<number, string> = {
+    [MIXER_IDS.AIRPLANE]: "servosMixerFromAirplane",
+    [MIXER_IDS.FLYING_WING]: "servosMixerFromFlyingWing",
+    [MIXER_IDS.TRI]: "servosMixerFromTri",
+};
+
+// "Same as <preset>" starting points, offered while the custom list is empty.
+const presetChoices = computed(() =>
+    servoMixRules.length > 0
+        ? []
+        : presetsForCustomMixer(mixerMode.value).map((mixer) => ({ mixer, label: t(PRESET_LABEL_KEYS[mixer]) })),
+);
+
+function copyPresetRules(presetMixer: number) {
+    servoMixRules.push(...presetRulesForCustomMixer(presetMixer, mixerMode.value, slotLayoutOptions()));
+    mixerDirty.value = true;
+}
 
 function addServoMixRule() {
     if (servoMixRules.length >= MAX_SERVO_RULES) {
