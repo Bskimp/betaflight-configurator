@@ -297,7 +297,7 @@ describe("planServoMixTemplate", () => {
 
 describe("presetRulesForCustomMixer", () => {
     it("offers the matching presets for each custom mixer", () => {
-        expect(presetsForCustomMixer(MIXER_IDS.CUSTOM_AIRPLANE)).toEqual([MIXER_IDS.AIRPLANE, MIXER_IDS.FLYING_WING]);
+        expect(presetsForCustomMixer(MIXER_IDS.CUSTOM_AIRPLANE)).toEqual([MIXER_IDS.AIRPLANE]);
         expect(presetsForCustomMixer(MIXER_IDS.CUSTOM_TRI)).toEqual([MIXER_IDS.TRI]);
         expect(presetsForCustomMixer(MIXER_IDS.AIRPLANE)).toEqual([]);
     });
@@ -312,7 +312,7 @@ describe("presetRulesForCustomMixer", () => {
         ]);
     });
 
-    it("keeps Flying Wing elevons on the same physical outputs", () => {
+    it("keeps Flying Wing elevons on the same physical outputs, matching the Elevons template", () => {
         // Flying Wing outputs 1/2 are targets 3/4; on Custom Airplane they are 2/3.
         const rules = presetRulesForCustomMixer(MIXER_IDS.FLYING_WING, MIXER_IDS.CUSTOM_AIRPLANE);
         expect(rules.map((r) => [r.target, r.input, r.rate])).toEqual([
@@ -321,6 +321,7 @@ describe("presetRulesForCustomMixer", () => {
             [3, 0, -100],
             [3, 1, 100],
         ]);
+        expect(rules).toEqual(planServoMixTemplate([], "elevons", MIXER_IDS.CUSTOM_AIRPLANE).rules);
     });
 
     it("copies Tri onto Custom Tri", () => {

@@ -535,7 +535,6 @@ function addServoMixTemplate(id: string) {
 
 const PRESET_LABEL_KEYS: Record<number, string> = {
     [MIXER_IDS.AIRPLANE]: "servosMixerFromAirplane",
-    [MIXER_IDS.FLYING_WING]: "servosMixerFromFlyingWing",
     [MIXER_IDS.TRI]: "servosMixerFromTri",
 };
 

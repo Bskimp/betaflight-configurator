@@ -3237,9 +3237,6 @@
     "servosMixerFromAirplane": {
         "message": "Same as Airplane"
     },
-    "servosMixerFromFlyingWing": {
-        "message": "Same as Flying Wing"
-    },
     "servosMixerFromTri": {
         "message": "Same as Tri"
     },

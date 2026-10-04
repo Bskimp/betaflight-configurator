@@ -507,9 +507,10 @@ export function planServoMixTemplate(rules, templateId, mixerMode, options = {})
 
 // --- Copy a preset into a custom mixer ------------------------------------
 
-// Presets whose rules a custom mixer can start from.
+// Presets whose rules a custom mixer can start from. Flying Wing is left
+// out: copied onto Custom Airplane it is exactly the Elevons template.
 const PRESETS_FOR_CUSTOM_MIXER = {
-    [MIXER_IDS.CUSTOM_AIRPLANE]: [MIXER_IDS.AIRPLANE, MIXER_IDS.FLYING_WING],
+    [MIXER_IDS.CUSTOM_AIRPLANE]: [MIXER_IDS.AIRPLANE],
     [MIXER_IDS.CUSTOM_TRI]: [MIXER_IDS.TRI],
 };
 
