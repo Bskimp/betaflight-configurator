@@ -3261,6 +3261,9 @@
     "servosPinAltTimer": {
         "message": "alternate timer"
     },
+    "servosPinNoTimer": {
+        "message": "no working timer"
+    },
     "servosPinsAllowUart": {
         "message": "Allow spare UART pins (using one frees that UART)"
     },
@@ -3292,7 +3295,7 @@
         "message": "Saving pin changes restarts the flight controller."
     },
     "servosPinsUnavailable": {
-        "message": "Pin assignment needs Betaflight 4.5.4 or newer, or the flight controller didn't answer the pin read."
+        "message": "Pin assignment needs Betaflight 2026.x or newer, or the flight controller didn't answer the pin read."
     },
     "servosMixerOutputServo": {
         "message": "Servo {{index}}"
