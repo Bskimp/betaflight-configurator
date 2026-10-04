@@ -414,7 +414,6 @@ import { useReboot } from "@/composables/useReboot";
 import { clamp } from "@/js/utils/common";
 import { isExpertModeEnabled } from "@/js/utils/isExpertModeEnabled";
 import { findCliError, isMspCliSupported, saveAndReconnect, send } from "@/composables/useMspCliSession";
-import { loadPortClaims } from "@/composables/ports/usePortClaims";
 import {
     parseDmaPinDefaults,
     parseDmaPins,
@@ -920,6 +919,9 @@ async function loadSpareUarts(resources: ReturnType<typeof parseResourceShow>) {
             .filter((entry) => entry.peripheral.startsWith("SERIAL_") && entry.index != null)
             .map((entry) => entry.index as number),
     );
+    // Loaded on demand: a static import puts this tab in the module cycle
+    // between the CLI session and the tab registry.
+    const { loadPortClaims } = await import("@/composables/ports/usePortClaims");
     const claims = await loadPortClaims();
     if (claims) {
         spareUarts.value = new Set([...withPins].filter((uart) => !claims[`UART${uart}`]?.length));
