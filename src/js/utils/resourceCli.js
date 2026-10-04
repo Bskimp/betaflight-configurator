@@ -225,3 +225,57 @@ export function parseTimerOptions(input) {
     }
     return out;
 }
+
+/**
+ * Default timer AFs from `diff hardware defaults` ("#timer A02 AF1" above a
+ * changed `timer` line). Pads not listed are on their default.
+ * @param {string[]|string} input
+ * @returns {Map<string, number>} pad -> AF
+ */
+export function parseTimerDefaults(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const defaults = new Map();
+    for (const line of lines) {
+        const m = /^\s*#\s*timer\s+([A-Z]\d{2})\s+AF(\d+)\s*$/i.exec(line);
+        if (m) {
+            defaults.set(m[1].toUpperCase(), Number(m[2]));
+        }
+    }
+    return defaults;
+}
+
+/**
+ * Default DMA options from `diff hardware defaults` ("#dma pin A02 0" above
+ * a changed `dma pin` line). Pads not listed are on their default.
+ * @param {string[]|string} input
+ * @returns {Map<string, string>} pad -> option number or "NONE"
+ */
+export function parseDmaPinDefaults(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const defaults = new Map();
+    for (const line of lines) {
+        const m = /^\s*#\s*dma\s+pin\s+([A-Z]\d{2})\s+(\d+|NONE)\s*$/i.exec(line);
+        if (m) {
+            defaults.set(m[1].toUpperCase(), m[2].toUpperCase());
+        }
+    }
+    return defaults;
+}
+
+/**
+ * Current DMA option of each timer pin from `dma` ("dma pin B00 0"); pins
+ * without one are left out.
+ * @param {string[]|string} input
+ * @returns {Map<string, string>} pad -> option number
+ */
+export function parseDmaPins(input) {
+    const lines = Array.isArray(input) ? input : input.split(/\r?\n/);
+    const pins = new Map();
+    for (const line of lines) {
+        const m = /^\s*dma\s+pin\s+([A-Z]\d{2})\s+(\d+)\s*$/i.exec(line);
+        if (m) {
+            pins.set(m[1].toUpperCase(), m[2]);
+        }
+    }
+    return pins;
+}

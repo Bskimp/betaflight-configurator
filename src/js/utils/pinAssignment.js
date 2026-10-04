@@ -6,8 +6,9 @@
 // Assignments are keyed by the CLI resource name, e.g. "MOTOR 1" or
 // "SERVO 2" (1-based, as the CLI prints them), and map to a pad such as
 // "B00", or PIN_NONE. A pad's timer is picked by its alternate function
-// (AF); a servo may move a pad to another AF ("B00/AF1"), motors keep the
-// configured one because their DShot DMA follows it.
+// (AF); a servo may move a pad to another AF ("B00/AF1"). Motors always use
+// the board's default AF and DMA option, since DShot DMA needs both: a
+// `timer` change clears the pad's DMA option, so it is restored with them.
 
 /**
  * @typedef {{hard: boolean, timer: number, channel: number, with: string}} PinConflict
@@ -44,8 +45,11 @@ function decodePinValue(model, value) {
  * @param {Array<{pad: string, peripheral: string, index: number|null}>} resources - parseResourceShow() of `resource`
  * @param {Array<{pad: string, af: number, timer: number|null, channel: number|null}>} timers - parseTimerDump()
  * @param {Map<string, Array<{af: number, timer: number, channel: number, complementary: boolean}>>} [padTimerOptions] - parseTimerOptions() per pad
+ * @param {{timerAfs?: Map<string, number>, dmaPins?: Map<string, string>, currentDma?: Map<string, string>}} [hardware]
+ *   default AFs and DMA options of changed pads (parseTimerDefaults / parseDmaPinDefaults of
+ *   `diff hardware defaults`) and the current DMA options (parseDmaPins of `dma`)
  */
-export function buildPinModel(resources, timers, padTimerOptions = new Map()) {
+export function buildPinModel(resources, timers, padTimerOptions = new Map(), hardware = {}) {
     const assignments = new Map();
     const otherOwners = new Map();
     for (const entry of resources ?? []) {
@@ -68,7 +72,16 @@ export function buildPinModel(resources, timers, padTimerOptions = new Map()) {
             afs.set(entry.pad, entry.af);
         }
     }
-    return { assignments, afs, otherOwners, padTimers, padTimerOptions };
+    /** @type {Map<string, number>} */
+    const defaultAfs = new Map();
+    /** @type {Map<string, string>} */
+    const defaultDma = new Map();
+    for (const pad of afs.keys()) {
+        defaultAfs.set(pad, hardware.timerAfs?.get(pad) ?? afs.get(pad));
+        defaultDma.set(pad, hardware.dmaPins?.get(pad) ?? hardware.currentDma?.get(pad) ?? PIN_NONE);
+    }
+    const dmaChanged = new Set(hardware.dmaPins?.keys() ?? []);
+    return { assignments, afs, otherOwners, padTimers, padTimerOptions, defaultAfs, defaultDma, dmaChanged };
 }
 
 /**
@@ -159,14 +172,16 @@ export function currentPinValue(model, state, key) {
     return encodePinValue(model, pad, state.afs.get(pad));
 }
 
-// The timer choices of `pad` for `kind`: the configured AF, plus for servos
-// every other AF that reaches a different timer channel.
+// The timer choices of `pad` for `kind`: motors get the board's default AF;
+// servos the configured AF plus every other AF that reaches a different
+// timer channel.
 function padChoices(model, pad, kind) {
+    if (kind === "MOTOR") {
+        const af = model.defaultAfs.get(pad) ?? null;
+        return [{ af, timer: padTimerAt(model, pad, af), alt: false }];
+    }
     const configured = model.padTimers.get(pad);
     const choices = [{ af: model.afs.get(pad) ?? null, timer: configured ?? null, alt: false }];
-    if (kind !== "SERVO") {
-        return choices;
-    }
     const seen = new Set(configured ? [`${configured.timer}:${configured.channel}`] : []);
     for (const option of model.padTimerOptions.get(pad) ?? []) {
         const id = `${option.timer}:${option.channel}`;
@@ -261,9 +276,29 @@ function compareKeys(a, b) {
     return ka.kind === kb.kind ? ka.index - kb.index : ka.kind.localeCompare(kb.kind);
 }
 
+// `dma pin` lines putting motor pads back on their default DMA option. A
+// `timer` change clears the option, and a pad a servo left on another AF
+// lost it, so restore it whenever a motor lands on a pad that needs it.
+function motorDmaLines(model, state, timerChanged) {
+    const lines = [];
+    for (const [key, pad] of state.assignments) {
+        if (pad === PIN_NONE || parsePinKey(key).kind !== "MOTOR") {
+            continue;
+        }
+        const movedHere = model.assignments.get(key) !== pad;
+        const needsRestore = timerChanged.has(pad) || (movedHere && model.dmaChanged.has(pad));
+        const option = model.defaultDma.get(pad) ?? PIN_NONE;
+        if (needsRestore && option !== PIN_NONE && state.afs.get(pad) === model.defaultAfs.get(pad)) {
+            lines.push(`dma pin ${pad} ${option}`);
+        }
+    }
+    return lines.sort();
+}
+
 /**
- * CLI lines that turn the model's pins into `state`: AF changes, then every
- * changed output released, then the new pins. Releasing first matters:
+ * CLI lines that turn the model's pins into `state`: AF changes, motor DMA
+ * restores, then every changed output released, then the new pins.
+ * Releasing first matters:
  * `resource` only clears a pad's previous owner when both are the same
  * kind, so a motor taking a servo's pad would otherwise leave both claiming
  * it.
@@ -272,16 +307,18 @@ function compareKeys(a, b) {
 export function pinChangeLines(model, state) {
     const initial = model.assignments;
     const staged = state.assignments;
-    const timerLines = [...state.afs]
+    const timerChanges = [...state.afs]
         .filter(([pad, af]) => af !== model.afs.get(pad))
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([pad, af]) => `timer ${pad} AF${af}`);
+        .sort(([a], [b]) => a.localeCompare(b));
+    const timerLines = timerChanges.map(([pad, af]) => `timer ${pad} AF${af}`);
+    const dmaLines = motorDmaLines(model, state, new Set(timerChanges.map(([pad]) => pad)));
     const keys = [...new Set([...initial.keys(), ...staged.keys()])].sort(compareKeys);
     const changed = keys.filter((key) => (initial.get(key) ?? PIN_NONE) !== (staged.get(key) ?? PIN_NONE));
     const release = changed.filter((key) => (initial.get(key) ?? PIN_NONE) !== PIN_NONE);
     const assign = changed.filter((key) => (staged.get(key) ?? PIN_NONE) !== PIN_NONE);
     return [
         ...timerLines,
+        ...dmaLines,
         ...release.map((key) => `resource ${key} ${PIN_NONE}`),
         ...assign.map((key) => `resource ${key} ${staged.get(key)}`),
     ];

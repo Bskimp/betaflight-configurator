@@ -410,7 +410,15 @@ import { useReboot } from "@/composables/useReboot";
 import { clamp } from "@/js/utils/common";
 import { isExpertModeEnabled } from "@/js/utils/isExpertModeEnabled";
 import { findCliError, isMspCliSupported, saveAndReconnect, send } from "@/composables/useMspCliSession";
-import { parseResourceDefaults, parseResourceShow, parseTimerDump, parseTimerOptions } from "@/js/utils/resourceCli";
+import {
+    parseDmaPinDefaults,
+    parseDmaPins,
+    parseResourceDefaults,
+    parseResourceShow,
+    parseTimerDefaults,
+    parseTimerDump,
+    parseTimerOptions,
+} from "@/js/utils/resourceCli";
 import {
     PIN_NONE,
     buildPadDefaults,
@@ -852,11 +860,17 @@ async function loadPins() {
         // lists IO in use, so it drops motors the mixer isn't running.
         const resources = parseResourceShow(await send("resource"));
         const timers = parseTimerDump(await send("timer"));
-        // diff runs over the whole hardware config, so give it longer.
-        const defaults = parseResourceDefaults(await send("diff hardware defaults", { timeoutMs: 10000 }));
+        const currentDma = parseDmaPins(await send("dma"));
+        // diff runs over the whole hardware config, so give it longer. Its
+        // commented defaults name each pad's default role, timer and DMA.
+        const diff = await send("diff hardware defaults", { timeoutMs: 10000 });
         const padTimerOptions = await readPadTimerOptions(timers.map((entry) => entry.pad));
-        const model = buildPinModel(resources, timers, padTimerOptions);
-        padDefaults.value = buildPadDefaults(resources, defaults);
+        const model = buildPinModel(resources, timers, padTimerOptions, {
+            timerAfs: parseTimerDefaults(diff),
+            dmaPins: parseDmaPinDefaults(diff),
+            currentDma,
+        });
+        padDefaults.value = buildPadDefaults(resources, parseResourceDefaults(diff));
         pinModel.value = model;
         pinState.value = initialPinState(model);
     } catch (e) {

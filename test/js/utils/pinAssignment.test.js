@@ -273,3 +273,73 @@ describe("alternate timers (alt-AF)", () => {
         expect(currentPinValue(model, staged, "MOTOR 1")).toBe("B00");
     });
 });
+
+describe("motors use the default timer and DMA", () => {
+    // Flywoo bench case: a servo left A02 on TIM9 CH1 (AF3, no DMA). Its
+    // default is TIM2 CH3 (AF1) with DMA option 0, which the timer change cleared.
+    const resources = [
+        { pad: "A02", peripheral: "SERVO", index: 1 },
+        { pad: "B00", peripheral: "MOTOR", index: 1 },
+        { pad: "A03", peripheral: "FREE", index: null },
+    ];
+    const timers = [
+        { pad: "A02", af: 3, timer: 9, channel: 1 },
+        { pad: "B00", af: 2, timer: 3, channel: 3 },
+        { pad: "A03", af: 1, timer: 2, channel: 4 },
+    ];
+    const options = new Map([
+        [
+            "A02",
+            [
+                { af: 1, timer: 2, channel: 3, complementary: false },
+                { af: 2, timer: 5, channel: 3, complementary: false },
+                { af: 3, timer: 9, channel: 1, complementary: false },
+            ],
+        ],
+    ]);
+    const hardware = {
+        timerAfs: new Map([["A02", 1]]),
+        dmaPins: new Map([["A02", "0"]]),
+        currentDma: new Map([
+            ["B00", "0"],
+            ["A03", "0"],
+        ]),
+    };
+    const fw = buildPinModel(resources, timers, options, hardware);
+    const s0 = initialPinState(fw);
+
+    it("offers a motor the pad on its default timer, not the servo's", () => {
+        const a02 = pinOptions({ model: fw, state: s0, key: "MOTOR 2", motorCount: 2 }).find((o) => o.pad === "A02");
+        expect(a02).toMatchObject({ value: "A02/AF1", timer: { timer: 2, channel: 3 }, owner: "SERVO 1" });
+    });
+
+    it("restores the default timer and DMA option when a motor takes the pad", () => {
+        const staged = selectPin(fw, s0, "MOTOR 2", "A02/AF1");
+        expect(pinChangeLines(fw, staged)).toEqual([
+            "timer A02 AF1",
+            "dma pin A02 0",
+            "resource SERVO 1 NONE",
+            "resource MOTOR 2 A02",
+        ]);
+    });
+
+    it("restores a cleared DMA option even when the timer is already the default", () => {
+        const cleared = buildPinModel(
+            [{ pad: "A02", peripheral: "SERVO", index: 1 }],
+            [{ pad: "A02", af: 1, timer: 2, channel: 3 }],
+            new Map(),
+            { dmaPins: new Map([["A02", "0"]]) },
+        );
+        const staged = selectPin(cleared, initialPinState(cleared), "MOTOR 1", "A02");
+        expect(pinChangeLines(cleared, staged)).toEqual([
+            "dma pin A02 0",
+            "resource SERVO 1 NONE",
+            "resource MOTOR 1 A02",
+        ]);
+    });
+
+    it("writes no DMA line for servos", () => {
+        const staged = selectPin(fw, s0, "SERVO 2", "A03");
+        expect(pinChangeLines(fw, staged)).toEqual(["resource SERVO 2 A03"]);
+    });
+});

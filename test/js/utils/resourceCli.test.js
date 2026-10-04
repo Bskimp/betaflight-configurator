@@ -4,8 +4,10 @@
 
 import { describe, it, expect } from "vitest";
 import {
+    parseDmaPinDefaults,
     parseResourceDefaults,
     parseResourceShow,
+    parseTimerDefaults,
     parseTimerDump,
     parseTimerOptions,
 } from "../../../src/js/utils/resourceCli.js";
@@ -178,5 +180,34 @@ PIN NOT USED ON BOARD.
         const lines = TIMER_LIST_FIXTURE_H743_PE9.trim().split(/\r?\n/);
         expect(parseTimerOptions(lines)).toHaveLength(2);
         expect(parseTimerOptions(TIMER_LIST_FIXTURE_H743_PE9)).toHaveLength(2);
+    });
+});
+
+describe("parseTimerDefaults / parseDmaPinDefaults", () => {
+    // A02 moved from TIM2 CH3 (AF1) to TIM9 CH1 (AF3); the timer change
+    // cleared its DMA option.
+    const DIFF = [
+        "# timer",
+        "#timer A02 AF1",
+        "## pin A02: TIM2 CH3 (AF1)",
+        "timer A02 AF3",
+        "# pin A02: TIM9 CH1 (AF3)",
+        "# dma",
+        "#dma pin A02 0",
+        "## pin A02: DMA1 Stream 1 Channel 3",
+        "dma pin A02 NONE",
+        "#dma pin B07 NONE",
+        "dma pin B07 1",
+    ];
+
+    it("reads default AFs of changed timers", () => {
+        expect([...parseTimerDefaults(DIFF)]).toEqual([["A02", 1]]);
+    });
+
+    it("reads default DMA options of changed pins", () => {
+        expect([...parseDmaPinDefaults(DIFF)]).toEqual([
+            ["A02", "0"],
+            ["B07", "NONE"],
+        ]);
     });
 });
